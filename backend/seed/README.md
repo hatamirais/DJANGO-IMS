@@ -196,7 +196,7 @@ Decimal parsing accepts comma separator.
 Expected columns for admin-only opening balance import:
 
 - `document_number` (required, unique per import batch)
-- `effective_date` (required; date the opening balance becomes effective for reports; every row in the same `document_number` must use the same date)
+- `effective_date` (required; date the opening balance becomes effective for reports; every row in the same `document_number` must use the same date; cannot be later than the posting date because stock is posted immediately)
 - `sumber_dana_code` (required)
 - `location_code` (required)
 - `item_code` (required, maps to `Item.kode_barang`)

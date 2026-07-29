@@ -381,6 +381,26 @@ class OpeningBalanceImportAdminTests(TestCase):
         self.assertContains(response, "effective_date harus sama")
         self.assertFalse(OpeningBalanceImport.objects.exists())
 
+    def test_opening_balance_import_rejects_future_effective_date(self):
+        self.client.force_login(self.admin_user)
+        csv_content = (
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price\n"
+            f"SALDO-AWAL-2026,02/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},10,BATCH-001,01/01/2028,2500\n"
+        )
+
+        with patch("apps.stock.admin.timezone.localdate", return_value=date(2026, 1, 1)):
+            response = self.client.post(
+                reverse("admin:stock_opening_balance_import_csv"),
+                {"csv_file": self._csv_upload(csv_content)},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "effective_date tidak boleh melebihi tanggal posting")
+        self.assertFalse(OpeningBalanceImport.objects.exists())
+        self.assertFalse(Stock.objects.exists())
+
     def test_opening_balance_import_rejects_negative_unit_price(self):
         self.client.force_login(self.admin_user)
         csv_content = (

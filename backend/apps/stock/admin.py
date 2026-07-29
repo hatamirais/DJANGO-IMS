@@ -435,6 +435,7 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
         preview = {"documents": [], "total_documents": 0, "total_rows": 0}
         seen_stock_expiry = {}
         seen_stock_price = {}
+        posting_date = timezone.localdate()
 
         for doc_number, rows in grouped.items():
             if OpeningBalanceImport.objects.filter(document_number=doc_number).exists():
@@ -449,6 +450,10 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                 row_num=first_row_num,
                 field_name="effective_date",
             )
+            if effective_date > posting_date:
+                raise ValueError(
+                    f"Baris {first_row_num}: effective_date tidak boleh melebihi tanggal posting ({posting_date:%d/%m/%Y})."
+                )
 
             document = {
                 "document_number": doc_number,
