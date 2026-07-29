@@ -2,7 +2,7 @@ from io import BytesIO
 from datetime import date, datetime
 from decimal import Decimal
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from openpyxl import load_workbook
@@ -12,7 +12,7 @@ from apps.items.models import Category, Facility, FundingSource, Item, Location,
 from apps.procurement.models import ProcurementContract
 from apps.receiving.models import Receiving, ReceivingItem
 from apps.reports.exports import export_numbering_history_excel, export_pengeluaran_excel
-from apps.stock.models import Stock
+from apps.stock.models import OpeningBalanceImport, Stock, Transaction
 from apps.users.models import User
 
 
@@ -131,7 +131,7 @@ class NumberingHistoryReportTests(TestCase):
 			],
 			2026,
 			"=Semua Dokumen",
-		)
+			)
 
 		workbook = load_workbook(BytesIO(response.content))
 		sheet = workbook.active
@@ -144,6 +144,100 @@ class NumberingHistoryReportTests(TestCase):
 		self.assertEqual(sheet["F5"].value, "'=LPLPO: =SRC-001")
 		self.assertEqual(sheet["A2"].data_type, "s")
 		self.assertEqual(sheet["B5"].data_type, "s")
+
+
+@override_settings(SECURE_SSL_REDIRECT=False, ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
+class RekapOpeningBalanceReportTests(TestCase):
+	@classmethod
+	def setUpTestData(cls):
+		cls.user = User.objects.create_superuser(
+			username="rekap-opening-admin",
+			password="secret12345",
+		)
+		cls.unit = Unit.objects.create(code="RO-TAB", name="Tablet")
+		cls.category = Category.objects.create(
+			code="RO-CAT", name="Obat Rekap", sort_order=1
+		)
+		cls.item = Item.objects.create(
+			kode_barang="RO-ITEM-001",
+			nama_barang="Item Rekap Saldo Awal",
+			satuan=cls.unit,
+			kategori=cls.category,
+		)
+		cls.location = Location.objects.create(code="RO-LOC", name="Gudang Rekap")
+		cls.funding = FundingSource.objects.create(code="RO-FUND", name="Dana Rekap")
+		cls.opening_balance = OpeningBalanceImport.objects.create(
+			document_number="SALDO-AWAL-2026-REKAP",
+			effective_date=date(2026, 1, 1),
+			created_by=cls.user,
+		)
+		Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.IN,
+			item=cls.item,
+			location=cls.location,
+			batch_lot="RO-BATCH-001",
+			quantity=Decimal("10"),
+			unit_price=Decimal("100"),
+			sumber_dana=cls.funding,
+			reference_type=Transaction.ReferenceType.INITIAL_IMPORT,
+			reference_id=cls.opening_balance.pk,
+			user=cls.user,
+		)
+
+	def setUp(self):
+		self.client.force_login(self.user)
+
+	def _category_row(self, response):
+		return response.context["rekap_data"][0]["categories"][0]
+
+	def test_rekap_classifies_effective_opening_import_as_saldo_awal(self):
+		response = self.client.get(
+			reverse("reports:rekap"),
+			{"start_date": "2026-01-01", "end_date": "2026-12-31"},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		row = self._category_row(response)
+		self.assertEqual(row["saldo_awal"], Decimal("1000"))
+		self.assertEqual(row["nilai_terima"], Decimal("0"))
+		self.assertEqual(row["saldo_akhir"], Decimal("1000"))
+
+	def test_rekap_next_year_carries_prior_year_ending_balance_without_reimport(self):
+		Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.IN,
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-002",
+			quantity=Decimal("5"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+			reference_type=Transaction.ReferenceType.RECEIVING,
+			reference_id=1,
+			user=self.user,
+		)
+		Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.OUT,
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-001",
+			quantity=Decimal("3"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+			reference_type=Transaction.ReferenceType.DISTRIBUTION,
+			reference_id=1,
+			user=self.user,
+		)
+
+		response = self.client.get(
+			reverse("reports:rekap"),
+			{"start_date": "2027-01-01", "end_date": "2027-12-31"},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		row = self._category_row(response)
+		self.assertEqual(row["saldo_awal"], Decimal("1200"))
+		self.assertEqual(row["nilai_terima"], Decimal("0"))
+		self.assertEqual(row["saldo_akhir"], Decimal("1200"))
 
 
 class PengeluaranReportTests(TestCase):

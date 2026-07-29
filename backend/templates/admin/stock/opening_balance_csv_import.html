@@ -1,0 +1,89 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div id="content-main">
+    <h2>{{ title }}</h2>
+
+    <div class="module">
+        <h3>Format CSV</h3>
+        <p>Setiap baris = 1 batch saldo awal. Baris dengan <code>document_number</code>
+            yang sama akan dikelompokkan dalam 1 dokumen import saldo awal.</p>
+        <table>
+            <thead>
+                <tr>
+                    <th scope="col">Kolom</th>
+                    <th scope="col">Wajib</th>
+                    <th scope="col">Keterangan</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>document_number</code></td>
+                    <td>Ya</td>
+                    <td>Nomor dokumen saldo awal, misalnya SALDO-AWAL-2026-001</td>
+                </tr>
+                <tr>
+                    <td><code>effective_date</code></td>
+                    <td>Ya</td>
+                    <td>Tanggal efektif saldo awal. Format: DD/MM/YYYY atau YYYY-MM-DD</td>
+                </tr>
+                <tr>
+                    <td><code>sumber_dana_code</code></td>
+                    <td>Ya</td>
+                    <td>Kode sumber dana</td>
+                </tr>
+                <tr>
+                    <td><code>location_code</code></td>
+                    <td>Ya</td>
+                    <td>Kode lokasi gudang</td>
+                </tr>
+                <tr>
+                    <td><code>item_code</code></td>
+                    <td>Ya</td>
+                    <td>Kode barang (<code>kode_barang</code>)</td>
+                </tr>
+                <tr>
+                    <td><code>quantity</code></td>
+                    <td>Ya</td>
+                    <td>Jumlah saldo awal; harus lebih dari 0</td>
+                </tr>
+                <tr>
+                    <td><code>batch_lot</code></td>
+                    <td>Tidak</td>
+                    <td>Opsional; otomatis dibuat jika kosong</td>
+                </tr>
+                <tr>
+                    <td><code>expiry_date</code></td>
+                    <td>Kondisional</td>
+                    <td>Wajib untuk item yang memerlukan tanggal kedaluwarsa</td>
+                </tr>
+                <tr>
+                    <td><code>unit_price</code></td>
+                    <td>Tidak</td>
+                    <td>Harga satuan; default 0</td>
+                </tr>
+            </tbody>
+        </table>
+        <p>Kolom <code>receiving_type</code> dan <code>supplier_code</code> tidak digunakan
+            pada import ini dan akan ditolak bila berisi nilai.</p>
+    </div>
+
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+
+        <div class="form-row">
+            <label for="id_csv_file">{{ form.csv_file.label }}</label>
+            {{ form.csv_file }}
+            {% if form.csv_file.errors %}
+            <div class="errors">{{ form.csv_file.errors }}</div>
+            {% endif %}
+        </div>
+
+        <button type="submit" class="default">Import</button>
+        <a href=".." class="button cancel-link">Batal</a>
+    </form>
+</div>
+{% endblock %}

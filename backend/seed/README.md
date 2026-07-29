@@ -2,7 +2,7 @@
 
 CSV templates used for bootstrap imports via Django Admin.
 
-Last verified: 2026-05-04
+Last verified: 2026-07-28
 Verification sources: `backend/seed/*.csv`, `backend/apps/items/admin.py`, `backend/apps/stock/admin.py`, `backend/apps/receiving/admin.py`
 
 ## Import Order
@@ -18,9 +18,10 @@ Import lookup and master dependencies first:
 7. `suppliers.csv`
 8. `facilities.csv`
 9. `items.csv`
-10. `receiving.csv`
+10. Opening balance CSV (`opening_balance_template.csv`) for initial stock only
+11. `receiving.csv` for operational receiving history/imports
 
-For initial stock, prefer `receiving.csv` (custom receiving import endpoint) so the system creates receiving headers, stock updates, and `Transaction(IN)` entries consistently.
+For initial stock, use the admin-only opening balance import in Stock Admin. It creates `OpeningBalanceImport`, `OpeningBalanceImportItem`, stock updates, and `Transaction(IN, reference_type=INITIAL_IMPORT)` entries so opening balances stay separate from operational receiving.
 
 ## How to Import
 
@@ -43,6 +44,15 @@ Import behavior summary:
 - The first row supplies header-level values such as `supplier_code`, `receiving_date`, and default `sumber_dana_code` or `location_code`.
 - Imported receivings are created in status `VERIFIED`, with `Stock` and `Transaction(IN)` posted immediately.
 - `sumber_dana_code` and `location_code` can still be overridden per row when a document mixes line-level values.
+
+### Dedicated opening balance import
+
+Use `/admin/stock/stock/opening-balance/import-csv/` for first-time stock bootstrap.
+Use `/admin/stock/stock/opening-balance/export-csv-template/` to download a blank `opening_balance_template.csv`.
+
+This route is restricted to superuser / role `ADMIN` accounts and is not part of normal operational receiving. It posts `Transaction(IN)` rows with `reference_type=INITIAL_IMPORT`; rekap/yearly reports classify those rows as `saldo_awal` based on the opening balance `effective_date`.
+
+Opening balance imports must not use `receiving_type` or `supplier_code`. If those columns are present with values, the importer rejects the file so receiving templates are not silently treated as saldo awal.
 
 ## CSV Column Specifications
 
@@ -181,7 +191,31 @@ Date formats accepted by parser:
 
 Decimal parsing accepts comma separator.
 
+### `opening_balance_template.csv`
+
+Expected columns for admin-only opening balance import:
+
+- `document_number` (required, unique per import batch)
+- `effective_date` (required; date the opening balance becomes effective for reports)
+- `sumber_dana_code` (required)
+- `location_code` (required)
+- `item_code` (required, maps to `Item.kode_barang`)
+- `quantity` (required; must be a finite decimal greater than `0`)
+- `batch_lot` (optional; auto-generated if blank)
+- `expiry_date` (optional only for items with `requires_expiry_date=0`; stored as `NULL` when blank for those items)
+- `unit_price` (optional; default `0`)
+
+Compatibility note: `receiving_date` is accepted as an alias for `effective_date` when converting older draft files, but use `effective_date` for new files.
+
+Opening balance import notes:
+
+- Rows are grouped by `document_number`.
+- Import creates one `OpeningBalanceImport` header plus `OpeningBalanceImportItem` rows.
+- Stock rows are updated/created with `receiving_ref=NULL`.
+- Transactions use `reference_type=INITIAL_IMPORT` and `reference_id` pointing to the `OpeningBalanceImport`.
+- Date formats and decimal parsing follow the receiving CSV parser rules.
+
 ### `stock.csv` (reference only)
 
-The repository still contains `stock.csv` template and stock admin import resources, but for first-time inventory bootstrap, `receiving.csv` is preferred because it posts auditable inbound transactions.
+The repository still contains `stock.csv` template and stock admin import resources, but for first-time inventory bootstrap, use the dedicated opening balance import so the report ledger has explicit `INITIAL_IMPORT` semantics.
 

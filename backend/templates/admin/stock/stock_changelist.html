@@ -1,0 +1,17 @@
+{% extends "admin/change_list.html" %}
+
+{% block object-tools-items %}
+{% if request.user.is_superuser or request.user.role == "ADMIN" %}
+<li>
+    <a href="opening-balance/export-csv-template/" class="viewsitelink">
+        Download Template Saldo Awal
+    </a>
+</li>
+<li>
+    <a href="opening-balance/import-csv/" class="addlink">
+        Import Saldo Awal
+    </a>
+</li>
+{% endif %}
+{{ block.super }}
+{% endblock %}

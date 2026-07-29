@@ -189,6 +189,17 @@ This section reflects model code in `backend/apps/*/models.py`.
   - Indexes: `idx_trans_item_date`, `idx_trans_reference`, `idx_trans_created`
   - Current workflows write `IN` and `OUT`; `RETURN` remains available in the enum but is not emitted by the main document flows verified on 2026-04-10
 
+- `stock.OpeningBalanceImport` (`opening_balance_imports`):
+  - Admin-only batch header for first-time stock bootstrap
+  - Fields: `document_number` (unique), `effective_date`, `posted_at`, `notes`
+  - FK: `created_by`
+  - Report semantics: linked `INITIAL_IMPORT` transactions count as opening balance (`saldo_awal`) when `effective_date <= report.start_date`
+
+- `stock.OpeningBalanceImportItem` (`opening_balance_import_items`):
+  - FKs: `opening_balance`, `item`, `location`, `sumber_dana`
+  - Fields: `batch_lot`, `expiry_date`, `quantity`, `unit_price`, `created_at`
+  - Created only by the Stock Admin opening-balance CSV import; rows are treated as immutable audit detail
+
 - `stock.StockTransfer` (`stock_transfers`):
   - Status: `DRAFT`, `COMPLETED`
   - `document_number` auto-generated `TRF-YYYY-NNNNN` when blank
@@ -463,6 +474,13 @@ Operational mutation points (from app behavior and admin import logic):
   - `Transaction(IN)`
   - Rows are grouped by `document_number`; the first row supplies header-level values, while row-level `sumber_dana_code` and `location_code` can override header defaults
 - Receiving CSV admin template download (`export-csv-template/`) returns a blank `receiving_template.csv` with the exact columns accepted by the dedicated importer and does not mutate data.
+- Opening balance CSV admin import (`/admin/stock/stock/opening-balance/import-csv/`) is restricted to superuser / role `ADMIN` and posts:
+  - `OpeningBalanceImport`
+  - `OpeningBalanceImportItem`
+  - `Stock` update/create with `receiving_ref=NULL`
+  - `Transaction(IN, reference_type=INITIAL_IMPORT, reference_id=OpeningBalanceImport.pk)`
+- Opening balance CSV template download (`/admin/stock/stock/opening-balance/export-csv-template/`) returns `opening_balance_template.csv`. The importer uses `effective_date` for report classification, accepts `receiving_date` only as a compatibility alias, and rejects populated `receiving_type` / `supplier_code` columns.
+- Reports classify `INITIAL_IMPORT` as `saldo_awal`, not operational `nilai_terima`; later-year opening balance is derived from the prior ledger balance and does not require re-import.
 - LPLPO approval/finalize creates a Distribution document mapped 1:1, marks the LPLPO `APPROVED`, and closes the LPLPO once the linked Distribution reaches `DISTRIBUTED`.
 - For generated LPLPO draft distributions, the preparation edit UI displays both requested and approved quantities for reference but locks those values and rejects added/deleted rows; users only assign batches and preparation metadata there.
 - Generated LPLPO distributions cannot use the generic delete action. While still pending distribution, assigned distribution preparers or fallback distribution approvers with LPLPO module scope `OPERATE` may use `/distribution/<pk>/return-lplpo-to-puskesmas/` with a required reason to cancel the generated distribution and return the parent LPLPO to `REJECTED_PUSKESMAS`.

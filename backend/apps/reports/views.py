@@ -12,7 +12,7 @@ from .exports import (
     export_rincian_excel,
     export_rekap_excel,
 )
-from apps.stock.models import Transaction, Stock
+from apps.stock.models import OpeningBalanceImport, Transaction, Stock
 from apps.distribution.models import Distribution
 
 
@@ -34,6 +34,9 @@ def reports_index(request):
     if form.is_valid():
         start_date = form.cleaned_data.get('start_date')
         end_date = form.cleaned_data.get('end_date')
+        opening_balance_ids = OpeningBalanceImport.objects.filter(
+            effective_date__lte=start_date
+        ).values('pk')
 
         # Subquery to get expiry_date from Stock
         # A specific batch of an item from a specific funding source usually has a consistent expiry_date.
@@ -57,7 +60,18 @@ def reports_index(request):
             initial_stock=Coalesce(
                 Sum(
                     Case(
-                        When(created_at__date__lt=start_date, transaction_type='IN', then=F('quantity')),
+                        When(
+                            reference_type='INITIAL_IMPORT',
+                            reference_id__in=opening_balance_ids,
+                            transaction_type='IN',
+                            then=F('quantity'),
+                        ),
+                        When(
+                            Q(created_at__date__lt=start_date)
+                            & Q(transaction_type='IN')
+                            & ~Q(reference_type='INITIAL_IMPORT'),
+                            then=F('quantity'),
+                        ),
                         When(created_at__date__lt=start_date, transaction_type='OUT', then=-F('quantity')),
                         default=0,
                         output_field=models.DecimalField()
@@ -70,7 +84,7 @@ def reports_index(request):
                     Case(
                         When(
                             created_at__date__range=[start_date, end_date], 
-                            reference_type__in=['RECEIVING', 'INITIAL_IMPORT'],
+                            reference_type='RECEIVING',
                             transaction_type='IN',
                             then=F('quantity')
                         ),
@@ -266,6 +280,9 @@ def reports_rekap(request):
     if form.is_valid():
         start_date = form.cleaned_data.get('start_date')
         end_date = form.cleaned_data.get('end_date')
+        opening_balance_ids = OpeningBalanceImport.objects.filter(
+            effective_date__lte=start_date
+        ).values('pk')
 
         # Base queryset: filter by sumber_dana if selected
         base_qs = Transaction.objects.all()
@@ -282,8 +299,18 @@ def reports_rekap(request):
             saldo_awal=Coalesce(
                 Sum(
                     Case(
-                        When(created_at__date__lt=start_date, transaction_type='IN',
-                             then=F('quantity') * F('unit_price')),
+                        When(
+                            reference_type='INITIAL_IMPORT',
+                            reference_id__in=opening_balance_ids,
+                            transaction_type='IN',
+                            then=F('quantity') * F('unit_price')
+                        ),
+                        When(
+                            Q(created_at__date__lt=start_date)
+                            & Q(transaction_type='IN')
+                            & ~Q(reference_type='INITIAL_IMPORT'),
+                            then=F('quantity') * F('unit_price')
+                        ),
                         When(created_at__date__lt=start_date, transaction_type='OUT',
                              then=-F('quantity') * F('unit_price')),
                         default=0,
@@ -297,7 +324,7 @@ def reports_rekap(request):
                     Case(
                         When(
                             created_at__date__range=[start_date, end_date],
-                            reference_type__in=['RECEIVING', 'INITIAL_IMPORT'],
+                            reference_type='RECEIVING',
                             transaction_type='IN',
                             then=F('quantity') * F('unit_price')
                         ),

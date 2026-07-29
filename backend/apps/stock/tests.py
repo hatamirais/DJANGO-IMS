@@ -10,6 +10,7 @@ from tablib import Dataset
 
 from django.contrib.admin.sites import AdminSite
 from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, connection, connections
 from django.test import Client
 from django.test import SimpleTestCase
@@ -26,7 +27,14 @@ from apps.stock.admin import StockAdmin, StockResource
 from apps.items.models import Category, Facility, FundingSource, Item, Location, Supplier, Unit
 from apps.receiving.models import Receiving, ReceivingItem
 from apps.stock import views as stock_views
-from apps.stock.models import Stock, StockTransfer, StockTransferItem, Transaction
+from apps.stock.models import (
+    OpeningBalanceImport,
+    OpeningBalanceImportItem,
+    Stock,
+    StockTransfer,
+    StockTransferItem,
+    Transaction,
+)
 from apps.core.models import SystemSettings
 from apps.distribution.models import Distribution, DistributionItem
 from apps.puskesmas.models import PuskesmasReceiptConfirmation, PuskesmasReceiptConfirmationItem
@@ -195,6 +203,102 @@ class StockAdminCsvExportSecurityTest(TestCase):
             ).quantity,
             Decimal('7'),
         )
+
+
+@override_settings(SECURE_SSL_REDIRECT=False, ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
+class OpeningBalanceImportAdminTests(TestCase):
+    def setUp(self):
+        self.unit = Unit.objects.create(code="OBI-TAB", name="Tablet")
+        self.category = Category.objects.create(code="OBI-CAT", name="Obat")
+        self.item = Item.objects.create(
+            kode_barang="OBI-ITEM-001",
+            nama_barang="Opening Balance Item",
+            satuan=self.unit,
+            kategori=self.category,
+        )
+        self.location = Location.objects.create(code="OBI-LOC", name="Gudang Saldo")
+        self.funding = FundingSource.objects.create(code="OBI-FUND", name="Dana Saldo")
+        self.admin_user = User.objects.create_superuser(
+            username="opening-admin",
+            password="secret12345",
+        )
+        self.staff_user = User.objects.create_user(
+            username="opening-staff",
+            password="secret12345",
+            is_staff=True,
+            role=User.Role.GUDANG,
+        )
+
+    def _csv_upload(self, content):
+        return SimpleUploadedFile(
+            "opening_balance.csv",
+            content.encode("utf-8"),
+            content_type="text/csv",
+        )
+
+    def test_opening_balance_import_posts_stock_and_initial_import_transaction(self):
+        self.client.force_login(self.admin_user)
+        csv_content = (
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price\n"
+            f"SALDO-AWAL-2026,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},10,BATCH-001,01/01/2028,2500\n"
+        )
+
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(csv_content)},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        opening_balance = OpeningBalanceImport.objects.get(
+            document_number="SALDO-AWAL-2026"
+        )
+        self.assertEqual(opening_balance.effective_date, date(2026, 1, 1))
+        self.assertEqual(OpeningBalanceImportItem.objects.count(), 1)
+        stock = Stock.objects.get(
+            item=self.item,
+            location=self.location,
+            batch_lot="BATCH-001",
+            sumber_dana=self.funding,
+        )
+        self.assertEqual(stock.quantity, Decimal("10"))
+        self.assertIsNone(stock.receiving_ref)
+        tx = Transaction.objects.get(reference_type=Transaction.ReferenceType.INITIAL_IMPORT)
+        self.assertEqual(tx.reference_id, opening_balance.pk)
+        self.assertEqual(tx.quantity, Decimal("10"))
+
+    def test_opening_balance_import_rejects_receiving_columns_with_values(self):
+        self.client.force_login(self.admin_user)
+        csv_content = (
+            "document_number,effective_date,receiving_type,supplier_code,sumber_dana_code,"
+            "location_code,item_code,quantity,batch_lot,expiry_date,unit_price\n"
+            f"SALDO-AWAL-2026,01/01/2026,GRANT,,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},10,BATCH-001,01/01/2028,2500\n"
+        )
+
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(csv_content)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(OpeningBalanceImport.objects.exists())
+        self.assertFalse(Transaction.objects.filter(reference_type=Transaction.ReferenceType.INITIAL_IMPORT).exists())
+
+    def test_opening_balance_import_denies_non_admin_staff(self):
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("admin:stock_opening_balance_import_csv"))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_opening_balance_import_admin_model_denies_non_admin_staff(self):
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(reverse("admin:stock_openingbalanceimport_changelist"))
+
+        self.assertEqual(response.status_code, 403)
 
 
 class StockModelExpiryValidationTests(TestCase):
