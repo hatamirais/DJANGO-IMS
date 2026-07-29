@@ -37,6 +37,18 @@ def reports_index(request):
         opening_balance_ids = OpeningBalanceImport.objects.filter(
             effective_date__lte=start_date
         ).values('pk')
+        all_opening_balance_ids = OpeningBalanceImport.objects.values('pk')
+        initial_import_as_opening_balance = (
+            Q(reference_type='INITIAL_IMPORT')
+            & Q(transaction_type='IN')
+            & (
+                Q(reference_id__in=opening_balance_ids)
+                | (
+                    Q(created_at__date__lte=start_date)
+                    & (Q(reference_id__isnull=True) | ~Q(reference_id__in=all_opening_balance_ids))
+                )
+            )
+        )
 
         # Subquery to get expiry_date from Stock
         # A specific batch of an item from a specific funding source usually has a consistent expiry_date.
@@ -61,9 +73,7 @@ def reports_index(request):
                 Sum(
                     Case(
                         When(
-                            reference_type='INITIAL_IMPORT',
-                            reference_id__in=opening_balance_ids,
-                            transaction_type='IN',
+                            initial_import_as_opening_balance,
                             then=F('quantity'),
                         ),
                         When(
@@ -283,6 +293,18 @@ def reports_rekap(request):
         opening_balance_ids = OpeningBalanceImport.objects.filter(
             effective_date__lte=start_date
         ).values('pk')
+        all_opening_balance_ids = OpeningBalanceImport.objects.values('pk')
+        initial_import_as_opening_balance = (
+            Q(reference_type='INITIAL_IMPORT')
+            & Q(transaction_type='IN')
+            & (
+                Q(reference_id__in=opening_balance_ids)
+                | (
+                    Q(created_at__date__lte=start_date)
+                    & (Q(reference_id__isnull=True) | ~Q(reference_id__in=all_opening_balance_ids))
+                )
+            )
+        )
 
         # Base queryset: filter by sumber_dana if selected
         base_qs = Transaction.objects.all()
@@ -300,9 +322,7 @@ def reports_rekap(request):
                 Sum(
                     Case(
                         When(
-                            reference_type='INITIAL_IMPORT',
-                            reference_id__in=opening_balance_ids,
-                            transaction_type='IN',
+                            initial_import_as_opening_balance,
                             then=F('quantity') * F('unit_price')
                         ),
                         When(

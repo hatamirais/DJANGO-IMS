@@ -3,12 +3,12 @@
 {% block object-tools-items %}
 {% if request.user.is_superuser or request.user.role == "ADMIN" %}
 <li>
-    <a href="opening-balance/export-csv-template/" class="viewsitelink">
+    <a href="{% url 'admin:stock_opening_balance_export_csv_template' %}" class="viewsitelink">
         Download Template Saldo Awal
     </a>
 </li>
 <li>
-    <a href="opening-balance/import-csv/" class="addlink">
+    <a href="{% url 'admin:stock_opening_balance_import_csv' %}" class="addlink">
         Import Saldo Awal
     </a>
 </li>

@@ -485,21 +485,24 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
         update_filters = {**stock_filters, "expiry_date": expiry_date}
         updated = Stock.objects.filter(**update_filters).update(
             quantity=F("quantity") + quantity,
+            receiving_ref=None,
             updated_at=timezone.now(),
         )
         if updated:
             return
 
         try:
-            Stock.objects.create(
-                item=item,
-                location=location,
-                batch_lot=batch_lot,
-                sumber_dana=sumber_dana,
-                expiry_date=expiry_date,
-                quantity=quantity,
-                unit_price=unit_price,
-            )
+            with transaction.atomic():
+                Stock.objects.create(
+                    item=item,
+                    location=location,
+                    batch_lot=batch_lot,
+                    sumber_dana=sumber_dana,
+                    expiry_date=expiry_date,
+                    quantity=quantity,
+                    unit_price=unit_price,
+                    receiving_ref=None,
+                )
         except IntegrityError as exc:
             existing_stock = Stock.objects.filter(**stock_filters).values("expiry_date").first()
             if existing_stock and existing_stock["expiry_date"] != expiry_date:
@@ -508,6 +511,7 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                 ) from exc
             updated = Stock.objects.filter(**update_filters).update(
                 quantity=F("quantity") + quantity,
+                receiving_ref=None,
                 updated_at=timezone.now(),
             )
             if not updated:
@@ -595,6 +599,7 @@ class OpeningBalanceImportItemInline(admin.TabularInline):
 
 @admin.register(OpeningBalanceImport)
 class OpeningBalanceImportAdmin(admin.ModelAdmin):
+    change_list_template = "admin/stock/stock_changelist.html"
     list_display = ("document_number", "effective_date", "created_by", "posted_at")
     search_fields = ("document_number", "notes")
     date_hierarchy = "effective_date"

@@ -202,6 +202,34 @@ class RekapOpeningBalanceReportTests(TestCase):
 		self.assertEqual(row["nilai_terima"], Decimal("0"))
 		self.assertEqual(row["saldo_akhir"], Decimal("1000"))
 
+	def test_rekap_keeps_legacy_unlinked_initial_import_as_saldo_awal(self):
+		legacy_tx = Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.IN,
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-LEGACY",
+			quantity=Decimal("7"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+			reference_type=Transaction.ReferenceType.INITIAL_IMPORT,
+			reference_id=999999,
+			user=self.user,
+		)
+		Transaction.objects.filter(pk=legacy_tx.pk).update(
+			created_at=timezone.make_aware(datetime(2026, 1, 1, 8, 0))
+		)
+
+		response = self.client.get(
+			reverse("reports:rekap"),
+			{"start_date": "2026-01-01", "end_date": "2026-12-31"},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		row = self._category_row(response)
+		self.assertEqual(row["saldo_awal"], Decimal("1700"))
+		self.assertEqual(row["nilai_terima"], Decimal("0"))
+		self.assertEqual(row["saldo_akhir"], Decimal("1700"))
+
 	def test_rekap_next_year_carries_prior_year_ending_balance_without_reimport(self):
 		Transaction.objects.create(
 			transaction_type=Transaction.TransactionType.IN,
