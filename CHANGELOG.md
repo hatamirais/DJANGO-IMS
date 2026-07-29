@@ -7,6 +7,41 @@ The format is based on Keep a Changelog and follows Semantic Versioning (`MAJOR.
 
 ## [Unreleased]
 
+## [1.30.0] - 2026-07-29
+
+### Added
+
+- Stock Admin: added a dedicated opening-balance CSV import workflow for one-time initial stock seeding, separate from regular receiving imports.
+- Stock Admin: added opening-balance import preview and confirmation steps so admins can inspect parsed rows before stock is posted.
+- Stock Admin: added `OpeningBalanceImport` and `OpeningBalanceImportItem` records to keep imported opening-balance documents auditable after posting.
+- Stock ledger: opening-balance imports now create stock quantities and `Transaction(IN, reference_type=INITIAL_IMPORT)` rows without linking them to a receiving document.
+- Documentation: added opening-balance CSV guidance and an example template for initial seeding operations.
+
+### Changed
+
+- Reports: yearly stock recap now treats January 1 opening-balance rows as the selected year's initial stock and treats later opening-balance rows inside the same year as inbound movement.
+- Reports: subsequent-year recap continues from the previous year's final stock calculation instead of requiring the opening-balance CSV to be re-imported every year.
+- Stock Admin: direct stock add, edit, and delete operations are disabled so stock remains controlled by ledger-producing workflows.
+- Opening-balance import UI now follows the existing admin import layout, including format guidance, preview table, and confirm-import action.
+
+### Fixed
+
+- Opening-balance import navigation now exposes the import action from the Stock admin screen instead of requiring admins to manually visit the import URL.
+- Opening-balance import validation now rejects future effective dates, malformed rows, unknown references, duplicate/conflicting batch-price rows, non-integer quantities, invalid integer precision, and unsupported receiving/supplier columns.
+- Opening-balance CSV handling now supports items that do not require expiry dates while still enforcing expiry dates for expiring catalog items.
+- Posted opening-balance rows are traceable through the stored import document and generated stock transactions for audit and manual correction review.
+
+### Security
+
+- Opening-balance import remains restricted to admin/superuser stock administration paths and does not expose initial seeding through regular receiving flows.
+- Stock mutation controls were tightened so admin users cannot bypass workflow validation by editing stock rows directly.
+
+### Platform Notes
+
+- Database migrations are required for the new opening-balance import tables.
+- Existing regular receiving imports are unchanged; opening-balance CSV files should leave `receiving_type` and `supplier_code` empty because those columns are not used by the initial seeding workflow.
+- Project agent guidance was refreshed, including app-specific `AGENTS.md` files for stock and related workflow modules.
+
 ## [1.29.3] - 2026-07-24
 
 ### Changed
