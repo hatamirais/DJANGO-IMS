@@ -434,6 +434,7 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
 
         preview = {"documents": [], "total_documents": 0, "total_rows": 0}
         seen_stock_expiry = {}
+        seen_stock_price = {}
 
         for doc_number, rows in grouped.items():
             if OpeningBalanceImport.objects.filter(document_number=doc_number).exists():
@@ -546,6 +547,11 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                         f"Baris {row_num}: batch stok yang sama tidak boleh memiliki tanggal kedaluwarsa berbeda."
                     )
                 seen_stock_expiry[stock_key] = expiry_date
+                if stock_key in seen_stock_price and seen_stock_price[stock_key] != unit_price:
+                    raise ValueError(
+                        f"Baris {row_num}: batch stok yang sama tidak boleh memiliki harga satuan berbeda."
+                    )
+                seen_stock_price[stock_key] = unit_price
                 existing_stock = Stock.objects.filter(
                     item=item,
                     location=location,

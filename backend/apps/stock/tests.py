@@ -444,6 +444,27 @@ class OpeningBalanceImportAdminTests(TestCase):
         self.assertContains(response, "harga satuan berbeda")
         self.assertFalse(OpeningBalanceImport.objects.exists())
 
+    def test_opening_balance_preview_rejects_duplicate_stock_key_unit_price_mismatch(self):
+        self.client.force_login(self.admin_user)
+        csv_content = (
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price\n"
+            f"SALDO-AWAL-2026,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},10,BATCH-001,01/01/2028,100\n"
+            f"SALDO-AWAL-2026,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},5,BATCH-001,01/01/2028,200\n"
+        )
+
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(csv_content)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "harga satuan berbeda")
+        self.assertFalse(OpeningBalanceImport.objects.exists())
+        self.assertFalse(Stock.objects.exists())
+
     def test_opening_balance_confirm_uses_preview_token_from_same_upload(self):
         self.client.force_login(self.admin_user)
         first_csv = (
