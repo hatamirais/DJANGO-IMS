@@ -772,8 +772,8 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
         exponent = value.as_tuple().exponent
         actual_decimal_places = max(-exponent, 0)
         whole_digits = max(value.adjusted() + 1, 0) if value else 1
-        total_digits = whole_digits + actual_decimal_places
-        if actual_decimal_places > decimal_places or total_digits > max_digits:
+        max_whole_digits = max_digits - decimal_places
+        if actual_decimal_places > decimal_places or whole_digits > max_whole_digits:
             raise ValueError(
                 f"Baris {row_num}: {field_name} maksimal {max_digits} digit dan {decimal_places} angka desimal"
             )

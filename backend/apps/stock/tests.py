@@ -473,6 +473,42 @@ class OpeningBalanceImportAdminTests(TestCase):
         self.assertContains(response, "quantity maksimal 12 digit dan 2 angka desimal")
         self.assertFalse(OpeningBalanceImport.objects.exists())
 
+    def test_opening_balance_import_rejects_quantity_integer_digit_overflow(self):
+        self.client.force_login(self.admin_user)
+        csv_content = (
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price\n"
+            f"SALDO-AWAL-2026,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},10000000000.00,BATCH-001,01/01/2028,2500\n"
+        )
+
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(csv_content)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "quantity maksimal 12 digit dan 2 angka desimal")
+        self.assertFalse(OpeningBalanceImport.objects.exists())
+
+    def test_opening_balance_import_rejects_unit_price_integer_digit_overflow(self):
+        self.client.force_login(self.admin_user)
+        csv_content = (
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price\n"
+            f"SALDO-AWAL-2026,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},10,BATCH-001,01/01/2028,10000000000000.00\n"
+        )
+
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(csv_content)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "unit_price maksimal 15 digit dan 2 angka desimal")
+        self.assertFalse(OpeningBalanceImport.objects.exists())
+
     def test_opening_balance_import_rejects_existing_stock_unit_price_mismatch(self):
         Stock.objects.create(
             item=self.item,
