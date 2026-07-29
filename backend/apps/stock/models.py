@@ -192,6 +192,75 @@ class Transaction(models.Model):
         return f"{self.transaction_type} | {self.item} | {self.quantity} | {self.created_at}"
 
 
+class OpeningBalanceImport(TimeStampedModel):
+    """Admin-only opening stock import batch."""
+
+    document_number = models.CharField(max_length=100, unique=True)
+    effective_date = models.DateField()
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="created_opening_balance_imports",
+    )
+    posted_at = models.DateTimeField(default=timezone.now)
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        db_table = "opening_balance_imports"
+        ordering = ["-effective_date", "-created_at"]
+        indexes = [
+            models.Index(
+                fields=["effective_date"], name="idx_opening_balance_date"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.document_number} ({self.effective_date:%Y-%m-%d})"
+
+
+class OpeningBalanceImportItem(models.Model):
+    """Line item posted by an opening stock import batch."""
+
+    opening_balance = models.ForeignKey(
+        OpeningBalanceImport,
+        on_delete=models.CASCADE,
+        related_name="items",
+    )
+    item = models.ForeignKey(
+        "items.Item",
+        on_delete=models.PROTECT,
+        related_name="opening_balance_import_items",
+    )
+    location = models.ForeignKey(
+        "items.Location",
+        on_delete=models.PROTECT,
+        related_name="opening_balance_import_items",
+    )
+    sumber_dana = models.ForeignKey(
+        "items.FundingSource",
+        on_delete=models.PROTECT,
+        related_name="opening_balance_import_items",
+    )
+    batch_lot = models.CharField(max_length=100)
+    expiry_date = models.DateField(null=True, blank=True)
+    quantity = models.DecimalField(max_digits=12, decimal_places=2)
+    unit_price = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "opening_balance_import_items"
+        ordering = ["item", "expiry_date", "batch_lot"]
+        indexes = [
+            models.Index(
+                fields=["item", "location", "batch_lot"],
+                name="idx_opening_balance_item_batch",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.item} | {self.batch_lot} | {self.quantity}"
+
+
 class StockTransfer(TimeStampedModel):
     class Status(models.TextChoices):
         DRAFT = "DRAFT", "Draft"
