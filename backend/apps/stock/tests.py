@@ -251,7 +251,7 @@ class OpeningBalanceImportAdminTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Konfirmasi Import")
+        self.assertContains(response, "CONFIRM IMPORT")
         preview_token = response.context["preview_token"]
         self.assertFalse(OpeningBalanceImport.objects.exists())
         response = self.client.post(
@@ -309,7 +309,7 @@ class OpeningBalanceImportAdminTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Konfirmasi Import")
+        self.assertContains(response, "CONFIRM IMPORT")
         preview_token = response.context["preview_token"]
         self.assertFalse(OpeningBalanceImport.objects.exists())
         response = self.client.post(

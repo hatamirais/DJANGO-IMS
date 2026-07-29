@@ -3,14 +3,153 @@
 
 {% block title %}{{ title }}{% endblock %}
 
-{% block content %}
-<div id="content-main">
-    <h2>{{ title }}</h2>
+{% block extrahead %}
+{{ block.super }}
+<style>
+    .opening-balance-import {
+        max-width: 1400px;
+    }
 
-    <div class="module">
-        <h3>Format CSV</h3>
-        <p>Setiap baris = 1 batch saldo awal. Baris dengan <code>document_number</code>
-            yang sama akan dikelompokkan dalam 1 dokumen import saldo awal.</p>
+    .opening-balance-guide {
+        background: #1a2733;
+        border: 1px solid #2a3a4a;
+        border-radius: 8px;
+        margin-bottom: 24px;
+        padding: 16px 18px 20px;
+    }
+
+    .opening-balance-guide h3 {
+        font-size: 14px;
+        margin: 0 0 16px;
+    }
+
+    .opening-balance-guide table,
+    .opening-balance-preview table {
+        border-collapse: collapse;
+        font-size: 12px;
+        width: 100%;
+    }
+
+    .opening-balance-guide th,
+    .opening-balance-preview th {
+        background: #202020;
+        color: #ddd;
+        font-weight: 700;
+        padding: 8px;
+        text-align: left;
+        text-transform: uppercase;
+    }
+
+    .opening-balance-guide td,
+    .opening-balance-preview td {
+        border-top: 1px solid #2b2b2b;
+        padding: 9px 8px;
+        vertical-align: top;
+    }
+
+    .opening-balance-guide tbody tr:nth-child(odd) td {
+        background: #111;
+    }
+
+    .opening-balance-guide tbody tr:nth-child(even) td {
+        background: #232323;
+    }
+
+    .opening-balance-required {
+        color: #57d68d;
+        font-size: 17px;
+        font-weight: 700;
+    }
+
+    .opening-balance-optional {
+        color: #ff5c8f;
+        font-size: 18px;
+        font-weight: 700;
+    }
+
+    .opening-balance-field-list {
+        font-size: 14px;
+        margin: 0 0 28px;
+    }
+
+    .opening-balance-form-row {
+        border-bottom: 1px solid #282828;
+        margin-bottom: 20px;
+        padding: 0 0 20px 12px;
+    }
+
+    .opening-balance-form-row label {
+        display: block;
+        font-weight: 700;
+        margin-bottom: 8px;
+    }
+
+    .opening-balance-format-select {
+        background: #111;
+        border: 1px solid #333;
+        border-radius: 4px;
+        color: #fff;
+        padding: 8px 32px 8px 10px;
+    }
+
+    .opening-balance-submit-box {
+        background: #202020;
+        border-radius: 4px;
+        margin-top: 32px;
+        padding: 16px;
+    }
+
+    .opening-balance-submit-box .default {
+        padding: 12px 20px;
+        text-transform: uppercase;
+    }
+
+    .opening-balance-confirm-copy {
+        font-size: 14px;
+        margin: 0 0 14px;
+    }
+
+    .opening-balance-preview {
+        margin-top: 28px;
+    }
+
+    .opening-balance-preview h3 {
+        font-size: 16px;
+        margin: 0 0 10px;
+    }
+
+    .opening-balance-preview h4 {
+        margin: 16px 0 8px;
+    }
+
+    .opening-balance-preview-wrap {
+        max-height: 720px;
+        overflow: auto;
+    }
+
+    .opening-balance-preview tbody tr td {
+        background: #452857;
+        border-top-color: #59336f;
+    }
+
+    .opening-balance-preview tbody tr:nth-child(even) td {
+        background: #3f244f;
+    }
+
+    .opening-balance-status {
+        color: #fff;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="content-main" class="opening-balance-import">
+    <h2>Import</h2>
+
+    <div class="opening-balance-guide">
+        <h3>Format CSV — Saldo Awal</h3>
         <table>
             <thead>
                 <tr>
@@ -22,86 +161,99 @@
             <tbody>
                 <tr>
                     <td><code>document_number</code></td>
-                    <td>Ya</td>
+                    <td><span class="opening-balance-required">✓</span></td>
                     <td>Nomor dokumen saldo awal, misalnya SALDO-AWAL-2026-001</td>
                 </tr>
                 <tr>
                     <td><code>effective_date</code></td>
-                    <td>Ya</td>
-                    <td>Tanggal efektif saldo awal. Format: DD/MM/YYYY atau YYYY-MM-DD</td>
+                    <td><span class="opening-balance-required">✓</span></td>
+                    <td>Tanggal efektif saldo awal. Semua baris dalam dokumen yang sama harus memakai tanggal yang sama</td>
                 </tr>
                 <tr>
                     <td><code>sumber_dana_code</code></td>
-                    <td>Ya</td>
+                    <td><span class="opening-balance-required">✓</span></td>
                     <td>Kode sumber dana</td>
                 </tr>
                 <tr>
                     <td><code>location_code</code></td>
-                    <td>Ya</td>
+                    <td><span class="opening-balance-required">✓</span></td>
                     <td>Kode lokasi gudang</td>
                 </tr>
                 <tr>
                     <td><code>item_code</code></td>
-                    <td>Ya</td>
+                    <td><span class="opening-balance-required">✓</span></td>
                     <td>Kode barang (<code>kode_barang</code>)</td>
                 </tr>
                 <tr>
                     <td><code>quantity</code></td>
-                    <td>Ya</td>
-                    <td>Jumlah saldo awal; harus lebih dari 0</td>
+                    <td><span class="opening-balance-required">✓</span></td>
+                    <td>Jumlah saldo awal; harus lebih dari 0, maksimal 2 angka desimal</td>
                 </tr>
                 <tr>
                     <td><code>batch_lot</code></td>
-                    <td>Tidak</td>
-                    <td>Opsional; otomatis dibuat jika kosong</td>
+                    <td><span class="opening-balance-optional">×</span></td>
+                    <td>Opsional; otomatis dibuat dengan identitas dokumen jika kosong</td>
                 </tr>
                 <tr>
                     <td><code>expiry_date</code></td>
-                    <td>Kondisional</td>
-                    <td>Wajib untuk item yang memerlukan tanggal kedaluwarsa</td>
+                    <td><span class="opening-balance-optional">×</span></td>
+                    <td>Wajib hanya untuk item yang memerlukan tanggal kedaluwarsa</td>
                 </tr>
                 <tr>
                     <td><code>unit_price</code></td>
-                    <td>Tidak</td>
-                    <td>Harga satuan; default 0</td>
+                    <td><span class="opening-balance-optional">×</span></td>
+                    <td>Harga satuan; default 0, tidak boleh negatif</td>
                 </tr>
             </tbody>
         </table>
-        <p>Kolom <code>receiving_type</code> dan <code>supplier_code</code> tidak digunakan
-            pada import ini dan akan ditolak bila berisi nilai.</p>
     </div>
 
     {% if preview %}
-    <div class="module">
-        <h3>Pratinjau Import</h3>
-        <p>
-            File valid dan belum masuk ke sistem. Tekan <strong>Konfirmasi Import</strong>
-            untuk membuat {{ preview.total_documents }} dokumen saldo awal dan
-            {{ preview.total_rows }} baris transaksi.
-        </p>
+    <p class="opening-balance-confirm-copy">
+        Below is a preview of data to be imported. If you are satisfied with the results, click 'Confirm import'.
+        This will create {{ preview.total_documents }} opening balance document and {{ preview.total_rows }} transaction rows.
+    </p>
+
+    <div class="opening-balance-submit-box">
+        <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="confirm">
+            <input type="hidden" name="preview_token" value="{{ preview_token }}">
+            <button type="submit" class="default">CONFIRM IMPORT</button>
+            <a href="{% url 'admin:stock_opening_balance_import_csv' %}" class="button cancel-link">Upload another file</a>
+            <a href="{% url 'admin:stock_openingbalanceimport_changelist' %}" class="button cancel-link">Cancel</a>
+        </form>
+    </div>
+
+    <div class="opening-balance-preview">
+        <h3>Preview</h3>
         {% for document in preview.documents %}
         <h4>{{ document.document_number }} - {{ document.effective_date|date:"d/m/Y" }}</h4>
-        <div style="max-height: 420px; overflow: auto;">
+        <div class="opening-balance-preview-wrap">
             <table>
                 <thead>
                     <tr>
-                        <th scope="col">Baris</th>
-                        <th scope="col">Item</th>
-                        <th scope="col">Sumber Dana</th>
-                        <th scope="col">Lokasi</th>
+                        <th scope="col"></th>
+                        <th scope="col">Row</th>
+                        <th scope="col">Item Code</th>
+                        <th scope="col">Item Name</th>
+                        <th scope="col">Source</th>
+                        <th scope="col">Location</th>
                         <th scope="col">Batch</th>
                         <th scope="col">Expiry</th>
                         <th scope="col">Qty</th>
-                        <th scope="col">Harga</th>
+                        <th scope="col">Unit Price</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for row in document.rows %}
                     <tr>
+                        <td class="opening-balance-status">New</td>
                         <td>{{ row.row_num }}</td>
-                        <td><code>{{ row.item_code }}</code> - {{ row.item_name }}</td>
-                        <td><code>{{ row.funding_code }}</code> - {{ row.funding_name }}</td>
-                        <td><code>{{ row.location_code }}</code> - {{ row.location_name }}</td>
+                        <td><code>{{ row.item_code }}</code></td>
+                        <td>{{ row.item_name }}</td>
+                        <td><code>{{ row.funding_code }}</code></td>
+                        <td><code>{{ row.location_code }}</code></td>
                         <td><code>{{ row.batch_lot }}</code></td>
                         <td>{% if row.expiry_date %}{{ row.expiry_date|date:"d/m/Y" }}{% else %}Tanpa kedaluwarsa{% endif %}</td>
                         <td>{{ row.quantity }}</td>
@@ -112,30 +264,38 @@
             </table>
         </div>
         {% endfor %}
-        <form method="post">
-            {% csrf_token %}
-            <input type="hidden" name="action" value="confirm">
-            <input type="hidden" name="preview_token" value="{{ preview_token }}">
-            <button type="submit" class="default">Konfirmasi Import</button>
-            <a href="{% url 'admin:stock_opening_balance_import_csv' %}" class="button cancel-link">Unggah Ulang</a>
-            <a href="{% url 'admin:stock_openingbalanceimport_changelist' %}" class="button cancel-link">Batal</a>
-        </form>
     </div>
-    {% endif %}
+    {% else %}
+    <p class="opening-balance-field-list">
+        This importer will import the following fields:
+        <code>document_number</code>, <code>effective_date</code>, <code>sumber_dana_code</code>,
+        <code>location_code</code>, <code>item_code</code>, <code>quantity</code>,
+        <code>batch_lot</code>, <code>expiry_date</code>, <code>unit_price</code>
+    </p>
 
     <form method="post" enctype="multipart/form-data">
         {% csrf_token %}
 
-        <div class="form-row">
-            <label for="id_csv_file">{{ form.csv_file.label }}</label>
+        <div class="opening-balance-form-row">
+            <label for="id_csv_file">File to import:</label>
             {{ form.csv_file }}
             {% if form.csv_file.errors %}
             <div class="errors">{{ form.csv_file.errors }}</div>
             {% endif %}
         </div>
 
-        <button type="submit" class="default">Validasi dan Pratinjau</button>
-        <a href="{% url 'admin:stock_openingbalanceimport_changelist' %}" class="button cancel-link">Batal</a>
+        <div class="opening-balance-form-row">
+            <label for="opening-balance-format">Format:</label>
+            <select id="opening-balance-format" class="opening-balance-format-select" disabled>
+                <option selected>csv</option>
+            </select>
+        </div>
+
+        <div class="opening-balance-submit-box">
+            <button type="submit" class="default">SUBMIT</button>
+            <a href="{% url 'admin:stock_openingbalanceimport_changelist' %}" class="button cancel-link">Cancel</a>
+        </div>
     </form>
+    {% endif %}
 </div>
 {% endblock %}
