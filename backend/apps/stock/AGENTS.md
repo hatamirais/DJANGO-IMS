@@ -1,0 +1,48 @@
+# stock AGENTS.md
+
+App-specific guidance for stock balances and ledger behavior.
+
+## Purpose
+
+`stock` owns stock entries, immutable transactions, stock card, location-based stock search, stock transfer, admin-only opening balance (`Saldo Awal`) CSV import, and a read-only `Stok Puskesmas` snapshot page for Instalasi Farmasi-side planning/audit visibility.
+
+## Stock Quantities
+
+- The stock list and summaries distinguish `stok fisik`, `reserved`, and `stok tersedia`.
+- `stok tersedia` is `quantity - reserved`.
+- Availability checks across distribution, recall, expired, transfer, and several selectors use `Stock.available_quantity`.
+- Batch selectors should order dated stock by FEFO and place `expiry_date=NULL` rows last as non-expiring stock.
+
+## Ledger Rules
+
+- `stock.Transaction` is the authoritative append-only stock movement ledger.
+- Never mutate historical `Transaction` rows.
+- Do not replace stock movement reporting with auditlog entries.
+- Stock transfer completion writes paired `OUT` and `IN` transactions.
+
+## Opening Balance Import
+
+- Initial stock bootstrap must use the Stock Admin opening-balance import at `/admin/stock/stock/opening-balance/import-csv/`.
+- Do not use `receiving.csv` or direct `stock.csv` import for initial stock bootstrap.
+- Generic Stock admin import plus direct Stock add/change/delete mutations are disabled so stock cannot be written without ledger transactions.
+- Opening-balance import is restricted to superuser / role `ADMIN`.
+- Opening-balance import uses one consistent non-future `effective_date` per `document_number` for report classification.
+- It rejects populated `receiving_type` / `supplier_code`.
+- It validates decimal precision before preview/confirm.
+- It rejects negative unit prices.
+- It generates blank batches with document identity.
+- It rejects existing-stock collisions with different `expiry_date` or `unit_price`.
+- Confirmed imports create `OpeningBalanceImport` and `OpeningBalanceImportItem`, update stock with `receiving_ref=NULL`, and write `Transaction(IN, reference_type=INITIAL_IMPORT)`.
+- Rekap/yearly reports classify opening-balance rows as `saldo_awal` when effective on/before the report start, or as in-period received stock when effective after the start and within the selected period.
+- Later years carry forward from the ledger and do not require re-import.
+
+## Puskesmas Stock Snapshot
+
+- The read-only `Stok Puskesmas` snapshot page is for Instalasi Farmasi-side planning/audit visibility.
+- It derives current per-Puskesmas stock from the latest usable LPLPO closing stock plus later confirmed receipt confirmations minus later detailed consumption in the same year.
+
+## Expiry Handling
+
+- Opening-balance imports enforce `Item.requires_expiry_date`.
+- Blank `expiry_date` is allowed only for catalog items marked as non-expiring.
+- Legacy no-expiry sentinel backfills normalize copied outbound history fields (`DistributionItem.issued_expiry_date` and downstream Puskesmas receipt-confirmation `expiry_date`) to `NULL` so historical UI/reporting renders `Tanpa kedaluwarsa` consistently.

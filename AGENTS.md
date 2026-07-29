@@ -2,9 +2,9 @@
 
 Onboarding guide for coding agents working in this repository.
 
-## Purpose
+This project is a Django-based healthcare inventory system used by internal government-health staff. Engineering language is English-first; product-facing labels are mostly Indonesian.
 
-This project is a Django-based healthcare inventory system used by internal government-health staff. The codebase language is English-first for engineering consistency, while product-facing labels are mostly Indonesian.
+For app-specific rules, see `backend/apps/<app_name>/AGENTS.md` if present.
 
 ## Environment Snapshot
 
@@ -23,232 +23,113 @@ This project is a Django-based healthcare inventory system used by internal gove
 
 ## Repository Map
 
-```text
-.
-|- README.md
-|- AGENTS.md
-|- SYSTEM_MODEL.md
-|- docker-compose.yml
-|- .env.example
-|- backend/
-|  |- manage.py
-|  |- requirements.txt
-|  |- config/
-|  |- apps/
-|  |- templates/
-|  |- static/
-|  |- seed/
-|  `- tests/
-`- scripts/
-```
+Root files include `README.md`, `AGENTS.md`, `SYSTEM_MODEL.md`, `docker-compose.yml`, `.env.example`, `VERSION`, `backend/`, and `scripts/`. `backend/` contains `manage.py`, `requirements.txt`, `config/`, `apps/`, `templates/`, `static/`, `seed/`, and `tests/`.
 
-## Source of Truth Rules
+## Source Of Truth
 
-- Schema truth: `backend/apps/*/models.py`
-- Route truth: `backend/config/urls.py` + `backend/apps/*/urls.py`
-- Auth/permission truth: `backend/apps/core/decorators.py`, `backend/apps/users/access.py`
-- Security/config truth: `backend/config/settings.py`
-- App version truth: root `VERSION` and `backend/apps/core/versioning.py`
-- Operational script truth: `scripts/`
-- CSV import behavior truth: `backend/apps/*/admin.py` and resource classes
-
-If documentation conflicts with code, code is authoritative until docs are corrected.
+Schema: `backend/apps/*/models.py`. Routes: `backend/config/urls.py` + `backend/apps/*/urls.py`. Auth/permission: `backend/apps/core/decorators.py`, `backend/apps/users/access.py`. Security/config: `backend/config/settings.py`. App version: root `VERSION` and `backend/apps/core/versioning.py`. Operational scripts: `scripts/`. CSV import behavior: `backend/apps/*/admin.py` and resource classes. If documentation conflicts with code, code is authoritative until docs are corrected.
 
 ## Active Django Apps
 
-- `core`: shared abstractions, dashboard, dynamic system settings (login platform label, logo/headers, and configurable distribution numbering templates) restricted to `ADMIN` and `KEPALA`, plus centralized `400/403/404/500` handlers and a `/maintenance/` `503` view
-- `users`: custom user and `ModuleAccess` scope model
-- `items`: master data and item catalog; `kode_barang` remains the internal item code while optional unique `barcode` is reserved for future scanner workflows. Items may be flagged as program item `[P]` (`is_program_item`) or essential `[E]` (`is_essential`), may belong to multiple `Terapi Obat` groups through the `TherapeuticClass` lookup for reporting, and now carry `requires_expiry_date` to declare whether receiving/stock batches for that item must capture an expiry date. The item list also exposes an `Esensial` filter and XLSX export of the currently filtered active catalog for downstream ministry-app preparation
-- `stock`: stock entries, immutable transactions, stock card, location-based stock search, stock transfer, admin-only opening balance (`Saldo Awal`) CSV import, and a read-only `Stok Puskesmas` snapshot page for Instalasi Farmasi-side planning/audit visibility. The stock list and summaries now distinguish `stok fisik`, `reserved`, and `stok tersedia` (`quantity - reserved`) so warehouse staff can see physical balance separately from committed outbound stock. Opening balance imports create `OpeningBalanceImport` / `OpeningBalanceImportItem`, update stock with `receiving_ref=NULL`, and post `Transaction(IN, reference_type=INITIAL_IMPORT)` for report classification. The page derives current per-Puskesmas stock from the latest usable LPLPO closing stock plus later confirmed receipt confirmations minus later detailed consumption in the same year
-- `receiving`: regular and planned receiving flows, custom CSV import endpoint and matching CSV template download in admin, quick-create lookup endpoints, custom `ReceivingTypeOption` support, and authenticated download links for `ReceivingDocument` attachments stored under `PRIVATE_MEDIA_ROOT`. New procurement receiving plans are no longer manually approved; approved SPJ contracts now auto-create or re-sync exactly one linked planned `Receiving(contract!=NULL)` document. SPJ-linked planned receiving leftovers must be corrected through procurement amendments rather than the receiving-side `Tutup Sisa` close-items action, while legacy manual `Receiving(is_planned=True, contract IS NULL)` rows remain executable through compatibility routes
-- `procurement`: authoritative SPJ / contract procurement module. `ProcurementContract` is the contractual source of truth, `ProcurementAmendment` stores formal revisions with document numbers scoped to the parent SPJ (`{SPJ}-A{seq}`, e.g. `SPJ-2026-00001-A1`), contract create/edit reuses supplier and funding-source quick-create modals on the SPJ form, and Kepala/Admin approval on either document synchronously creates or re-syncs the linked planned procurement receiving execution document without mutating stock. Manual SPJ numbers reserve amendment suffix space and are limited to 95 characters even though the stored document field remains 100 characters. `GUDANG` may operate/create/submit procurement documents but cannot approve SPJ or amendments even when granted elevated procurement module scope.
-- `distribution`: outbound distribution workflow, step-back/reset actions before distribution, issued batch/value snapshots on `DistributionItem`, row-level `reserved_quantity` bookkeeping for outbound commitments, object-level preparer assignment for regular/special-request preparation, and special-request numbering UI that preloads the next suggested number while requiring confirmation before manual override. Verification now reserves the selected batch quantities, reset/step-back/delete/reversal release those reservations for standalone distributions, and final distribution consumes both `quantity` and `reserved` together in one transaction-safe workflow step. Final distribution for standalone documents follows the same assignee/fallback authorization rule as preparation: assigned warehouse staff may fulfill it, while approve-scope users are fallback only when no staff are assigned. Allocation-generated child distributions remain parent-managed by the Allocation module and do not use the generic distribution reset/step-back actions. LPLPO-generated draft distributions now lock item identity plus requested/approved quantities during edit so that the edit step is used only for batch selection, notes, and staffing. They also provide a dedicated reversal action that cancels the generated distribution and returns the parent LPLPO to `REJECTED_PUSKESMAS` with a required reason while the document is still pending distribution; that action follows the same distribution assignee/fallback authorization rule and requires LPLPO module scope `OPERATE`. User-facing manual create paths are `special_request_create` for permintaan khusus and `manual_lplpo_create` for manual LPLPO rollout/catch-up distributions; keep the generic `distribution_create` route reserved for internal or compatibility flows tied to broader distribution orchestration. Reset-to-draft, step-back, and delete now follow the same object-level assignee/fallback authorization rule as edit, prepare, and submit.
-- `allocation`: pre-distribution planning and orchestration. Draft→Submitted→Approved lifecycle auto-generates one `Distribution` per facility on approval and immediately reserves the approved batch quantities for each generated child distribution. Approved allocations may be stepped back to Submitted by approvers, which releases those reservations and deletes the auto-generated child distributions so approval can be re-run cleanly. Allocation no longer stores a header-level funding source; item batch selection can span all available stock sources. Stock deduction deferred to delivery confirmation per distribution. Module is active and gated by `ModuleAccess` scopes like all other modules.
-- `recall`: supplier return workflow
-- `expired`: expired/disposal workflow and alerts page. Kepala/Admin approval verifies submitted expired documents and posts the stock-out transaction, while Gudang/Kepala/Admin users with expired operate scope may finalize already verified documents with `Tandai Dimusnahkan`.
-- `stock_opname`: physical counting workflow. Completion requires every snapshotted row to have an `actual_quantity`, records `completed_by` / `completed_at` for auditability, and stores per-row `created_at` / `updated_at` timestamps on `StockOpnameItem`
-- `puskesmas`: ad-hoc requests from Puskesmas, receipt-confirmation input for goods actually received from Instalasi Farmasi, facility-scoped subunit master data (ruang tindakan / Pustu), monthly detailed consumption input, and a Puskesmas-operator-only read-only stock self-check page. All operational and report-facing surfaces now require a linked `user.facility` for every non-superuser account and enforce same-facility object access. The stock self-check page is LPLPO-only: it uses the latest non-rejected LPLPO for the logged-in facility and compares `stock_keseluruhan` (digital stock) with `stock_gudang_puskesmas` (physical stock recorded on that LPLPO); it does not apply post-LPLPO receipt/consumption adjustments and does not mutate stock. Puskesmas `Riwayat Penerimaan` is sourced from `PuskesmasReceiptConfirmation` / `PuskesmasReceiptConfirmationItem`, while detailed consumption is sourced from `PuskesmasConsumption` / `PuskesmasConsumptionEntry`. Legacy migrated receipt-confirmation rows may still have null `distribution` / `distribution_item` links and must remain editable through the compatibility edit path; new operational receipts still require distribution linkage.
-- `lplpo`: monthly reporting and stock requests from Puskesmas. Puskesmas-owned stages (`DRAFT`, `REJECTED_PUSKESMAS`, edit, submit, delete, XLSX import/export, and prefill helpers) still require a linked `user.facility` for every non-superuser and remain same-facility only. Instalasi Farmasi stages are cross-facility in a stage-gated way: `GUDANG` may verify/reject `SUBMITTED` documents and review `PIC_VERIFIED` / `REJECTED_PIC` documents across facilities, while `KEPALA` uses cross-facility LPLPO access only for the legacy `REVIEWED/finalize` compatibility path plus read-only historical visibility on `APPROVED` / `CLOSED`. Users with role exactly `ADMIN` (not `ADMIN_UMUM`) may reject active no-distribution LPLPO documents back to Puskesmas from later pre-distribution stages such as `PIC_VERIFIED`. February onward, `penerimaan` autofill is sourced from same-facility/month receipt-confirmation rows and `harga_satuan` autofill uses the weighted average confirmed receipt unit price, with the existing previous-month fallback when no confirmed receipt exists. Draft and rejected LPLPO documents also support an offline XLSX round-trip: export the current document workbook from detail/edit, fill editable columns offline, then import the workbook back into the same `DRAFT` / `REJECTED_PUSKESMAS` document.
-- `reports`: report index with rekap, hibah receiving, procurement, expiry, outbound reporting views, and document numbering history for LPLPO/Special Request distributions. The procurement receiving report now includes SPJ document references sourced from `Receiving.contract` so actual receipts can be traced back to contracts. The combined outbound report remains on `/reports/pengeluaran/`, while the distribution module owns dedicated route-based report variants at `/distribution/report/`, `/distribution/report/special-requests/`, `/distribution/report/allocation/`, and `/distribution/report/lplpo/`.
-  Puskesmas-side `Rekap Laporan Persediaan` also carries an LPLPO-derived asset valuation dimension summarized per kategori from per-line `harga_satuan`.
-  Puskesmas-side `Rincian` and `Rekap Laporan Persediaan` filters use yearly, triwulan, and semester periods rather than a raw month selector. `Rincian Persediaan` stock is derived from the latest usable LPLPO baseline up to the selected period end, then adjusted by later same-year `CONFIRMED` receipt confirmations and later same-year detailed consumption up to that same period end; it no longer falls back to distribution-only stock when no LPLPO baseline exists.
+| App | Purpose |
+| --- | --- |
+| `core` | Shared abstractions, dashboard, system settings, centralized error handlers, and maintenance view. |
+| `users` | Custom user model and `ModuleAccess` scope model. |
+| `items` | Master data and item catalog, including item codes, barcodes, flags, therapeutic classes, expiry requirements, filtering, and XLSX export. |
+| `stock` | Stock balances, immutable transactions, stock card, location search, transfers, opening balance import, and Puskesmas stock snapshots. |
+| `receiving` | Regular/planned receiving, receiving imports, type options, quick-create lookups, and private receiving attachments. |
+| `procurement` | Authoritative SPJ/contract procurement, amendments, approval, and planned procurement receiving synchronization. |
+| `distribution` | Outbound workflows, batch/value snapshots, reservations, preparation assignments, LPLPO/manual/special/allocation variants, and outbound reports. |
+| `allocation` | Pre-distribution planning that generates reserved facility-level child distributions. |
+| `recall` | Supplier return workflow. |
+| `expired` | Expired/disposal workflow and alerts. |
+| `stock_opname` | Physical stock counting workflow. |
+| `puskesmas` | Facility-scoped requests, receipt confirmations, subunit master data, consumption input, and stock self-checks. |
+| `lplpo` | Monthly Puskesmas reporting and stock request workflow. |
+| `reports` | Report index, rekap, receiving/procurement/expiry/outbound reports, numbering history, and Puskesmas inventory reports. |
 
-## Permissions Model
+## Permissions And Errors
 
-There are two permission layers:
+There are two permission layers: Django `has_perm` checks through groups/permissions, and module scope fallback (`ModuleAccess`) used by `@perm_required`.
 
-1. Django `has_perm` checks (groups/permissions)
-2. Module scope fallback (`ModuleAccess`) used by `@perm_required`
-
-`@perm_required` in `backend/apps/core/decorators.py` allows access if either layer grants permission. Keep this hybrid model in mind before changing authorization logic.
+`@perm_required` in `backend/apps/core/decorators.py` allows access if either layer grants permission. Module scopes are `NONE`, `VIEW`, `OPERATE`, `APPROVE`, and `MANAGE`; default scopes per role are in `backend/apps/users/access.py`.
 
 Permission denials should raise `PermissionDenied` so requests flow through the centralized `handler403` page instead of returning raw HTML fragments.
 
-Module scopes:
+`OPERATOR PUSKESMAS` uses `facility` matching. Views in `puskesmas` and `lplpo` enforce strict facility isolation, and every non-superuser account using those operational surfaces must have a linked `facility` or receive `403`.
 
-- `NONE`, `VIEW`, `OPERATE`, `APPROVE`, `MANAGE`
+Super Admin (`is_superuser` / role `ADMIN`) remains exempt from `puskesmas` and `lplpo` facility scoping. Puskesmas report routes require `reports.view_reports` or REPORTS module-scope `VIEW`; superusers may query all facilities, while non-superusers are forced to their linked `facility`.
 
-Default scopes per role are defined in `backend/apps/users/access.py`.
+`/settings/` is not governed by module-scope fallback. It is an explicit role-gated `core` view that allows only superusers plus users whose role is `ADMIN` or `KEPALA`.
 
-### Specialized Roles (e.g. OPERATOR PUSKESMAS)
+`AUDITOR` keeps read-only module scopes for direct authorized pages; its sidebar is report-focused and only renders the `Laporan` group. Its dashboard hides linked drill-through components that open operational menu pages.
 
-- `OPERATOR PUSKESMAS` role uses `facility` matching. Views in `puskesmas` and `lplpo` enforce strict facility isolation so that operators from one facility cannot read/write another facility's documents.
-- Every non-superuser account using `puskesmas` or `lplpo` operational surfaces must have a linked `facility`; otherwise the request is denied with `403`.
-- Super Admin (`is_superuser` / role `ADMIN`) remains exempt from `puskesmas` and `lplpo` facility scoping. `lplpo` also grants limited stage-gated cross-facility access to Instalasi Farmasi roles: `GUDANG` for active warehouse processing states and `KEPALA` for the legacy `REVIEWED/finalize` compatibility path plus historical read-only states.
-- Puskesmas report routes require `reports.view_reports` (or REPORTS module-scope VIEW fallback). Superusers may query all facilities; any non-superuser user is forced to their linked `facility` on those report querysets and receives `403` when no facility is linked.
-- `/settings/` is not governed by module-scope fallback. It is an explicit role-gated `core` view that allows only superusers plus users whose role is `ADMIN` or `KEPALA`.
-- `AUDITOR` keeps read-only module scopes for direct authorized pages, but its sidebar is intentionally report-focused and only renders the `Laporan` group. Its dashboard hides linked drill-through components that open operational menu pages, leaving non-linked summary KPIs visible.
+## Cross-App Data Flow
 
-## Workflow and Data Mutation Rules
+Stock movement is ledger-first: historical `stock.Transaction` rows are append-only, stock-changing checkpoints happen during workflow actions, and reports should not replace stock movement reporting with auditlog entries.
+
+Inbound: `procurement` approved SPJ/amendment -> linked planned `receiving` document -> receiving execution/import -> `stock.Stock` update + `stock.Transaction(IN)`.
+
+Opening balance: Stock Admin opening-balance import -> `stock.OpeningBalanceImport` / `OpeningBalanceImportItem` -> `Stock` update with `receiving_ref=NULL` -> `Transaction(IN, reference_type=INITIAL_IMPORT)`.
+
+Outbound: `allocation` approval or `lplpo` PIC review or manual/special request -> `distribution.Distribution` / `DistributionItem` -> stock reservation at verification -> stock deduction and reservation clearing at final distribution.
+
+Facility receipt/reporting: delivered distribution -> `puskesmas.PuskesmasReceiptConfirmation` / items -> same-month editable `lplpo` receiving and price sync -> reports derive Puskesmas inventory from LPLPO baseline plus confirmed receipts and detailed consumption.
+
+Consumption: `puskesmas.PuskesmasConsumption` / entries -> same-month editable `lplpo.LPLPOItem.pemakaian` sync -> inventory and request calculations.
+
+Availability checks across distribution, recall, expired, transfer, and several selectors use `Stock.available_quantity` (`quantity - reserved`). Batch selectors should order dated stock by FEFO and place `expiry_date=NULL` rows last as non-expiring stock.
+
+Receiving and opening-balance imports enforce `Item.requires_expiry_date`: blank `expiry_date` is allowed only for catalog items marked as non-expiring. Legacy no-expiry sentinel backfills normalize copied outbound history fields to `NULL` so historical UI/reporting renders `Tanpa kedaluwarsa` consistently.
+
+## Global Workflow Rules
 
 - Never mutate historical `Transaction` rows; append-only behavior is expected.
-- Stock-changing checkpoints happen during workflow actions (verify/prepare/distribute/complete depending on module), not arbitrary model saves.
+- Stock-changing checkpoints happen during workflow actions (`verify`, `prepare`, `distribute`, `complete`, depending on module), not arbitrary model saves.
 - Stock transfer completion writes paired `OUT` and `IN` transactions.
-- Receiving admin CSV import writes `Receiving`, `ReceivingItem`, updates/creates `Stock`, and writes `Transaction(IN)`.
-- Initial stock bootstrap must use the Stock Admin opening-balance import at `/admin/stock/stock/opening-balance/import-csv/`, not `receiving.csv` or the direct `stock.csv` import. Generic Stock admin import plus direct Stock add/change/delete mutations are disabled so stock cannot be written without ledger transactions. Opening-balance import is restricted to superuser / role `ADMIN`, uses one consistent non-future `effective_date` per `document_number` for report classification, rejects populated `receiving_type` / `supplier_code`, validates decimal precision before preview/confirm, rejects negative unit prices, generates blank batches with document identity, and rejects existing-stock collisions with different `expiry_date` or `unit_price`. Confirmed imports write `Transaction(IN, reference_type=INITIAL_IMPORT)`. Rekap/yearly reports classify these rows as `saldo_awal` when effective on/before the report start, or as in-period received stock when effective after the start and within the selected period; later years carry forward from the ledger and do not require re-import.
-- Receiving supports built-in and custom type codes; UI labels for non-built-in types are resolved from `ReceivingTypeOption`.
-- `Distribution(distribution_type=LPLPO)` is normally system-generated from the PIC review submission in `lplpo_review`; the legacy `lplpo_finalize` route remains only to finish older `REVIEWED` rows and should not be treated as the primary workflow path. A separate `manual_lplpo_create` distribution route exists as a permanent operational fallback for mid-year rollout/catch-up work when Puskesmas LPLPO documents have not been backfilled yet. Do not expose `LPLPO` as a manual distribution type in the generic distribution create/edit flow.
-- LPLPO workflow is `DRAFT -> SUBMITTED -> PIC_VERIFIED -> APPROVED -> CLOSED` for active documents. PIC review now records the review audit fields and immediately creates the linked draft `Distribution`, so there is no active Kepala approval checkpoint in the normal path. Legacy rows may still exist in `REVIEWED` or `REJECTED_PIC`, and the compatibility finalize/reject actions remain only for those older documents. Users with role exactly `ADMIN` (not `ADMIN_UMUM`) may directly reject active LPLPO documents that do not yet have a linked distribution back to `REJECTED_PUSKESMAS`, including `PIC_VERIFIED`. Approved LPLPO documents that already spawned a draft distribution can still be explicitly returned to `REJECTED_PUSKESMAS` only by cancelling that generated distribution before any stock distribution completes.
-- LPLPO creation for each Puskesmas facility is locked to the active server-calendar year and must be contiguous from January. Users cannot skip months; the next create action must always target the earliest missing month in that same year.
-- The first active-year January LPLPO is the yearly bootstrap baseline. Create/edit pages must explain that January `stock_awal` is entered manually from opening stock records, while February onward carries forward from the previous month's `stock_keseluruhan`, including negative balances when the prior period closed below zero.
-- The January bootstrap rule for `penerimaan` is now split: `stock_awal` stays manual, while January `penerimaan` may be auto-suggested from same-facility/month confirmed `PuskesmasReceiptConfirmationItem` totals and still remains editable by the operator. February onward continues using same-facility/month receipt-confirmation totals as the autofill source.
-- LPLPO no longer tracks `pembelian_puskesmas`; computed `persediaan` is `stock_awal + penerimaan`, so negative ending stock now acts as the safeguard for underreported balances.
-- Puskesmas detailed consumption is stored separately per facility/month and per facility-defined subunit. The sum of `PuskesmasConsumptionEntry.quantity` per item becomes the editable-period source of truth for `LPLPOItem.pemakaian`.
-- Saving, editing, or deleting detailed consumption atomically re-syncs the same-month editable (`DRAFT` / `REJECTED_PUSKESMAS`) LPLPO rows only. Opening or re-saving an editable LPLPO also refreshes those same-month `pemakaian` values when a detailed-consumption document already exists, so older drafts do not keep stale usage figures. Once a facility-month LPLPO is `SUBMITTED` or beyond, detailed consumption mutation for that period is blocked.
-- LPLPO edit no longer accepts manual `pemakaian` overrides; operators must update the matching `puskesmas` detailed-consumption document instead.
-- Saving, editing, or deleting a receipt confirmation atomically re-syncs the same-month editable (`DRAFT` / `REJECTED_PUSKESMAS`) LPLPO rows only. Opening or re-saving an editable LPLPO also refreshes same-month `penerimaan` and weighted `harga_satuan` from any confirmed receipt-confirmation data that already exists, so older drafts do not keep stale receiving values. Once a facility-month LPLPO is `SUBMITTED` or beyond, receipt-confirmation mutation for that period is blocked.
-- LPLPO offline XLSX import is available only after a monthly LPLPO document has been created through the standard site flow. It updates only the existing document's editable Puskesmas fields (`stock_awal`, `penerimaan`, `harga_satuan`, `stock_gudang_puskesmas`, `waktu_kosong`, `permintaan_jumlah`, `permintaan_alasan`), preserves `pemakaian` as server-authoritative from detailed consumption, and recomputes all derived fields server-side.
-- Linked Puskesmas receipt-confirmation create/edit now uses a fixed checklist sourced from `DistributionItem` rows. Operators can save an incomplete document as `DRAFT` when goods are still missing, and may only finalize with `CONFIRMED` once every source row is checked as physically received. Only `CONFIRMED` receipt confirmations contribute to LPLPO `penerimaan` / weighted `harga_satuan`. Legacy migrated receipts without `distribution` / `distribution_item` links still use the compatibility edit path with manual row editing.
-- The January bootstrap rule for `harga_satuan` is now the same as `penerimaan`: when confirmed January receipt rows exist, the form may auto-suggest a same-month weighted-average confirmed receipt price per item as the yearly asset-valuation baseline, while still allowing operator edits. February onward uses same-facility/month confirmed receipt `unit_price` values and falls back to the previous month's LPLPO unit price when no new confirmed receipt exists for the period.
-- LPLPO creation auto-fills `stock_awal` from the immediately previous month's LPLPO for the same facility when one exists and is not `REJECTED_PUSKESMAS` or `REJECTED_PIC`; the carry-over no longer waits for the prior document to reach `CLOSED`.
-- LPLPO-generated draft distributions preserve `quantity_requested=permintaan_jumlah` and `quantity_approved=pemberian_jumlah`, but those line quantities and item rows are locked on the distribution edit screen; staff use that step only to choose stock batches, update notes, and adjust staff/header metadata before preparation. Manually created LPLPO distributions do not have an `lplpo_source` document and therefore remain editable like normal draft distributions while still using the LPLPO numbering/report bucket.
-- Regular and special-request distributions now use the preparation sequence `DRAFT/REJECTED -> PREPARED -> SUBMITTED -> VERIFIED -> DISTRIBUTED`. Assigned `DistributionStaffAssignment` users control draft/rejected preparation, submission, and final fulfillment; when no preparers are assigned, approve-scope users remain the fallback managers. Verification reserves the selected stock batch per `DistributionItem`, reset-to-draft / step-back from `VERIFIED` / delete / generated-LPLPO reversal release that reservation for standalone distributions, and final distribution clears the reservation while deducting physical stock. Allocation-generated child distributions must be reverted from the parent Allocation workflow instead of the generic distribution endpoints. The same assignee-or-approve fallback rule also gates reset-to-draft, step-back, delete, final fulfillment, and generated-LPLPO return-to-Puskesmas for mutable distributions.
-- Distribution numbering templates for `LPLPO` and `SPECIAL_REQUEST` are user-configurable through `SystemSettings`; supported placeholders are `{seq}` and `{year}` and sequence counters remain scoped per distribution type and matched against the active template.
-- `Distribution(distribution_type=ALLOCATION)` is system-generated from `allocation` approval; one per facility, starts in `VERIFIED` status with its selected stock already reserved, quantities are locked and cannot be edited.
-- Allocation approval atomically creates `Distribution` + `DistributionItem` records for each facility and reserves the selected stock for those child documents. Stepping an allocation back from `APPROVED` to `SUBMITTED` releases those reservations, then deletes the child distributions so they can be regenerated on the next approval. Stock deduction is deferred to per-distribution delivery confirmation.
-- Allocation auto-transitions to `PARTIALLY_FULFILLED` when any child distribution is delivered, and `FULFILLED` when all are delivered.
-- Availability checks across distribution, recall, expired, transfer, and several selectors use `Stock.available_quantity` (`quantity - reserved`). Outbound distribution workflows now actively maintain `reserved`: verification reserves stock, backward transitions release it, and final fulfillment consumes it together with physical quantity. Batch selectors should order dated stock by FEFO and place `expiry_date=NULL` rows last as non-expiring stock.
-- Receiving and opening-balance imports enforce `Item.requires_expiry_date`: blank `expiry_date` is allowed only for catalog items marked as non-expiring.
-- Legacy no-expiry sentinel backfills also normalize copied outbound history fields (`DistributionItem.issued_expiry_date` and downstream Puskesmas receipt-confirmation `expiry_date`) to `NULL` so historical UI/reporting renders `Tanpa kedaluwarsa` consistently.
-
-## Documentation Maintenance Contract
-
-When code changes affect schema, routes, permissions, settings, or scripts, update all impacted docs in the same PR:
-
-- `README.md`
-- `AGENTS.md`
-- `SYSTEM_MODEL.md`
-- `docs/developer_guide.md` when setup, testing, release, or documentation process guidance changes
-- `backend/seed/README.md` (if CSV schema/semantics changed)
-
-## Context7 Reference Policy
-
-Use Context7 as primary guidance for third-party best practices. Current reference library IDs:
-
-- Django: `/django/django`
-- django-import-export: `/websites/django-import-export_readthedocs_io_en`
-- django-axes: `/jazzband/django-axes`
-- django-auditlog: `/jazzband/django-auditlog`
-
-Apply these principles:
-
-- Keep `AUTH_USER_MODEL` explicitly configured before relying on auth migrations.
-- Keep `SECRET_KEY` environment-driven.
-- Keep `DEBUG=False` production hardening documented and synchronized with settings.
-- Keep import workflow docs aligned with dry-run/confirm semantics from django-import-export.
-- Keep axes backend ordering and middleware placement documented exactly as configured.
-- Keep WhiteNoise middleware and `STORAGES["staticfiles"]` behavior documented so deployment notes reflect how collected admin/app static assets are served.
-- Keep sensitive POST throttling settings and the centralized `429` behavior documented exactly as configured.
-
-## Development Commands
-
-```bash
-docker compose up -d
-cd backend
-python manage.py migrate
-python manage.py runserver
-python manage.py app_version
-```
-
-Windows test helper:
-
-```powershell
-.\scripts\run-django-test.ps1 -Target apps.items
-.\scripts\run-django-test.ps1 -Target apps.core.tests -KeepDb
-```
-
-Playwright multi-role helper from repo root:
-
-```powershell
-Copy-Item .env.playwright.local.example .env.playwright.local
-npm install
-npm run playwright:bootstrap
-npm run playwright:open
-```
-
-Use existing local role accounts for all six app roles in `.env.playwright.local`. The helper stores per-role Chromium profiles under `.playwright-profiles/`; rebuild them with `npm run playwright:refresh-auth` when credentials or sessions change.
-
-## Quality Checklist for Agent PRs
-
-Before opening a PR, verify:
-
-- Routes documented in markdown exist in URLconfs.
-- All model/table names in docs match current models.
-- Env vars in docs exist in `.env.example` or settings usage.
-- Security behavior in docs mirrors `backend/config/settings.py`.
-- CSV column docs match actual import resources/forms/admin parser logic.
-
-## Sensitive POST Throttling
-
-- `django-axes` remains the login brute-force control. Login lockout is enforced by username (`AXES_LOCKOUT_PARAMETERS = ["username"]`) so distributed attempts against one account are blocked without relying on proxy-sensitive IP-wide counters.
-- The login route uses Django `LoginView` with `apps.core.forms.CrispyAuthenticationForm`; do not hand-code username/password inputs in `registration/login.html`.
-- Authentication and centralized error logs resolve client IPs through `apps.core.client_ip.get_client_ip()`. The resolver uses `REMOTE_ADDR` by default and accepts `X-Forwarded-For` only when the immediate peer matches `AUTH_AUDIT_TRUSTED_PROXIES`; configure that env var only for proxies that strip client-supplied forwarded headers.
-- Additional authenticated POST throttling uses `django-ratelimit`.
-- `django-auditlog` records database-backed create/update/delete history for selected critical models. Its initial webview is Django Admin at `/admin/` through the auditlog `LogEntry` admin; no custom IMS audit-log sidebar page exists yet.
-- Auditlog is signal-driven and does not automatically cover `bulk_create`, `bulk_update`, or `QuerySet.update()` paths. Keep explicit workflow logs or tests for critical bulk operations where row-level audit history is required. User bulk activate/deactivate intentionally uses locked per-row `save(update_fields=["is_active"])` calls so account-status changes produce audit entries.
-- `stock.Transaction` remains the authoritative append-only stock movement ledger. Do not replace stock movement reporting with auditlog entries.
-- Counters use a local memory cache (`CACHES["default"]` → `RATELIMIT_USE_CACHE`) so limits are tracked in-process.
-- `RATELIMIT_FAIL_OPEN=True` is the default so rate-limiting degrades gracefully if there are issues with the cache.
-- Current settings-backed knobs are `USER_BULK_ACTION_RATE_LIMIT`, `USER_MUTATION_RATE_LIMIT`, `ITEM_MUTATION_RATE_LIMIT`, `USER_PASSWORD_RESET_RATE_LIMIT`, `PASSWORD_CHANGE_RATE_LIMIT`, `PUSKESMAS_RECEIPT_CONFIRMATION_MUTATION_RATE_LIMIT`, `PUSKESMAS_CONSUMPTION_MUTATION_RATE_LIMIT`, `PROCUREMENT_MUTATION_RATE_LIMIT`, and `LPLPO_IMPORT_RATE_LIMIT`. The legacy `PUSKESMAS_SBBK_MUTATION_RATE_LIMIT` env var remains accepted as a compatibility fallback.
-- Receipt-confirmation throttling is mutation-only: create/edit/delete saves are POST-limited, while the create-form distribution preview uses non-mutating `GET` and must not consume that quota.
-- Throttled requests must continue through the centralized error pipeline and render as HTTP `429`.
-- `@user_mutation_ratelimit` covers all user mutation endpoints: create, update, toggle-active, and delete.
-- `@item_mutation_ratelimit` covers item catalog lookup POST mutations plus receiving and procurement quick-create lookup POST mutations so those writes do not consume the user-management throttle bucket.
-
-## URL Routing Convention
-
-**All URL patterns MUST end with a trailing slash (`/`)** to prevent 301 redirects caused by Django's `APPEND_SLASH` middleware.
-
-### Rules
-
-1. **URL patterns in `urls.py`**: Every `path()` must end with `/`
-   - ✅ `path("create/", views.create, name="create")`
-   - ✅ `path("<int:pk>/", views.detail, name="detail")`
-   - ❌ `path("create", views.create, name="create")`
-   - ❌ `path("<int:pk>", views.detail, name="detail")`
-
-2. **Test client calls**: Use `reverse()` when possible, or ensure hardcoded URLs have trailing slashes
-   - ✅ `self.client.get(reverse("app:create"))`
-   - ✅ `self.client.get("/app/create/")`
-   - ❌ `self.client.get("/app/create")`
-
-3. **Templates**: Always use `{% url %}` template tag (which resolves correctly)
-   - ✅ `<a href="{% url 'app:create' %}">`
-   - ❌ `<a href="/app/create">`
-
-4. **Settings**: `APPEND_SLASH = True` is explicitly set in `backend/config/settings.py`
-
-### Validation
-
-URL consistency tests in `apps.core.tests.test_url_consistency` automatically verify:
-
-- All URL patterns end with trailing slashes
-- No hardcoded test URLs are missing trailing slashes
-
-Run with: `.\scripts\run-django-test.ps1 -Target apps.core.tests.test_url_consistency`
-
-## Notes
-
 - Do not claim REST API/React production paths as implemented; those are planned.
 - Keep terminology consistent: use "module scope" for `ModuleAccess` and "Django permissions" for `has_perm` checks.
 
+## Sensitive POST Throttling And Audit
+
+- `django-axes` remains the login brute-force control. Login lockout is enforced by username (`AXES_LOCKOUT_PARAMETERS = ["username"]`).
+- The login route uses Django `LoginView` with `apps.core.forms.CrispyAuthenticationForm`; do not hand-code username/password inputs in `registration/login.html`.
+- Authentication and centralized error logs resolve client IPs through `apps.core.client_ip.get_client_ip()`, using `REMOTE_ADDR` by default and accepting `X-Forwarded-For` only when the immediate peer matches `AUTH_AUDIT_TRUSTED_PROXIES`.
+- Additional authenticated POST throttling uses `django-ratelimit`; counters use local memory cache via `CACHES["default"]` and `RATELIMIT_USE_CACHE`.
+- `RATELIMIT_FAIL_OPEN=True` is the default so rate-limiting degrades gracefully if there are cache issues.
+- Settings-backed knobs include `USER_BULK_ACTION_RATE_LIMIT`, `USER_MUTATION_RATE_LIMIT`, `ITEM_MUTATION_RATE_LIMIT`, `USER_PASSWORD_RESET_RATE_LIMIT`, `PASSWORD_CHANGE_RATE_LIMIT`, `PUSKESMAS_RECEIPT_CONFIRMATION_MUTATION_RATE_LIMIT`, `PUSKESMAS_CONSUMPTION_MUTATION_RATE_LIMIT`, `PROCUREMENT_MUTATION_RATE_LIMIT`, and `LPLPO_IMPORT_RATE_LIMIT`; legacy `PUSKESMAS_SBBK_MUTATION_RATE_LIMIT` remains accepted as a compatibility fallback.
+- Receipt-confirmation throttling is mutation-only: create/edit/delete saves are POST-limited, while the create-form distribution preview uses non-mutating `GET` and must not consume that quota.
+- Throttled requests must continue through the centralized error pipeline and render as HTTP `429`.
+- `@user_mutation_ratelimit` covers user create, update, toggle-active, and delete.
+- `@item_mutation_ratelimit` covers item catalog lookup POST mutations plus receiving and procurement quick-create lookup POST mutations.
+- `django-auditlog` records database-backed create/update/delete history for selected critical models; its initial webview is Django Admin at `/admin/` through the auditlog `LogEntry` admin, and no custom IMS audit-log sidebar page exists yet.
+- Auditlog is signal-driven and does not automatically cover `bulk_create`, `bulk_update`, or `QuerySet.update()` paths. Keep explicit workflow logs or tests for critical bulk operations where row-level audit history is required.
+- User bulk activate/deactivate intentionally uses locked per-row `save(update_fields=["is_active"])` calls so account-status changes produce audit entries.
+
+## Development Commands
+
+Setup/run: `docker compose up -d`, `cd backend`, `python manage.py migrate`, `python manage.py runserver`, `python manage.py app_version`.
+
+Windows test helper: `.\scripts\run-django-test.ps1 -Target apps.items` and `.\scripts\run-django-test.ps1 -Target apps.core.tests -KeepDb`.
+
+Playwright multi-role helper from repo root: `Copy-Item .env.playwright.local.example .env.playwright.local`, `npm install`, `npm run playwright:bootstrap`, and `npm run playwright:open`.
+
+Use existing local role accounts for all six app roles in `.env.playwright.local`. The helper stores per-role Chromium profiles under `.playwright-profiles/`; rebuild them with `npm run playwright:refresh-auth` when credentials or sessions change.
+
+## URL Routing Convention
+
+All URL patterns must end with a trailing slash (`/`) to prevent 301 redirects caused by Django's `APPEND_SLASH` middleware. In `urls.py`, every `path()` must end with `/`, including dynamic paths like `path("<int:pk>/", views.detail, name="detail")`.
+
+In tests, use `reverse()` when possible or ensure hardcoded URLs have trailing slashes. In templates, always use `{% url %}` instead of hardcoded app paths. `APPEND_SLASH = True` is explicitly set in `backend/config/settings.py`.
+
+URL consistency tests in `apps.core.tests.test_url_consistency` verify URL patterns and hardcoded test URLs. Run with `.\scripts\run-django-test.ps1 -Target apps.core.tests.test_url_consistency`.
+
+## Documentation And Quality
+
+When code changes affect schema, routes, permissions, settings, or scripts, update impacted docs in the same PR: `README.md`, `AGENTS.md`, `SYSTEM_MODEL.md`, `docs/developer_guide.md` for setup/testing/release/documentation guidance, and `backend/seed/README.md` if CSV schema/semantics changed.
+
+Before opening a PR, verify documented routes exist in URLconfs, model/table names match current models, env vars exist in `.env.example` or settings usage, security behavior mirrors `backend/config/settings.py`, and CSV column docs match actual import resources/forms/admin parser logic.
+
+Use Context7 as primary guidance for third-party best practices. Current reference library IDs: Django `/django/django`, django-import-export `/websites/django-import-export_readthedocs_io_en`, django-axes `/jazzband/django-axes`, and django-auditlog `/jazzband/django-auditlog`.
+
+Keep `AUTH_USER_MODEL` explicitly configured, `SECRET_KEY` environment-driven, `DEBUG=False` production hardening documented, import workflow docs aligned with django-import-export dry-run/confirm semantics, axes backend and middleware docs aligned with configuration, WhiteNoise middleware and `STORAGES["staticfiles"]` docs accurate, and sensitive POST throttling plus centralized `429` behavior synchronized with settings.
