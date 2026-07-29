@@ -115,6 +115,7 @@
         <form method="post">
             {% csrf_token %}
             <input type="hidden" name="action" value="confirm">
+            <input type="hidden" name="preview_token" value="{{ preview_token }}">
             <button type="submit" class="default">Konfirmasi Import</button>
             <a href="{% url 'admin:stock_opening_balance_import_csv' %}" class="button cancel-link">Unggah Ulang</a>
             <a href="{% url 'admin:stock_openingbalanceimport_changelist' %}" class="button cancel-link">Batal</a>

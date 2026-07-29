@@ -196,20 +196,21 @@ Decimal parsing accepts comma separator.
 Expected columns for admin-only opening balance import:
 
 - `document_number` (required, unique per import batch)
-- `effective_date` (required; date the opening balance becomes effective for reports)
+- `effective_date` (required; date the opening balance becomes effective for reports; every row in the same `document_number` must use the same date)
 - `sumber_dana_code` (required)
 - `location_code` (required)
 - `item_code` (required, maps to `Item.kode_barang`)
-- `quantity` (required; must be a finite decimal greater than `0`)
-- `batch_lot` (optional; auto-generated if blank)
+- `quantity` (required; must be a finite decimal greater than `0`, with at most 12 digits and 2 decimal places)
+- `batch_lot` (optional; auto-generated with document identity if blank)
 - `expiry_date` (optional only for items with `requires_expiry_date=0`; stored as `NULL` when blank for those items)
-- `unit_price` (optional; default `0`)
+- `unit_price` (optional; default `0`; cannot be negative, with at most 15 digits and 2 decimal places)
 
 Compatibility note: `receiving_date` is accepted as an alias for `effective_date` when converting older draft files, but use `effective_date` for new files.
 
 Opening balance import notes:
 
 - Rows are grouped by `document_number`.
+- Rows for the same stock key must use the same `expiry_date` and `unit_price`; mismatches are rejected instead of merged.
 - Import creates one `OpeningBalanceImport` header plus `OpeningBalanceImportItem` rows.
 - Stock rows are updated/created with `receiving_ref=NULL`.
 - Transactions use `reference_type=INITIAL_IMPORT` and `reference_id` pointing to the `OpeningBalanceImport`.

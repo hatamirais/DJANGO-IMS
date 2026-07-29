@@ -1,5 +1,7 @@
 import csv
+import hashlib
 import io
+import secrets
 import unicodedata
 from collections import defaultdict
 from decimal import Decimal, InvalidOperation
@@ -51,6 +53,7 @@ OPENING_BALANCE_TEXT_LIMITS = {
 }
 CSV_IMPORT_MAX_SIZE_BYTES = 5 * 1024 * 1024
 OPENING_BALANCE_PREVIEW_SESSION_KEY = "stock_opening_balance_import_preview_csv"
+OPENING_BALANCE_MAX_PREVIEWS = 5
 
 
 class OpeningBalanceCSVImportForm(forms.Form):
@@ -240,7 +243,9 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
             raise PermissionDenied
 
         if request.method == "POST" and request.POST.get("action") == "confirm":
-            decoded = request.session.get(OPENING_BALANCE_PREVIEW_SESSION_KEY)
+            preview_token = request.POST.get("preview_token", "")
+            previews = request.session.get(OPENING_BALANCE_PREVIEW_SESSION_KEY, {})
+            decoded = previews.get(preview_token)
             if not decoded:
                 messages.error(
                     request,
@@ -249,7 +254,12 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                 return redirect("admin:stock_opening_balance_import_csv")
             try:
                 result = self._process_opening_balance_csv(decoded, request.user)
-                request.session.pop(OPENING_BALANCE_PREVIEW_SESSION_KEY, None)
+                previews.pop(preview_token, None)
+                if previews:
+                    request.session[OPENING_BALANCE_PREVIEW_SESSION_KEY] = previews
+                else:
+                    request.session.pop(OPENING_BALANCE_PREVIEW_SESSION_KEY, None)
+                request.session.modified = True
                 messages.success(
                     request,
                     f"Import saldo awal berhasil: {result['imports']} dokumen, "
@@ -272,13 +282,20 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                 try:
                     decoded = self._decode_opening_balance_csv(form.cleaned_data["csv_file"])
                     preview = self._parse_opening_balance_csv(decoded)
-                    request.session[OPENING_BALANCE_PREVIEW_SESSION_KEY] = decoded
+                    previews = request.session.get(OPENING_BALANCE_PREVIEW_SESSION_KEY, {})
+                    preview_token = secrets.token_urlsafe(24)
+                    previews[preview_token] = decoded
+                    while len(previews) > OPENING_BALANCE_MAX_PREVIEWS:
+                        previews.pop(next(iter(previews)))
+                    request.session[OPENING_BALANCE_PREVIEW_SESSION_KEY] = previews
+                    request.session.modified = True
                     return render(
                         request,
                         "admin/stock/opening_balance_csv_import.html",
                         {
                             "form": form,
                             "preview": preview,
+                            "preview_token": preview_token,
                             "title": "Konfirmasi Import Saldo Awal dari CSV",
                             "opts": self.model._meta,
                         },
@@ -436,6 +453,18 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
             }
 
             for row_num, row in rows:
+                row_effective_date_str = row.get("effective_date") or row.get("receiving_date")
+                if not row_effective_date_str:
+                    raise ValueError(f"Baris {row_num}: effective_date kosong")
+                row_effective_date = self._parse_opening_balance_date(
+                    row_effective_date_str,
+                    row_num=row_num,
+                    field_name="effective_date",
+                )
+                if row_effective_date != effective_date:
+                    raise ValueError(
+                        f"Baris {row_num}: effective_date harus sama dengan dokumen '{doc_number}' ({effective_date:%d/%m/%Y})."
+                    )
                 item_code = row.get("item_code", "")
                 funding_code = row.get("sumber_dana_code", "")
                 location_code = row.get("location_code", "")
@@ -477,13 +506,21 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                     field_name="quantity",
                     required=True,
                     must_be_positive=True,
+                    max_digits=12,
+                    decimal_places=2,
                 )
                 unit_price = self._parse_opening_balance_decimal(
                     row.get("unit_price", "0"),
                     row_num=row_num,
                     field_name="unit_price",
+                    must_be_non_negative=True,
+                    max_digits=15,
+                    decimal_places=2,
                 )
-                batch_lot = row.get("batch_lot", "").strip() or f"SALDO-{row_num:04d}"
+                batch_lot = row.get("batch_lot", "").strip() or self._generate_opening_balance_batch_lot(
+                    doc_number,
+                    row_num,
+                )
                 self._validate_opening_balance_text_length(batch_lot, "batch_lot", row_num)
 
                 expiry_date_str = row.get("expiry_date", "").strip()
@@ -511,10 +548,14 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                     location=location,
                     batch_lot=batch_lot,
                     sumber_dana=funding,
-                ).values("expiry_date").first()
+                ).values("expiry_date", "unit_price").first()
                 if existing_stock and existing_stock["expiry_date"] != expiry_date:
                     raise ValueError(
                         f"Baris {row_num}: batch stok sudah ada dengan tanggal kedaluwarsa berbeda."
+                    )
+                if existing_stock and existing_stock["unit_price"] != unit_price:
+                    raise ValueError(
+                        f"Baris {row_num}: batch stok sudah ada dengan harga satuan berbeda."
                     )
 
                 document["rows"].append(
@@ -561,10 +602,17 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
             "batch_lot": batch_lot,
             "sumber_dana": sumber_dana,
         }
-        existing_stock = Stock.objects.filter(**stock_filters).values("expiry_date").first()
+        existing_stock = Stock.objects.filter(**stock_filters).values(
+            "expiry_date",
+            "unit_price",
+        ).first()
         if existing_stock and existing_stock["expiry_date"] != expiry_date:
             raise ValueError(
                 "Batch stok yang sama tidak boleh memiliki tanggal kedaluwarsa berbeda."
+            )
+        if existing_stock and existing_stock.get("unit_price") != unit_price:
+            raise ValueError(
+                "Batch stok yang sama tidak boleh memiliki harga satuan berbeda."
             )
 
         update_filters = {**stock_filters, "expiry_date": expiry_date}
@@ -589,10 +637,17 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                     receiving_ref=None,
                 )
         except IntegrityError as exc:
-            existing_stock = Stock.objects.filter(**stock_filters).values("expiry_date").first()
+            existing_stock = Stock.objects.filter(**stock_filters).values(
+                "expiry_date",
+                "unit_price",
+            ).first()
             if existing_stock and existing_stock["expiry_date"] != expiry_date:
                 raise ValueError(
                     "Batch stok yang sama tidak boleh memiliki tanggal kedaluwarsa berbeda."
+                ) from exc
+            if existing_stock and existing_stock.get("unit_price") != unit_price:
+                raise ValueError(
+                    "Batch stok yang sama tidak boleh memiliki harga satuan berbeda."
                 ) from exc
             updated = Stock.objects.filter(**update_filters).update(
                 quantity=F("quantity") + quantity,
@@ -620,6 +675,11 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
             )
 
     @staticmethod
+    def _generate_opening_balance_batch_lot(document_number, row_num):
+        document_hash = hashlib.sha1(document_number.encode("utf-8")).hexdigest()[:12]
+        return f"SALDO-{document_hash}-{row_num:04d}"
+
+    @staticmethod
     def _parse_opening_balance_date(value, row_num=None, field_name="tanggal"):
         value = (value or "").strip()
         formats = ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%y")
@@ -644,6 +704,9 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
         field_name,
         required=False,
         must_be_positive=False,
+        must_be_non_negative=False,
+        max_digits=None,
+        decimal_places=None,
     ):
         raw_value = str(value or "").strip()
         if not raw_value:
@@ -660,7 +723,35 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
             raise ValueError(f"Baris {row_num}: {field_name} harus bilangan finite")
         if must_be_positive and parsed <= 0:
             raise ValueError(f"Baris {row_num}: {field_name} harus lebih dari 0")
+        if must_be_non_negative and parsed < 0:
+            raise ValueError(f"Baris {row_num}: {field_name} tidak boleh negatif")
+        if max_digits is not None and decimal_places is not None:
+            StockAdmin._validate_opening_balance_decimal_precision(
+                parsed,
+                row_num=row_num,
+                field_name=field_name,
+                max_digits=max_digits,
+                decimal_places=decimal_places,
+            )
         return parsed
+
+    @staticmethod
+    def _validate_opening_balance_decimal_precision(
+        value,
+        *,
+        row_num,
+        field_name,
+        max_digits,
+        decimal_places,
+    ):
+        exponent = value.as_tuple().exponent
+        actual_decimal_places = max(-exponent, 0)
+        whole_digits = max(value.adjusted() + 1, 0) if value else 1
+        total_digits = whole_digits + actual_decimal_places
+        if actual_decimal_places > decimal_places or total_digits > max_digits:
+            raise ValueError(
+                f"Baris {row_num}: {field_name} maksimal {max_digits} digit dan {decimal_places} angka desimal"
+            )
 
 
 class OpeningBalanceImportItemInline(admin.TabularInline):

@@ -479,7 +479,7 @@ Operational mutation points (from app behavior and admin import logic):
   - `OpeningBalanceImportItem`
   - `Stock` update/create with `receiving_ref=NULL`
   - `Transaction(IN, reference_type=INITIAL_IMPORT, reference_id=OpeningBalanceImport.pk)`
-- Opening balance CSV template download (`/admin/stock/stock/opening-balance/export-csv-template/`) returns `opening_balance_template.csv`. The importer uses `effective_date` for report classification, accepts `receiving_date` only as a compatibility alias, and rejects populated `receiving_type` / `supplier_code` columns.
+- Opening balance CSV template download (`/admin/stock/stock/opening-balance/export-csv-template/`) returns `opening_balance_template.csv`. The importer uses one consistent `effective_date` per `document_number` for report classification, accepts `receiving_date` only as a compatibility alias, rejects populated `receiving_type` / `supplier_code` columns, validates destination decimal precision before preview, rejects negative `unit_price`, generates blank batches with document identity, and rejects existing-stock collisions with different `expiry_date` or `unit_price`.
 - Reports classify `INITIAL_IMPORT` as `saldo_awal`, not operational `nilai_terima`; later-year opening balance is derived from the prior ledger balance and does not require re-import.
 - LPLPO approval/finalize creates a Distribution document mapped 1:1, marks the LPLPO `APPROVED`, and closes the LPLPO once the linked Distribution reaches `DISTRIBUTED`.
 - For generated LPLPO draft distributions, the preparation edit UI displays both requested and approved quantities for reference but locks those values and rejects added/deleted rows; users only assign batches and preparation metadata there.

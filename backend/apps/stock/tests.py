@@ -252,10 +252,11 @@ class OpeningBalanceImportAdminTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Konfirmasi Import")
+        preview_token = response.context["preview_token"]
         self.assertFalse(OpeningBalanceImport.objects.exists())
         response = self.client.post(
             reverse("admin:stock_opening_balance_import_csv"),
-            {"action": "confirm"},
+            {"action": "confirm", "preview_token": preview_token},
         )
 
         self.assertEqual(response.status_code, 302)
@@ -309,10 +310,11 @@ class OpeningBalanceImportAdminTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Konfirmasi Import")
+        preview_token = response.context["preview_token"]
         self.assertFalse(OpeningBalanceImport.objects.exists())
         response = self.client.post(
             reverse("admin:stock_opening_balance_import_csv"),
-            {"action": "confirm"},
+            {"action": "confirm", "preview_token": preview_token},
         )
 
         self.assertEqual(response.status_code, 302)
@@ -351,6 +353,161 @@ class OpeningBalanceImportAdminTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(OpeningBalanceImport.objects.exists())
         self.assertFalse(Transaction.objects.filter(reference_type=Transaction.ReferenceType.INITIAL_IMPORT).exists())
+
+    def test_opening_balance_import_rejects_mismatched_effective_date_in_document(self):
+        self.client.force_login(self.admin_user)
+        csv_content = (
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price\n"
+            f"SALDO-AWAL-2026,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},10,BATCH-001,01/01/2028,2500\n"
+            f"SALDO-AWAL-2026,02/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},5,BATCH-002,01/01/2028,2500\n"
+        )
+
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(csv_content)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "effective_date harus sama")
+        self.assertFalse(OpeningBalanceImport.objects.exists())
+
+    def test_opening_balance_import_rejects_negative_unit_price(self):
+        self.client.force_login(self.admin_user)
+        csv_content = (
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price\n"
+            f"SALDO-AWAL-2026,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},10,BATCH-001,01/01/2028,-1\n"
+        )
+
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(csv_content)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "unit_price tidak boleh negatif")
+        self.assertFalse(OpeningBalanceImport.objects.exists())
+
+    def test_opening_balance_import_rejects_quantity_precision_overflow(self):
+        self.client.force_login(self.admin_user)
+        csv_content = (
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price\n"
+            f"SALDO-AWAL-2026,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},0.001,BATCH-001,01/01/2028,2500\n"
+        )
+
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(csv_content)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "quantity maksimal 12 digit dan 2 angka desimal")
+        self.assertFalse(OpeningBalanceImport.objects.exists())
+
+    def test_opening_balance_import_rejects_existing_stock_unit_price_mismatch(self):
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot="BATCH-001",
+            expiry_date=date(2028, 1, 1),
+            quantity=Decimal("5"),
+            unit_price=Decimal("100"),
+            sumber_dana=self.funding,
+        )
+        self.client.force_login(self.admin_user)
+        csv_content = (
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price\n"
+            f"SALDO-AWAL-2026,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},10,BATCH-001,01/01/2028,200\n"
+        )
+
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(csv_content)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "harga satuan berbeda")
+        self.assertFalse(OpeningBalanceImport.objects.exists())
+
+    def test_opening_balance_confirm_uses_preview_token_from_same_upload(self):
+        self.client.force_login(self.admin_user)
+        first_csv = (
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price\n"
+            f"SALDO-AWAL-FIRST,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},10,BATCH-FIRST,01/01/2028,2500\n"
+        )
+        second_csv = (
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price\n"
+            f"SALDO-AWAL-SECOND,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},20,BATCH-SECOND,01/01/2028,2500\n"
+        )
+        first_response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(first_csv)},
+        )
+        first_token = first_response.context["preview_token"]
+        self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(second_csv)},
+        )
+
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"action": "confirm", "preview_token": first_token},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(
+            OpeningBalanceImport.objects.filter(document_number="SALDO-AWAL-FIRST").exists()
+        )
+        self.assertFalse(
+            OpeningBalanceImport.objects.filter(document_number="SALDO-AWAL-SECOND").exists()
+        )
+
+    def test_opening_balance_blank_batch_generation_includes_document_identity(self):
+        self.client.force_login(self.admin_user)
+        first_csv = (
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price\n"
+            f"SALDO-AWAL-FIRST,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},10,,01/01/2028,2500\n"
+        )
+        second_csv = (
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price\n"
+            f"SALDO-AWAL-SECOND,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},20,,01/01/2028,2500\n"
+        )
+        first_response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(first_csv)},
+        )
+        self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"action": "confirm", "preview_token": first_response.context["preview_token"]},
+        )
+        second_response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(second_csv)},
+        )
+        self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"action": "confirm", "preview_token": second_response.context["preview_token"]},
+        )
+
+        batches = set(Stock.objects.values_list("batch_lot", flat=True))
+        self.assertEqual(Stock.objects.count(), 2)
+        self.assertEqual(len(batches), 2)
 
     def test_opening_balance_import_denies_non_admin_staff(self):
         self.client.force_login(self.staff_user)

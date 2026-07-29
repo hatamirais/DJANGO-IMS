@@ -2,7 +2,7 @@ from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
 from apps.core.decorators import perm_required
 from django.db import models
-from django.db.models import Sum, Q, F, Case, When, OuterRef, Subquery, Count
+from django.db.models import Sum, Q, F, Case, When, OuterRef, Subquery, Count, Exists
 from django.db.models.functions import Coalesce, TruncDate
 from django.urls import reverse
 
@@ -34,18 +34,14 @@ def reports_index(request):
     if form.is_valid():
         start_date = form.cleaned_data.get('start_date')
         end_date = form.cleaned_data.get('end_date')
-        opening_balance_ids = OpeningBalanceImport.objects.filter(
-            effective_date__lte=start_date
-        ).values('pk')
-        all_opening_balance_ids = OpeningBalanceImport.objects.values('pk')
         initial_import_as_opening_balance = (
             Q(reference_type='INITIAL_IMPORT')
             & Q(transaction_type='IN')
             & (
-                Q(reference_id__in=opening_balance_ids)
+                Q(has_effective_opening_balance_header=True)
                 | (
                     Q(created_at__date__lte=start_date)
-                    & (Q(reference_id__isnull=True) | ~Q(reference_id__in=all_opening_balance_ids))
+                    & Q(has_any_opening_balance_header=False)
                 )
             )
         )
@@ -59,7 +55,21 @@ def reports_index(request):
         ).values('expiry_date')[:1]
 
         # First level query to annotate initial balances and period flows
-        qs = Transaction.objects.values(
+        qs = Transaction.objects.annotate(
+            has_effective_opening_balance_header=Exists(
+                OpeningBalanceImport.objects.filter(
+                    pk=OuterRef('reference_id'),
+                    created_at__lte=OuterRef('created_at'),
+                    effective_date__lte=start_date,
+                )
+            ),
+            has_any_opening_balance_header=Exists(
+                OpeningBalanceImport.objects.filter(
+                    pk=OuterRef('reference_id'),
+                    created_at__lte=OuterRef('created_at'),
+                )
+            ),
+        ).values(
             'item__kategori__name',
             'item__kategori__sort_order',
             'item__nama_barang',
@@ -290,18 +300,14 @@ def reports_rekap(request):
     if form.is_valid():
         start_date = form.cleaned_data.get('start_date')
         end_date = form.cleaned_data.get('end_date')
-        opening_balance_ids = OpeningBalanceImport.objects.filter(
-            effective_date__lte=start_date
-        ).values('pk')
-        all_opening_balance_ids = OpeningBalanceImport.objects.values('pk')
         initial_import_as_opening_balance = (
             Q(reference_type='INITIAL_IMPORT')
             & Q(transaction_type='IN')
             & (
-                Q(reference_id__in=opening_balance_ids)
+                Q(has_effective_opening_balance_header=True)
                 | (
                     Q(created_at__date__lte=start_date)
-                    & (Q(reference_id__isnull=True) | ~Q(reference_id__in=all_opening_balance_ids))
+                    & Q(has_any_opening_balance_header=False)
                 )
             )
         )
@@ -312,7 +318,21 @@ def reports_rekap(request):
             base_qs = base_qs.filter(sumber_dana_id__in=selected_sd_ids)
 
         # Aggregate by sumber_dana + kategori
-        qs = base_qs.values(
+        qs = base_qs.annotate(
+            has_effective_opening_balance_header=Exists(
+                OpeningBalanceImport.objects.filter(
+                    pk=OuterRef('reference_id'),
+                    created_at__lte=OuterRef('created_at'),
+                    effective_date__lte=start_date,
+                )
+            ),
+            has_any_opening_balance_header=Exists(
+                OpeningBalanceImport.objects.filter(
+                    pk=OuterRef('reference_id'),
+                    created_at__lte=OuterRef('created_at'),
+                )
+            ),
+        ).values(
             'sumber_dana__id',
             'sumber_dana__name',
             'item__kategori__name',
