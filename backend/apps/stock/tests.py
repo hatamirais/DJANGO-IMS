@@ -361,6 +361,42 @@ class OpeningBalanceImportAdminTests(TestCase):
         self.assertFalse(OpeningBalanceImport.objects.exists())
         self.assertFalse(Transaction.objects.filter(reference_type=Transaction.ReferenceType.INITIAL_IMPORT).exists())
 
+    def test_opening_balance_import_rejects_header_only_csv(self):
+        self.client.force_login(self.admin_user)
+        csv_content = (
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price\n"
+        )
+
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(csv_content)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "tidak memiliki baris data")
+        self.assertFalse(OpeningBalanceImport.objects.exists())
+        self.assertFalse(Stock.objects.exists())
+
+    def test_opening_balance_import_rejects_row_with_more_values_than_header(self):
+        self.client.force_login(self.admin_user)
+        csv_content = (
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price\n"
+            f"SALDO-AWAL-2026,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},10,BATCH-001,01/01/2028,2500,50\n"
+        )
+
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(csv_content)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "jumlah kolom melebihi header CSV")
+        self.assertFalse(OpeningBalanceImport.objects.exists())
+        self.assertFalse(Stock.objects.exists())
+
     def test_opening_balance_import_rejects_mismatched_effective_date_in_document(self):
         self.client.force_login(self.admin_user)
         csv_content = (

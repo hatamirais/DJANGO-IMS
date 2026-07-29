@@ -210,6 +210,7 @@ Compatibility note: `receiving_date` is accepted as an alias for `effective_date
 Opening balance import notes:
 
 - Rows are grouped by `document_number`.
+- Every data row must match the header column count; quote values that contain commas, such as `"2500,50"`, so the CSV parser does not treat them as extra columns.
 - Rows for the same stock key must use the same `expiry_date` and `unit_price`; mismatches are rejected instead of merged.
 - Import creates one `OpeningBalanceImport` header plus `OpeningBalanceImportItem` rows.
 - Stock rows are updated/created with `receiving_ref=NULL`.

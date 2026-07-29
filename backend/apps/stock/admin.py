@@ -405,6 +405,10 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
 
         grouped = defaultdict(list)
         for row_num, row in enumerate(reader, start=2):
+            if row.get(None):
+                raise ValueError(
+                    f"Baris {row_num}: jumlah kolom melebihi header CSV. Pastikan nilai yang mengandung koma diapit tanda kutip."
+                )
             row = {
                 (k or "").strip(): self._normalize_opening_balance_text(
                     v,
@@ -431,6 +435,9 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                 row_num,
             )
             grouped[doc_number].append((row_num, row))
+
+        if not grouped:
+            raise ValueError("CSV saldo awal tidak memiliki baris data.")
 
         preview = {"documents": [], "total_documents": 0, "total_rows": 0}
         seen_stock_expiry = {}
