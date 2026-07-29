@@ -50,7 +50,7 @@ Import behavior summary:
 Use `/admin/stock/stock/opening-balance/import-csv/` for first-time stock bootstrap.
 Use `/admin/stock/stock/opening-balance/export-csv-template/` to download a blank `opening_balance_template.csv`.
 
-This route is restricted to superuser / role `ADMIN` accounts and is not part of normal operational receiving. Uploading a CSV first runs validation and shows a preview table; the database is changed only after the admin presses `Konfirmasi Import`. Confirmed imports post `Transaction(IN)` rows with `reference_type=INITIAL_IMPORT`; rekap/yearly reports classify those rows as `saldo_awal` based on the opening balance `effective_date`.
+This route is restricted to superuser / role `ADMIN` accounts and is not part of normal operational receiving. Uploading a CSV first runs validation and shows a preview table; the database is changed only after the admin presses `Konfirmasi Import`. Confirmed imports post `Transaction(IN)` rows with `reference_type=INITIAL_IMPORT`; rekap/yearly reports classify those rows by opening balance `effective_date`: `saldo_awal` when effective on/before the report start, or in-period received stock when effective after the report start and within the selected period.
 
 Opening balance imports must not use `receiving_type` or `supplier_code`. If those columns are present with values, the importer rejects the file so receiving templates are not silently treated as saldo awal.
 

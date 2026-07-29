@@ -46,11 +46,16 @@ def reports_index(request):
             )
         )
         initial_import_as_period_receiving = (
-            Q(created_at__date__gt=start_date)
-            & Q(created_at__date__lte=end_date)
-            & Q(reference_type='INITIAL_IMPORT')
+            Q(reference_type='INITIAL_IMPORT')
             & Q(transaction_type='IN')
-            & Q(has_any_opening_balance_item=False)
+            & (
+                Q(has_in_period_opening_balance_item=True)
+                | (
+                    Q(created_at__date__gt=start_date)
+                    & Q(created_at__date__lte=end_date)
+                    & Q(has_any_opening_balance_item=False)
+                )
+            )
         )
 
         # Subquery to get expiry_date from Stock
@@ -80,6 +85,20 @@ def reports_index(request):
                 OpeningBalanceImportItem.objects.filter(
                     opening_balance_id=OuterRef('reference_id'),
                     opening_balance__created_at__lte=OuterRef('created_at'),
+                    item=OuterRef('item'),
+                    location=OuterRef('location'),
+                    batch_lot=OuterRef('batch_lot'),
+                    sumber_dana=OuterRef('sumber_dana'),
+                    quantity=OuterRef('quantity'),
+                    unit_price=OuterRef('unit_price'),
+                )
+            ),
+            has_in_period_opening_balance_item=Exists(
+                OpeningBalanceImportItem.objects.filter(
+                    opening_balance_id=OuterRef('reference_id'),
+                    opening_balance__created_at__lte=OuterRef('created_at'),
+                    opening_balance__effective_date__gt=start_date,
+                    opening_balance__effective_date__lte=end_date,
                     item=OuterRef('item'),
                     location=OuterRef('location'),
                     batch_lot=OuterRef('batch_lot'),
@@ -335,11 +354,16 @@ def reports_rekap(request):
             )
         )
         initial_import_as_period_receiving = (
-            Q(created_at__date__gt=start_date)
-            & Q(created_at__date__lte=end_date)
-            & Q(reference_type='INITIAL_IMPORT')
+            Q(reference_type='INITIAL_IMPORT')
             & Q(transaction_type='IN')
-            & Q(has_any_opening_balance_item=False)
+            & (
+                Q(has_in_period_opening_balance_item=True)
+                | (
+                    Q(created_at__date__gt=start_date)
+                    & Q(created_at__date__lte=end_date)
+                    & Q(has_any_opening_balance_item=False)
+                )
+            )
         )
 
         # Base queryset: filter by sumber_dana if selected
@@ -366,6 +390,20 @@ def reports_rekap(request):
                 OpeningBalanceImportItem.objects.filter(
                     opening_balance_id=OuterRef('reference_id'),
                     opening_balance__created_at__lte=OuterRef('created_at'),
+                    item=OuterRef('item'),
+                    location=OuterRef('location'),
+                    batch_lot=OuterRef('batch_lot'),
+                    sumber_dana=OuterRef('sumber_dana'),
+                    quantity=OuterRef('quantity'),
+                    unit_price=OuterRef('unit_price'),
+                )
+            ),
+            has_in_period_opening_balance_item=Exists(
+                OpeningBalanceImportItem.objects.filter(
+                    opening_balance_id=OuterRef('reference_id'),
+                    opening_balance__created_at__lte=OuterRef('created_at'),
+                    opening_balance__effective_date__gt=start_date,
+                    opening_balance__effective_date__lte=end_date,
                     item=OuterRef('item'),
                     location=OuterRef('location'),
                     batch_lot=OuterRef('batch_lot'),
