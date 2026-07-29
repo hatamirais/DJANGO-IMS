@@ -202,6 +202,9 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
         ],
     }
 
+    def has_import_permission(self, request):
+        return False
+
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
@@ -615,7 +618,11 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                 "Batch stok yang sama tidak boleh memiliki harga satuan berbeda."
             )
 
-        update_filters = {**stock_filters, "expiry_date": expiry_date}
+        update_filters = {
+            **stock_filters,
+            "expiry_date": expiry_date,
+            "unit_price": unit_price,
+        }
         updated = Stock.objects.filter(**update_filters).update(
             quantity=F("quantity") + quantity,
             receiving_ref=None,

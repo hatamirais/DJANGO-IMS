@@ -193,7 +193,7 @@ This section reflects model code in `backend/apps/*/models.py`.
   - Admin-only batch header for first-time stock bootstrap
   - Fields: `document_number` (unique), `effective_date`, `posted_at`, `notes`
   - FK: `created_by`
-  - Report semantics: linked `INITIAL_IMPORT` transactions count as opening balance (`saldo_awal`) when `effective_date <= report.start_date`
+  - Report semantics: matching `INITIAL_IMPORT` transactions count as opening balance (`saldo_awal`) when `effective_date <= report.start_date`
 
 - `stock.OpeningBalanceImportItem` (`opening_balance_import_items`):
   - FKs: `opening_balance`, `item`, `location`, `sumber_dana`
@@ -474,13 +474,13 @@ Operational mutation points (from app behavior and admin import logic):
   - `Transaction(IN)`
   - Rows are grouped by `document_number`; the first row supplies header-level values, while row-level `sumber_dana_code` and `location_code` can override header defaults
 - Receiving CSV admin template download (`export-csv-template/`) returns a blank `receiving_template.csv` with the exact columns accepted by the dedicated importer and does not mutate data.
-- Opening balance CSV admin import (`/admin/stock/stock/opening-balance/import-csv/`) is restricted to superuser / role `ADMIN`. Upload first validates and renders a preview; only the explicit `Konfirmasi Import` submit posts:
+- Opening balance CSV admin import (`/admin/stock/stock/opening-balance/import-csv/`) is restricted to superuser / role `ADMIN`. The generic Stock admin import endpoint is disabled so stock cannot be written without ledger transactions. Upload first validates and renders a preview; only the explicit `Konfirmasi Import` submit posts:
   - `OpeningBalanceImport`
   - `OpeningBalanceImportItem`
   - `Stock` update/create with `receiving_ref=NULL`
   - `Transaction(IN, reference_type=INITIAL_IMPORT, reference_id=OpeningBalanceImport.pk)`
 - Opening balance CSV template download (`/admin/stock/stock/opening-balance/export-csv-template/`) returns `opening_balance_template.csv`. The importer uses one consistent `effective_date` per `document_number` for report classification, accepts `receiving_date` only as a compatibility alias, rejects populated `receiving_type` / `supplier_code` columns, validates destination decimal precision before preview, rejects negative `unit_price`, generates blank batches with document identity, and rejects existing-stock collisions with different `expiry_date` or `unit_price`.
-- Reports classify `INITIAL_IMPORT` as `saldo_awal`, not operational `nilai_terima`; later-year opening balance is derived from the prior ledger balance and does not require re-import.
+- Reports classify dedicated opening-balance `INITIAL_IMPORT` rows as `saldo_awal`, not operational `nilai_terima`; later-year opening balance is derived from the prior ledger balance and does not require re-import. Legacy unlinked `INITIAL_IMPORT` rows still use compatibility behavior: rows up to the report start date count as opening balance, and rows after the start date count as in-period received stock.
 - LPLPO approval/finalize creates a Distribution document mapped 1:1, marks the LPLPO `APPROVED`, and closes the LPLPO once the linked Distribution reaches `DISTRIBUTED`.
 - For generated LPLPO draft distributions, the preparation edit UI displays both requested and approved quantities for reference but locks those values and rejects added/deleted rows; users only assign batches and preparation metadata there.
 - Generated LPLPO distributions cannot use the generic delete action. While still pending distribution, assigned distribution preparers or fallback distribution approvers with LPLPO module scope `OPERATE` may use `/distribution/<pk>/return-lplpo-to-puskesmas/` with a required reason to cancel the generated distribution and return the parent LPLPO to `REJECTED_PUSKESMAS`.

@@ -336,6 +336,13 @@ class OpeningBalanceImportAdminTests(TestCase):
         self.assertContains(response, reverse("admin:stock_opening_balance_import_csv"))
         self.assertContains(response, reverse("admin:stock_opening_balance_export_csv_template"))
 
+    def test_stock_admin_generic_import_is_disabled(self):
+        self.client.force_login(self.admin_user)
+
+        response = self.client.get(reverse("admin:stock_stock_import"))
+
+        self.assertEqual(response.status_code, 403)
+
     def test_opening_balance_import_rejects_receiving_columns_with_values(self):
         self.client.force_login(self.admin_user)
         csv_content = (
