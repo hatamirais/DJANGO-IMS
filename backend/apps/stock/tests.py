@@ -343,6 +343,69 @@ class OpeningBalanceImportAdminTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
 
+    def test_stock_admin_direct_add_is_disabled(self):
+        self.client.force_login(self.admin_user)
+
+        response = self.client.get(reverse("admin:stock_stock_add"))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_stock_admin_direct_change_post_is_disabled(self):
+        stock = Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot="BATCH-001",
+            expiry_date=date(2028, 1, 1),
+            quantity=Decimal("5"),
+            unit_price=Decimal("100"),
+            sumber_dana=self.funding,
+        )
+        self.client.force_login(self.admin_user)
+
+        response = self.client.post(
+            reverse("admin:stock_stock_change", args=[stock.pk]),
+            {
+                "item": self.item.pk,
+                "location": self.location.pk,
+                "batch_lot": "BATCH-001",
+                "expiry_date": "2028-01-01",
+                "quantity": "99",
+                "reserved": "0",
+                "unit_price": "100",
+                "sumber_dana": self.funding.pk,
+                "receiving_ref": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 403)
+        stock.refresh_from_db()
+        self.assertEqual(stock.quantity, Decimal("5"))
+
+    def test_stock_admin_direct_delete_is_disabled(self):
+        stock = Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot="BATCH-001",
+            expiry_date=date(2028, 1, 1),
+            quantity=Decimal("5"),
+            unit_price=Decimal("100"),
+            sumber_dana=self.funding,
+        )
+        self.client.force_login(self.admin_user)
+
+        response = self.client.get(reverse("admin:stock_stock_delete", args=[stock.pk]))
+
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(Stock.objects.filter(pk=stock.pk).exists())
+
+    def test_stock_admin_changelist_hides_direct_add_action(self):
+        self.client.force_login(self.admin_user)
+
+        response = self.client.get(reverse("admin:stock_stock_changelist"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, reverse("admin:stock_stock_add"))
+
     def test_opening_balance_import_rejects_receiving_columns_with_values(self):
         self.client.force_login(self.admin_user)
         csv_content = (

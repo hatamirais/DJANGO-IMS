@@ -219,5 +219,5 @@ Opening balance import notes:
 
 ### `stock.csv` (reference only)
 
-The repository may still contain `stock.csv` fixtures for reference, but the generic Stock admin import endpoint is disabled. For first-time inventory bootstrap, use the dedicated opening balance import so the report ledger has explicit `INITIAL_IMPORT` semantics.
+The repository may still contain `stock.csv` fixtures for reference, but generic Stock admin import and direct Stock add/change/delete mutations are disabled. For first-time inventory bootstrap, use the dedicated opening balance import so the report ledger has explicit `INITIAL_IMPORT` semantics.
 
