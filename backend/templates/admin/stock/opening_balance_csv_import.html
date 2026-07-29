@@ -71,6 +71,57 @@
             pada import ini dan akan ditolak bila berisi nilai.</p>
     </div>
 
+    {% if preview %}
+    <div class="module">
+        <h3>Pratinjau Import</h3>
+        <p>
+            File valid dan belum masuk ke sistem. Tekan <strong>Konfirmasi Import</strong>
+            untuk membuat {{ preview.total_documents }} dokumen saldo awal dan
+            {{ preview.total_rows }} baris transaksi.
+        </p>
+        {% for document in preview.documents %}
+        <h4>{{ document.document_number }} - {{ document.effective_date|date:"d/m/Y" }}</h4>
+        <div style="max-height: 420px; overflow: auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th scope="col">Baris</th>
+                        <th scope="col">Item</th>
+                        <th scope="col">Sumber Dana</th>
+                        <th scope="col">Lokasi</th>
+                        <th scope="col">Batch</th>
+                        <th scope="col">Expiry</th>
+                        <th scope="col">Qty</th>
+                        <th scope="col">Harga</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in document.rows %}
+                    <tr>
+                        <td>{{ row.row_num }}</td>
+                        <td><code>{{ row.item_code }}</code> - {{ row.item_name }}</td>
+                        <td><code>{{ row.funding_code }}</code> - {{ row.funding_name }}</td>
+                        <td><code>{{ row.location_code }}</code> - {{ row.location_name }}</td>
+                        <td><code>{{ row.batch_lot }}</code></td>
+                        <td>{% if row.expiry_date %}{{ row.expiry_date|date:"d/m/Y" }}{% else %}Tanpa kedaluwarsa{% endif %}</td>
+                        <td>{{ row.quantity }}</td>
+                        <td>{{ row.unit_price }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endfor %}
+        <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="confirm">
+            <button type="submit" class="default">Konfirmasi Import</button>
+            <a href="{% url 'admin:stock_opening_balance_import_csv' %}" class="button cancel-link">Unggah Ulang</a>
+            <a href="{% url 'admin:stock_openingbalanceimport_changelist' %}" class="button cancel-link">Batal</a>
+        </form>
+    </div>
+    {% endif %}
+
     <form method="post" enctype="multipart/form-data">
         {% csrf_token %}
 
@@ -82,8 +133,8 @@
             {% endif %}
         </div>
 
-        <button type="submit" class="default">Import</button>
-        <a href=".." class="button cancel-link">Batal</a>
+        <button type="submit" class="default">Validasi dan Pratinjau</button>
+        <a href="{% url 'admin:stock_openingbalanceimport_changelist' %}" class="button cancel-link">Batal</a>
     </form>
 </div>
 {% endblock %}

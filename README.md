@@ -30,7 +30,7 @@ Solusi ini membantu proses inventaris berjalan lebih konsisten melalui alur doku
 - Log `Transaction` yang imutabel untuk seluruh pergerakan stok, sehingga histori tetap terjaga.
 - Pengendalian akses melalui kombinasi permission Django dan `ModuleAccess` per pengguna.
 - Jejak audit perubahan objek penting melalui `django-auditlog`, dengan webview awal tersedia di Django Admin `/admin/` untuk pengguna staff/admin yang berwenang.
-- Dukungan import CSV dari Django Admin, termasuk endpoint khusus `Saldo Awal` di Stock Admin untuk bootstrap stok awal yang menulis `Transaction(IN, reference_type=INITIAL_IMPORT)`, serta endpoint penerimaan barang yang mengelompokkan baris per `document_number` dan langsung membentuk stok serta `Transaction(IN)`. Kolom `expiry_date` pada import penerimaan dan saldo awal kini opsional hanya untuk barang yang ditandai tidak memerlukan kedaluwarsa; untuk barang lain kolom tersebut tetap wajib.
+- Dukungan import CSV dari Django Admin, termasuk endpoint khusus `Saldo Awal` di Stock Admin untuk bootstrap stok awal dengan tahap pratinjau/konfirmasi sebelum menulis `Transaction(IN, reference_type=INITIAL_IMPORT)`, serta endpoint penerimaan barang yang mengelompokkan baris per `document_number` dan langsung membentuk stok serta `Transaction(IN)`. Kolom `expiry_date` pada import penerimaan dan saldo awal kini opsional hanya untuk barang yang ditandai tidak memerlukan kedaluwarsa; untuk barang lain kolom tersebut tetap wajib.
 
 ## Modul Saat Ini
 

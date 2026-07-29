@@ -474,7 +474,7 @@ Operational mutation points (from app behavior and admin import logic):
   - `Transaction(IN)`
   - Rows are grouped by `document_number`; the first row supplies header-level values, while row-level `sumber_dana_code` and `location_code` can override header defaults
 - Receiving CSV admin template download (`export-csv-template/`) returns a blank `receiving_template.csv` with the exact columns accepted by the dedicated importer and does not mutate data.
-- Opening balance CSV admin import (`/admin/stock/stock/opening-balance/import-csv/`) is restricted to superuser / role `ADMIN` and posts:
+- Opening balance CSV admin import (`/admin/stock/stock/opening-balance/import-csv/`) is restricted to superuser / role `ADMIN`. Upload first validates and renders a preview; only the explicit `Konfirmasi Import` submit posts:
   - `OpeningBalanceImport`
   - `OpeningBalanceImportItem`
   - `Stock` update/create with `receiving_ref=NULL`

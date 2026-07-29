@@ -250,6 +250,14 @@ class OpeningBalanceImportAdminTests(TestCase):
             {"csv_file": self._csv_upload(csv_content)},
         )
 
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Konfirmasi Import")
+        self.assertFalse(OpeningBalanceImport.objects.exists())
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"action": "confirm"},
+        )
+
         self.assertEqual(response.status_code, 302)
         opening_balance = OpeningBalanceImport.objects.get(
             document_number="SALDO-AWAL-2026"
@@ -297,6 +305,14 @@ class OpeningBalanceImportAdminTests(TestCase):
         response = self.client.post(
             reverse("admin:stock_opening_balance_import_csv"),
             {"csv_file": self._csv_upload(csv_content)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Konfirmasi Import")
+        self.assertFalse(OpeningBalanceImport.objects.exists())
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"action": "confirm"},
         )
 
         self.assertEqual(response.status_code, 302)

@@ -50,6 +50,7 @@ OPENING_BALANCE_TEXT_LIMITS = {
     "batch_lot": 100,
 }
 CSV_IMPORT_MAX_SIZE_BYTES = 5 * 1024 * 1024
+OPENING_BALANCE_PREVIEW_SESSION_KEY = "stock_opening_balance_import_preview_csv"
 
 
 class OpeningBalanceCSVImportForm(forms.Form):
@@ -238,28 +239,52 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
         if not self._has_opening_balance_permission(request):
             raise PermissionDenied
 
+        if request.method == "POST" and request.POST.get("action") == "confirm":
+            decoded = request.session.get(OPENING_BALANCE_PREVIEW_SESSION_KEY)
+            if not decoded:
+                messages.error(
+                    request,
+                    "Sesi pratinjau import saldo awal tidak ditemukan. Unggah ulang file CSV.",
+                )
+                return redirect("admin:stock_opening_balance_import_csv")
+            try:
+                result = self._process_opening_balance_csv(decoded, request.user)
+                request.session.pop(OPENING_BALANCE_PREVIEW_SESSION_KEY, None)
+                messages.success(
+                    request,
+                    f"Import saldo awal berhasil: {result['imports']} dokumen, "
+                    f"{result['items']} item, {result['stock']} stok, "
+                    f"{result['transactions']} transaksi dibuat.",
+                )
+                return redirect("admin:stock_openingbalanceimport_changelist")
+            except (UnicodeDecodeError, csv.Error, ValueError) as exc:
+                messages.error(request, f"Import saldo awal gagal: {exc}")
+            except Exception:
+                messages.error(
+                    request,
+                    "Import saldo awal gagal karena kesalahan internal.",
+                )
+            return redirect("admin:stock_opening_balance_import_csv")
+
         if request.method == "POST":
             form = OpeningBalanceCSVImportForm(request.POST, request.FILES)
             if form.is_valid():
                 try:
-                    result = self._process_opening_balance_csv(
-                        form.cleaned_data["csv_file"],
-                        request.user,
-                    )
-                    messages.success(
+                    decoded = self._decode_opening_balance_csv(form.cleaned_data["csv_file"])
+                    preview = self._parse_opening_balance_csv(decoded)
+                    request.session[OPENING_BALANCE_PREVIEW_SESSION_KEY] = decoded
+                    return render(
                         request,
-                        f"Import saldo awal berhasil: {result['imports']} dokumen, "
-                        f"{result['items']} item, {result['stock']} stok, "
-                        f"{result['transactions']} transaksi dibuat.",
+                        "admin/stock/opening_balance_csv_import.html",
+                        {
+                            "form": form,
+                            "preview": preview,
+                            "title": "Konfirmasi Import Saldo Awal dari CSV",
+                            "opts": self.model._meta,
+                        },
                     )
-                    return redirect("..")
                 except (UnicodeDecodeError, csv.Error, ValueError) as exc:
-                    messages.error(request, f"Import saldo awal gagal: {exc}")
-                except Exception:
-                    messages.error(
-                        request,
-                        "Import saldo awal gagal karena kesalahan internal.",
-                    )
+                    messages.error(request, f"Validasi saldo awal gagal: {exc}")
         else:
             form = OpeningBalanceCSVImportForm()
 
@@ -273,9 +298,67 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
             },
         )
 
+    @staticmethod
+    def _decode_opening_balance_csv(csv_file):
+        return csv_file.read().decode("utf-8-sig")
+
     @transaction.atomic
-    def _process_opening_balance_csv(self, csv_file, user):
-        decoded = csv_file.read().decode("utf-8-sig")
+    def _process_opening_balance_csv(self, decoded, user):
+        preview = self._parse_opening_balance_csv(decoded)
+        counts = {"imports": 0, "items": 0, "stock": 0, "transactions": 0}
+
+        for document in preview["documents"]:
+            opening_balance = OpeningBalanceImport.objects.create(
+                document_number=document["document_number"],
+                effective_date=document["effective_date"],
+                created_by=user,
+                posted_at=timezone.now(),
+                notes=f"Imported via opening balance CSV on {timezone.now().strftime('%Y-%m-%d %H:%M')}",
+            )
+            counts["imports"] += 1
+
+            for row in document["rows"]:
+                OpeningBalanceImportItem.objects.create(
+                    opening_balance=opening_balance,
+                    item=row["item"],
+                    location=row["location"],
+                    sumber_dana=row["funding"],
+                    batch_lot=row["batch_lot"],
+                    expiry_date=row["expiry_date"],
+                    quantity=row["quantity"],
+                    unit_price=row["unit_price"],
+                )
+                counts["items"] += 1
+
+                self._increment_opening_balance_stock(
+                    item=row["item"],
+                    location=row["location"],
+                    batch_lot=row["batch_lot"],
+                    sumber_dana=row["funding"],
+                    expiry_date=row["expiry_date"],
+                    quantity=row["quantity"],
+                    unit_price=row["unit_price"],
+                )
+                counts["stock"] += 1
+
+                Transaction.objects.create(
+                    transaction_type=Transaction.TransactionType.IN,
+                    item=row["item"],
+                    location=row["location"],
+                    batch_lot=row["batch_lot"],
+                    quantity=row["quantity"],
+                    unit_price=row["unit_price"],
+                    sumber_dana=row["funding"],
+                    reference_type=Transaction.ReferenceType.INITIAL_IMPORT,
+                    reference_id=opening_balance.pk,
+                    user=user,
+                    notes=f"Import saldo awal: {document['document_number']}",
+                )
+                counts["transactions"] += 1
+
+        return counts
+
+    def _parse_opening_balance_csv(self, decoded):
         reader = csv.DictReader(io.StringIO(decoded))
 
         if not reader.fieldnames:
@@ -329,7 +412,8 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
             )
             grouped[doc_number].append((row_num, row))
 
-        counts = {"imports": 0, "items": 0, "stock": 0, "transactions": 0}
+        preview = {"documents": [], "total_documents": 0, "total_rows": 0}
+        seen_stock_expiry = {}
 
         for doc_number, rows in grouped.items():
             if OpeningBalanceImport.objects.filter(document_number=doc_number).exists():
@@ -345,14 +429,11 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                 field_name="effective_date",
             )
 
-            opening_balance = OpeningBalanceImport.objects.create(
-                document_number=doc_number,
-                effective_date=effective_date,
-                created_by=user,
-                posted_at=timezone.now(),
-                notes=f"Imported via opening balance CSV on {timezone.now().strftime('%Y-%m-%d %H:%M')}",
-            )
-            counts["imports"] += 1
+            document = {
+                "document_number": doc_number,
+                "effective_date": effective_date,
+                "rows": [],
+            }
 
             for row_num, row in rows:
                 item_code = row.get("item_code", "")
@@ -419,45 +500,49 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                 else:
                     expiry_date = None
 
-                OpeningBalanceImportItem.objects.create(
-                    opening_balance=opening_balance,
-                    item=item,
-                    location=location,
-                    sumber_dana=funding,
-                    batch_lot=batch_lot,
-                    expiry_date=expiry_date,
-                    quantity=quantity,
-                    unit_price=unit_price,
-                )
-                counts["items"] += 1
-
-                self._increment_opening_balance_stock(
+                stock_key = (item.pk, location.pk, batch_lot, funding.pk)
+                if stock_key in seen_stock_expiry and seen_stock_expiry[stock_key] != expiry_date:
+                    raise ValueError(
+                        f"Baris {row_num}: batch stok yang sama tidak boleh memiliki tanggal kedaluwarsa berbeda."
+                    )
+                seen_stock_expiry[stock_key] = expiry_date
+                existing_stock = Stock.objects.filter(
                     item=item,
                     location=location,
                     batch_lot=batch_lot,
                     sumber_dana=funding,
-                    expiry_date=expiry_date,
-                    quantity=quantity,
-                    unit_price=unit_price,
-                )
-                counts["stock"] += 1
+                ).values("expiry_date").first()
+                if existing_stock and existing_stock["expiry_date"] != expiry_date:
+                    raise ValueError(
+                        f"Baris {row_num}: batch stok sudah ada dengan tanggal kedaluwarsa berbeda."
+                    )
 
-                Transaction.objects.create(
-                    transaction_type=Transaction.TransactionType.IN,
-                    item=item,
-                    location=location,
-                    batch_lot=batch_lot,
-                    quantity=quantity,
-                    unit_price=unit_price,
-                    sumber_dana=funding,
-                    reference_type=Transaction.ReferenceType.INITIAL_IMPORT,
-                    reference_id=opening_balance.pk,
-                    user=user,
-                    notes=f"Import saldo awal: {doc_number}",
+                document["rows"].append(
+                    {
+                        "row_num": row_num,
+                        "document_number": doc_number,
+                        "effective_date": effective_date,
+                        "item_code": item.kode_barang,
+                        "item_name": item.nama_barang,
+                        "item": item,
+                        "location_code": location.code,
+                        "location_name": location.name,
+                        "location": location,
+                        "funding_code": funding.code,
+                        "funding_name": funding.name,
+                        "funding": funding,
+                        "batch_lot": batch_lot,
+                        "expiry_date": expiry_date,
+                        "quantity": quantity,
+                        "unit_price": unit_price,
+                    }
                 )
-                counts["transactions"] += 1
 
-        return counts
+            preview["documents"].append(document)
+            preview["total_rows"] += len(document["rows"])
+
+        preview["total_documents"] = len(preview["documents"])
+        return preview
 
     @staticmethod
     def _increment_opening_balance_stock(
