@@ -15,6 +15,17 @@ def backfill_transaction_source_document_number(apps, schema_editor):
                 location_id=tx.location_id,
                 batch_lot=tx.batch_lot,
                 sumber_dana_id=tx.sumber_dana_id,
+            )
+            .values_list("source_document_number", flat=True)
+            .distinct()
+            .order_by("source_document_number")
+        )
+        matching_price_stock_source_numbers = list(
+            Stock.objects.filter(
+                item_id=tx.item_id,
+                location_id=tx.location_id,
+                batch_lot=tx.batch_lot,
+                sumber_dana_id=tx.sumber_dana_id,
                 unit_price=tx.unit_price,
             )
             .values_list("source_document_number", flat=True)
@@ -40,6 +51,8 @@ def backfill_transaction_source_document_number(apps, schema_editor):
 
         if len(matching_stock_source_numbers) == 1:
             source_document_number = matching_stock_source_numbers[0]
+        elif len(matching_price_stock_source_numbers) == 1:
+            source_document_number = matching_price_stock_source_numbers[0]
         elif (
             source_document_number
             and matching_stock_source_numbers

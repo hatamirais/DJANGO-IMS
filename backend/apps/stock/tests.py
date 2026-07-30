@@ -998,14 +998,14 @@ class SourceDocumentBackfillMigrationTests(TestCase):
             created_by=self.user,
         )
 
-    def _create_receiving_transaction(self, receiving, quantity):
+    def _create_receiving_transaction(self, receiving, quantity, unit_price=Decimal('1000')):
         return Transaction.objects.create(
             transaction_type=Transaction.TransactionType.IN,
             item=self.item,
             location=self.location,
             batch_lot='SDM-BATCH',
             quantity=quantity,
-            unit_price=Decimal('1000'),
+            unit_price=unit_price,
             sumber_dana=self.funding,
             reference_type=Transaction.ReferenceType.RECEIVING,
             reference_id=receiving.pk,
@@ -1055,7 +1055,11 @@ class SourceDocumentBackfillMigrationTests(TestCase):
             receiving_ref=receiving,
             source_document_number='LEGACY-SDM-STOCK',
         )
-        tx = self._create_receiving_transaction(receiving, Decimal('12'))
+        tx = self._create_receiving_transaction(
+            receiving,
+            Decimal('12'),
+            unit_price=Decimal('2000'),
+        )
         Transaction.objects.filter(pk=tx.pk).update(source_document_number='')
 
         migration_module.backfill_transaction_source_document_number(

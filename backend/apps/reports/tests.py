@@ -484,6 +484,27 @@ class RekapOpeningBalanceReportTests(TestCase):
 				("SALDO-AWAL-SOURCE-B", date(2031, 1, 1), Decimal("7")),
 			],
 		)
+		self.assertContains(response, "SALDO-AWAL-SOURCE-A")
+		self.assertContains(response, "SALDO-AWAL-SOURCE-B")
+
+		export_response = self.client.get(
+			reverse("reports:index"),
+			{
+				"start_date": "2026-01-01",
+				"end_date": "2026-12-31",
+				"format": "excel",
+			},
+		)
+		self.assertEqual(export_response.status_code, 200)
+		workbook = load_workbook(BytesIO(export_response.content))
+		sheet = workbook.active
+		self.assertEqual(sheet["E4"].value, "Dokumen Sumber")
+		source_values = {
+			sheet.cell(row=row_idx, column=5).value
+			for row_idx in range(5, sheet.max_row + 1)
+		}
+		self.assertIn("SALDO-AWAL-SOURCE-A", source_values)
+		self.assertIn("SALDO-AWAL-SOURCE-B", source_values)
 
 	def test_rekap_next_year_carries_prior_year_ending_balance_without_reimport(self):
 		Transaction.objects.create(

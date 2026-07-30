@@ -178,6 +178,7 @@
                                 <th>Item Name</th>
                                 <th>Unit</th>
                                 <th>Batch</th>
+                                <th>Source Document</th>
                                 <th>Expiry Date</th>
                                 <th>Funding Source</th>
                                 <th>Unit Price</th>
@@ -193,7 +194,7 @@
                                 {% regroup report_data by item__kategori__name as category_list %}
                                 {% for category in category_list %}
                                 <tr class="table-secondary fw-bold">
-                                    <td colspan="12">{{ category.grouper|default:"KATEGORI TIDAK DIKETAHUI" }}</td>
+                                    <td colspan="13">{{ category.grouper|default:"KATEGORI TIDAK DIKETAHUI" }}</td>
                                 </tr>
                                 {% for row in category.list %}
                                 <tr>
@@ -201,6 +202,7 @@
                                     <td>{{ row.item__nama_barang }}</td>
                                     <td>{{ row.item__satuan__name }}</td>
                                     <td>{{ row.batch_lot }}</td>
+                                    <td>{{ row.source_document_number }}</td>
                                     <td>{% if row.expiry_date %}{{ row.expiry_date|date:"d M Y" }}{% else %}-{% endif %}</td>
                                     <td>{{ row.sumber_dana__name }}</td>
                                     <td class="text-end">{{ row.unit_price|floatformat:2 }}</td>
@@ -214,7 +216,7 @@
                                 {% endfor %}
                             {% else %}
                             <tr>
-                                <td colspan="12" class="text-center text-muted py-4">
+                                <td colspan="13" class="text-center text-muted py-4">
                                     <i class="bi bi-inbox d-block mb-2" style="font-size: 2rem;"></i>
                                     Tidak ada data untuk periode ini.
                                 </td>
