@@ -122,7 +122,7 @@ def export_rincian_excel(report_data, start_date, end_date):
             item_counter,
             row.get('item__nama_barang', ''),
             row.get('item__satuan__name', ''),
-            row.get('location__name', ''),
+            row.get('location_label', row.get('location__name', '')),
             row.get('batch_lot', ''),
             row.get('source_document_number', ''),
             expiry,

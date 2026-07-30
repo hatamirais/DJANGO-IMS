@@ -204,7 +204,7 @@
                                     <td class="text-center">{{ forloop.counter }}</td>
                                     <td>{{ row.item__nama_barang }}</td>
                                     <td>{{ row.item__satuan__name }}</td>
-                                    <td>{{ row.location__name }}</td>
+                                    <td>{{ row.location_label }}</td>
                                     <td>{{ row.batch_lot }}</td>
                                     <td>{{ row.source_document_number }}</td>
                                     <td>{% if row.expiry_date %}{{ row.expiry_date|date:"d M Y" }}{% else %}-{% endif %}</td>

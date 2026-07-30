@@ -3,6 +3,52 @@
 from django.db import migrations, models
 
 
+def backfill_source_document_number_claims(apps, schema_editor):
+    SourceDocumentNumberClaim = apps.get_model("stock", "SourceDocumentNumberClaim")
+    Stock = apps.get_model("stock", "Stock")
+    Transaction = apps.get_model("stock", "Transaction")
+    Receiving = apps.get_model("receiving", "Receiving")
+    OpeningBalanceImport = apps.get_model("stock", "OpeningBalanceImport")
+
+    receiving_ids = {
+        document_number: pk
+        for document_number, pk in Receiving.objects.exclude(document_number="")
+        .values_list("document_number", "pk")
+    }
+    opening_balance_ids = {
+        document_number: pk
+        for document_number, pk in OpeningBalanceImport.objects.exclude(
+            document_number=""
+        ).values_list("document_number", "pk")
+    }
+    document_numbers = set(
+        Stock.objects.exclude(source_document_number="")
+        .values_list("source_document_number", flat=True)
+    )
+    document_numbers.update(
+        Transaction.objects.exclude(source_document_number="")
+        .values_list("source_document_number", flat=True)
+    )
+
+    claims = []
+    for document_number in sorted(document_numbers):
+        source_type = "OPENING_BALANCE"
+        source_id = opening_balance_ids.get(document_number)
+        if document_number in receiving_ids:
+            source_type = "RECEIVING"
+            source_id = receiving_ids[document_number]
+
+        claims.append(
+            SourceDocumentNumberClaim(
+                document_number=document_number,
+                source_type=source_type,
+                source_id=source_id,
+            )
+        )
+
+    SourceDocumentNumberClaim.objects.bulk_create(claims, ignore_conflicts=True)
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -24,5 +70,9 @@ class Migration(migrations.Migration):
                 'db_table': 'source_document_number_claims',
                 'indexes': [models.Index(fields=['source_type', 'source_id'], name='idx_source_doc_claim_source')],
             },
+        ),
+        migrations.RunPython(
+            backfill_source_document_number_claims,
+            migrations.RunPython.noop,
         ),
     ]

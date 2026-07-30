@@ -114,6 +114,8 @@ def reports_index(request):
             'item__kategori__sort_order',
             'item__nama_barang',
             'item__satuan__name',
+            'location_id',
+            'location__code',
             'location__name',
             'batch_lot',
             'source_document_number',
@@ -224,6 +226,7 @@ def reports_index(request):
             'item__kategori__sort_order',
             'item__kategori__name',
             'item__nama_barang',
+            'location__code',
             'location__name',
             'batch_lot',
         )
@@ -231,6 +234,11 @@ def reports_index(request):
         # We need a second annotate step (or list comprehension) to properly add ending_stock safely.
         # F-expressions mapped over coalesced outputs in annotate chaining sometimes act up on PostgreSQL.
         for row in qs:
+            row['location_label'] = (
+                f"{row['location__code']} - {row['location__name']}"
+                if row.get('location__code')
+                else row.get('location__name', '')
+            )
             row['ending_stock'] = (
                 row['initial_stock'] 
                 + row['received'] 

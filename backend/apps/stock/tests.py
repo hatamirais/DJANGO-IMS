@@ -1077,6 +1077,7 @@ class SourceDocumentBackfillMigrationTests(TestCase):
             mapping = {
                 ('receiving', 'Receiving'): Receiving,
                 ('stock', 'OpeningBalanceImport'): OpeningBalanceImport,
+                ('stock', 'SourceDocumentNumberClaim'): SourceDocumentNumberClaim,
                 ('stock', 'Stock'): Stock,
                 ('stock', 'Transaction'): Transaction,
             }
@@ -1335,6 +1336,64 @@ class SourceDocumentBackfillMigrationTests(TestCase):
             opening_tx.source_document_number,
             opening_stock.source_document_number,
         )
+
+    def test_claim_backfill_reserves_migrated_source_identifiers(self):
+        migration_module = importlib.import_module(
+            'apps.stock.migrations.0011_sourcedocumentnumberclaim'
+        )
+        receiving = self._create_receiving('RCV-SDM-CLAIM')
+        opening_balance = OpeningBalanceImport.objects.create(
+            document_number='SALDO-SDM-CLAIM',
+            effective_date=date(2026, 1, 1),
+            created_by=self.user,
+        )
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot='SDM-BATCH-CLAIM',
+            expiry_date=date(2030, 1, 1),
+            quantity=Decimal('5'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            receiving_ref=receiving,
+            source_document_number='RCV-SDM-CLAIM',
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot='SDM-BATCH-CLAIM',
+            source_document_number='LEGACY-SDM-CLAIM',
+            quantity=Decimal('3'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.INITIAL_IMPORT,
+            reference_id=opening_balance.pk,
+            user=self.user,
+        )
+
+        migration_module.backfill_source_document_number_claims(
+            self.MigrationApps(),
+            None,
+        )
+
+        receiving_claim = SourceDocumentNumberClaim.objects.get(
+            document_number='RCV-SDM-CLAIM'
+        )
+        legacy_claim = SourceDocumentNumberClaim.objects.get(
+            document_number='LEGACY-SDM-CLAIM'
+        )
+        self.assertEqual(
+            receiving_claim.source_type,
+            SourceDocumentNumberClaim.SourceType.RECEIVING,
+        )
+        self.assertEqual(receiving_claim.source_id, receiving.pk)
+        self.assertEqual(
+            legacy_claim.source_type,
+            SourceDocumentNumberClaim.SourceType.OPENING_BALANCE,
+        )
+        self.assertIsNone(legacy_claim.source_id)
 
 
 class DownstreamNoExpirySentinelBackfillMigrationTests(TestCase):

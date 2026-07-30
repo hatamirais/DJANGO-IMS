@@ -569,7 +569,7 @@ class RekapOpeningBalanceReportTests(TestCase):
 		self.assertEqual(response.status_code, 200)
 		rows = sorted(
 			(
-				row["location__name"],
+				row["location_label"],
 				row["expiry_date"],
 				row["received"],
 			)
@@ -579,11 +579,65 @@ class RekapOpeningBalanceReportTests(TestCase):
 		self.assertEqual(
 			rows,
 			[
-				("Gudang Pembantu", date(2031, 1, 1), Decimal("7")),
-				("Gudang Rekap", date(2030, 1, 1), Decimal("5")),
+				("RO-LOC - Gudang Rekap", date(2030, 1, 1), Decimal("5")),
+				("RO-LOC-OTHER - Gudang Pembantu", date(2031, 1, 1), Decimal("7")),
 			],
 		)
-		self.assertContains(response, "Gudang Pembantu")
+		self.assertContains(response, "RO-LOC-OTHER - Gudang Pembantu")
+
+	def test_detailed_report_groups_locations_by_unique_location_id(self):
+		same_name_location = Location.objects.create(
+			code="RO-LOC-DUP",
+			name=self.location.name,
+		)
+		for location, quantity in (
+			(self.location, Decimal("5")),
+			(same_name_location, Decimal("7")),
+		):
+			Stock.objects.create(
+				item=self.item,
+				location=location,
+				batch_lot="RO-BATCH-DUP-LOCATION",
+				source_document_number="RCV-DUP-LOCATION",
+				expiry_date=date(2030, 1, 1),
+				quantity=quantity,
+				reserved=Decimal("0"),
+				unit_price=Decimal("100"),
+				sumber_dana=self.funding,
+			)
+			Transaction.objects.create(
+				transaction_type=Transaction.TransactionType.IN,
+				item=self.item,
+				location=location,
+				batch_lot="RO-BATCH-DUP-LOCATION",
+				source_document_number="RCV-DUP-LOCATION",
+				quantity=quantity,
+				unit_price=Decimal("100"),
+				sumber_dana=self.funding,
+				reference_type=Transaction.ReferenceType.RECEIVING,
+				reference_id=30 + location.pk,
+				user=self.user,
+			)
+
+		response = self.client.get(
+			reverse("reports:index"),
+			{"start_date": "2026-01-01", "end_date": "2026-12-31"},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		rows = sorted(
+			(row["location_label"], row["received"])
+			for row in response.context["report_data"]
+			if row["batch_lot"] == "RO-BATCH-DUP-LOCATION"
+		)
+		self.assertEqual(
+			rows,
+			[
+				("RO-LOC - Gudang Rekap", Decimal("5")),
+				("RO-LOC-DUP - Gudang Rekap", Decimal("7")),
+			],
+		)
+		self.assertContains(response, "RO-LOC-DUP - Gudang Rekap")
 
 	def test_detailed_report_applies_in_period_transfers_by_location(self):
 		destination = Location.objects.create(
@@ -659,15 +713,15 @@ class RekapOpeningBalanceReportTests(TestCase):
 
 		self.assertEqual(response.status_code, 200)
 		rows = {
-			row["location__name"]: row
+			row["location_label"]: row
 			for row in response.context["report_data"]
 			if row["batch_lot"] == "RO-BATCH-TRANSFER"
 		}
-		self.assertEqual(rows["Gudang Rekap"]["received"], Decimal("10"))
-		self.assertEqual(rows["Gudang Rekap"]["transfer_out"], Decimal("4"))
-		self.assertEqual(rows["Gudang Rekap"]["ending_stock"], Decimal("6"))
-		self.assertEqual(rows["Gudang Transfer"]["transfer_in"], Decimal("4"))
-		self.assertEqual(rows["Gudang Transfer"]["ending_stock"], Decimal("4"))
+		self.assertEqual(rows["RO-LOC - Gudang Rekap"]["received"], Decimal("10"))
+		self.assertEqual(rows["RO-LOC - Gudang Rekap"]["transfer_out"], Decimal("4"))
+		self.assertEqual(rows["RO-LOC - Gudang Rekap"]["ending_stock"], Decimal("6"))
+		self.assertEqual(rows["RO-LOC-TRANSFER - Gudang Transfer"]["transfer_in"], Decimal("4"))
+		self.assertEqual(rows["RO-LOC-TRANSFER - Gudang Transfer"]["ending_stock"], Decimal("4"))
 		self.assertContains(response, "Transfer In")
 		self.assertContains(response, "Transfer Out")
 
