@@ -31,6 +31,7 @@ from .models import (
     StockTransferItem,
 )
 from apps.items.models import Item, Location, FundingSource
+from apps.receiving.models import Receiving
 
 
 OPENING_BALANCE_CSV_HEADERS = [
@@ -481,6 +482,9 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
         imported_documents = set(
             OpeningBalanceImport.objects.values_list("document_number", flat=True)
         )
+        receiving_documents = set(
+            Receiving.objects.values_list("document_number", flat=True)
+        )
         seen_doc_dates = {}
         seen_stock_expiry = {}
         seen_stock_price = {}
@@ -543,6 +547,13 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                         "document_number",
                         doc_number,
                         f"Dokumen saldo awal '{doc_number}' sudah pernah diimport.",
+                    )
+                if doc_number in receiving_documents:
+                    add_error(
+                        row_num,
+                        "document_number",
+                        doc_number,
+                        f"Nomor dokumen '{doc_number}' sudah digunakan oleh dokumen penerimaan. Gunakan document_number saldo awal yang berbeda.",
                     )
 
             effective_date_str = row.get("effective_date") or row.get("receiving_date")
@@ -845,6 +856,10 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
         for doc_number, rows in grouped.items():
             if OpeningBalanceImport.objects.filter(document_number=doc_number).exists():
                 raise ValueError(f"Dokumen saldo awal '{doc_number}' sudah pernah diimport")
+            if Receiving.objects.filter(document_number=doc_number).exists():
+                raise ValueError(
+                    f"Nomor dokumen '{doc_number}' sudah digunakan oleh dokumen penerimaan. Gunakan document_number saldo awal yang berbeda."
+                )
 
             first_row_num, first_row = rows[0]
             effective_date_str = first_row.get("effective_date") or first_row.get("receiving_date")

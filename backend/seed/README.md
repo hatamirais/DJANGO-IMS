@@ -50,7 +50,7 @@ Import behavior summary:
 Use `/admin/stock/stock/opening-balance/import-csv/` for first-time stock bootstrap.
 Use `/admin/stock/stock/opening-balance/export-csv-template/` to download a blank `opening_balance_template.csv`.
 
-This route is restricted to superuser / role `ADMIN` accounts and is not part of normal operational receiving. Uploading a CSV first runs validation and shows a preview table; the database is changed only after the admin presses `Konfirmasi Import`. Confirmed imports create stock source-document layers using `Stock.source_document_number = document_number` and post `Transaction(IN)` rows with `source_document_number=document_number` and `reference_type=INITIAL_IMPORT`; rekap/yearly reports classify those rows by opening balance `effective_date`: `saldo_awal` when effective on/before the report start, or in-period received stock when effective after the report start and within the selected period.
+This route is restricted to superuser / role `ADMIN` accounts and is not part of normal operational receiving. Uploading a CSV first runs validation and shows a preview table; the database is changed only after the admin presses `Konfirmasi Import`. Confirmed imports create stock source-document layers using `Stock.source_document_number = document_number` and post `Transaction(IN)` rows with `source_document_number=document_number` and `reference_type=INITIAL_IMPORT`; rekap/yearly reports classify those rows by opening balance `effective_date`: `saldo_awal` when effective on/before the report start, or in-period received stock when effective after the report start and within the selected period. Opening balance `document_number` values must be unique across posted opening-balance imports and receiving documents so different workflows never share the same stock source layer.
 
 Opening balance imports must not use `receiving_type` or `supplier_code`. If those columns are present with values, the importer rejects the file so receiving templates are not silently treated as saldo awal.
 
@@ -195,7 +195,7 @@ Decimal parsing accepts comma separator.
 
 Expected columns for admin-only opening balance import:
 
-- `document_number` (required, unique per import batch)
+- `document_number` (required, unique across opening-balance imports and receiving documents)
 - `effective_date` (required; date the opening balance becomes effective for reports; every row in the same `document_number` must use the same date; cannot be later than the posting date because stock is posted immediately)
 - `sumber_dana_code` (required)
 - `location_code` (required)
@@ -212,6 +212,7 @@ Opening balance import notes:
 - Rows are grouped by `document_number`.
 - Comma and semicolon delimiters are accepted. For comma-delimited files, quote decimal-comma values such as `"2500,50"` so the parser does not treat them as extra columns.
 - Every data row must match the header column count.
+- `document_number` must not already exist as a posted opening-balance import or receiving document.
 - The stock layer key is `item_code + location_code + batch_lot + sumber_dana_code + document_number`.
 - Rows for the same stock layer must use the same `expiry_date` and `unit_price`; mismatches are rejected instead of merged. The same batch from a different `document_number` is kept as a separate layer and prices are not averaged.
 - Import creates one `OpeningBalanceImport` header plus `OpeningBalanceImportItem` rows.

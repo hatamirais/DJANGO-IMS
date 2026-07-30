@@ -19,9 +19,11 @@ The format is based on Keep a Changelog and follows Semantic Versioning (`MAJOR.
 ### Fixed
 
 - Opening-balance import validation now catches malformed row counts, invalid decimal precision, unknown references, and same-document price/expiry conflicts before database writes.
+- Opening-balance import validation now rejects `document_number` values already used by receiving documents so source-document layers cannot collide across workflows.
 - Historical stock migration now keeps ambiguous multi-document aggregate balances in a legacy source layer instead of assigning the whole balance to one receiving document.
 - Historical transaction migration now maps all movements for a single legacy aggregate stock layer to that legacy source even when old contributing receipts had different prices.
 - Detailed inventory report rows and Excel export now display `source_document_number` when source-layer grouping splits otherwise identical rows.
+- Stock cards now split same-funding rows by `source_document_number` and display the source document so per-layer prices stay visible and accurate.
 
 ## [1.30.0] - 2026-07-29
 

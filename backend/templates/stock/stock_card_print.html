@@ -235,7 +235,10 @@
     <!-- ── Title + Unit Price ─────────────────────────────────────── -->
     <div class="card-title-row">
         <h2>Kartu Stok</h2>
-        <div class="card-unit-price">Harga Satuan: Rp {{ card.unit_price|id_decimal:0 }}</div>
+        <div class="card-unit-price">
+            Harga Satuan: Rp {{ card.unit_price|id_decimal:0 }}<br>
+            <span>Dokumen Sumber: {{ card.source_document_number|default:"-" }}</span>
+        </div>
     </div>
 
     <!-- ── Metadata ──────────────────────────────────────────────── -->

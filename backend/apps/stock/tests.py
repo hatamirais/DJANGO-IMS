@@ -332,6 +332,32 @@ class OpeningBalanceImportAdminTests(TestCase):
         self.assertEqual(stock.quantity, Decimal("15"))
         self.assertIsNone(stock.receiving_ref)
 
+    def test_opening_balance_import_rejects_receiving_document_number_collision(self):
+        Receiving.objects.create(
+            receiving_type=Receiving.ReceivingType.GRANT,
+            document_number="SALDO-AWAL-2026",
+            receiving_date=date(2026, 1, 1),
+            sumber_dana=self.funding,
+            created_by=self.admin_user,
+        )
+        self.client.force_login(self.admin_user)
+        csv_content = (
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price\n"
+            f"SALDO-AWAL-2026,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},10,BATCH-001,01/01/2028,2500\n"
+        )
+
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(csv_content)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "sudah digunakan oleh dokumen penerimaan")
+        self.assertFalse(OpeningBalanceImport.objects.exists())
+        self.assertFalse(Stock.objects.exists())
+
     def test_opening_balance_import_accepts_semicolon_csv_with_decimal_comma(self):
         self.client.force_login(self.admin_user)
         csv_content = (
@@ -1536,6 +1562,104 @@ class StockCardTest(TestCase):
         tx_by_source = {tx.source_document_number: tx for tx in txs}
         self.assertEqual(tx_by_source['RCV-SOURCE-A'].expiry_display, '01/05/2031')
         self.assertEqual(tx_by_source['RCV-SOURCE-B'].expiry_display, '01/06/2032')
+
+    def test_stock_card_splits_same_funding_by_source_document_price(self):
+        first_receiving = Receiving.objects.create(
+            receiving_type=Receiving.ReceivingType.PROCUREMENT,
+            document_number='RCV-PRICE-A',
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            created_by=self.user,
+        )
+        second_receiving = Receiving.objects.create(
+            receiving_type=Receiving.ReceivingType.PROCUREMENT,
+            document_number='RCV-PRICE-B',
+            receiving_date=date(2026, 1, 20),
+            sumber_dana=self.funding,
+            created_by=self.user,
+        )
+        ReceivingItem.objects.create(
+            receiving=first_receiving,
+            item=self.item,
+            quantity=Decimal('10'),
+            batch_lot='PRICE-SHARED-01',
+            expiry_date=date(2031, 5, 1),
+            unit_price=Decimal('1000'),
+            location=self.location,
+        )
+        ReceivingItem.objects.create(
+            receiving=second_receiving,
+            item=self.item,
+            quantity=Decimal('8'),
+            batch_lot='PRICE-SHARED-01',
+            expiry_date=date(2031, 5, 1),
+            unit_price=Decimal('2000'),
+            location=self.location,
+        )
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot='PRICE-SHARED-01',
+            source_document_number='RCV-PRICE-A',
+            expiry_date=date(2031, 5, 1),
+            quantity=Decimal('10'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+        )
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot='PRICE-SHARED-01',
+            source_document_number='RCV-PRICE-B',
+            expiry_date=date(2031, 5, 1),
+            quantity=Decimal('8'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('2000'),
+            sumber_dana=self.funding,
+        )
+        first_tx = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot='PRICE-SHARED-01',
+            source_document_number='RCV-PRICE-A',
+            quantity=Decimal('10'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=first_receiving.id,
+            user=self.user,
+        )
+        second_tx = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot='PRICE-SHARED-01',
+            source_document_number='RCV-PRICE-B',
+            quantity=Decimal('8'),
+            unit_price=Decimal('2000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=second_receiving.id,
+            user=self.user,
+        )
+
+        response = self.client.get(reverse('stock:stock_card_detail', args=[self.item.id]))
+
+        self.assertEqual(response.status_code, 200)
+        cards_by_source = {
+            card['source_document_number']: card
+            for card in response.context['funding_source_cards']
+            if card['source_document_number'] in {'RCV-PRICE-A', 'RCV-PRICE-B'}
+        }
+        self.assertEqual(set(cards_by_source), {'RCV-PRICE-A', 'RCV-PRICE-B'})
+        self.assertEqual(cards_by_source['RCV-PRICE-A']['unit_price'], Decimal('1000'))
+        self.assertEqual(cards_by_source['RCV-PRICE-B']['unit_price'], Decimal('2000'))
+        self.assertEqual(cards_by_source['RCV-PRICE-A']['transactions'], [first_tx])
+        self.assertEqual(cards_by_source['RCV-PRICE-B']['transactions'], [second_tx])
+        self.assertContains(response, 'Dokumen Sumber: RCV-PRICE-A')
+        self.assertContains(response, 'Dokumen Sumber: RCV-PRICE-B')
 
     def test_stock_card_transfer_transactions_display_computed_fields(self):
         """Verify transfer transactions have computed display fields for UI rendering."""
