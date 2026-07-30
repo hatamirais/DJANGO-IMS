@@ -40,6 +40,39 @@ from apps.distribution.models import Distribution, DistributionItem
 from apps.puskesmas.models import PuskesmasReceiptConfirmation, PuskesmasReceiptConfirmationItem
 
 
+class StockPickerLabelTests(TestCase):
+    def test_picker_label_includes_source_layer_context(self):
+        unit = Unit.objects.create(code="LBL-UNT", name="Label Unit")
+        category = Category.objects.create(code="LBL-CAT", name="Label Category")
+        item = Item.objects.create(
+            kode_barang="LBL-ITEM",
+            nama_barang="Label Item",
+            satuan=unit,
+            kategori=category,
+        )
+        location = Location.objects.create(code="LBL-LOC", name="Label Location")
+        funding = FundingSource.objects.create(code="LBL-FUND", name="Label Funding")
+        stock = Stock.objects.create(
+            item=item,
+            location=location,
+            batch_lot="BATCH-LABEL",
+            source_document_number="RCV-LAYER-001",
+            expiry_date=date(2030, 1, 31),
+            quantity=Decimal("12"),
+            reserved=Decimal("2"),
+            unit_price=Decimal("3456.78"),
+            sumber_dana=funding,
+        )
+
+        self.assertEqual(
+            stock.picker_label,
+            (
+                "BATCH-LABEL | Tersedia: 10 | Exp: 31/01/2030 | "
+                "Dokumen: RCV-LAYER-001 | Dana: LBL-FUND | Harga: 3456.78"
+            ),
+        )
+
+
 class StockAdminCsvExportSecurityTest(TestCase):
     def setUp(self):
         self.unit = Unit.objects.create(code='TAB', name='Tablet')

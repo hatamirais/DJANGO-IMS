@@ -204,7 +204,7 @@ def _build_distribution_stock_catalog():
         output_field=DecimalField(max_digits=12, decimal_places=2),
     )
     available_stocks = (
-        Stock.objects.select_related("item")
+        Stock.objects.select_related("item", "sumber_dana")
         .filter(quantity__gt=F("reserved"))
         .annotate(available_qty=available_quantity_expression)
         .order_by(F("expiry_date").asc(nulls_last=True), "item_id", "batch_lot")
@@ -213,10 +213,7 @@ def _build_distribution_stock_catalog():
         {
             "id": stock.pk,
             "itemId": stock.item_id,
-            "label": (
-                f"{stock.batch_lot} | Tersedia: {stock.available_qty}"
-                f" | Exp: {stock.expiry_date_display}"
-            ),
+            "label": stock.picker_label,
             "availableQty": float(stock.available_qty),
         }
         for stock in available_stocks

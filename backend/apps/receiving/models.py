@@ -331,7 +331,7 @@ class Receiving(TimeStampedModel):
 
         if OpeningBalanceImport.objects.filter(
             document_number=self.document_number
-        ).exists():
+        ).exists() and not self._document_number_is_unchanged():
             raise ValidationError(
                 {
                     "document_number": (
@@ -340,6 +340,14 @@ class Receiving(TimeStampedModel):
                     )
                 }
             )
+
+    def _document_number_is_unchanged(self):
+        if not self.pk or not self.document_number:
+            return False
+        return Receiving.objects.filter(
+            pk=self.pk,
+            document_number=self.document_number,
+        ).exists()
 
     def has_posted_stock_movements(self):
         if not self.pk:

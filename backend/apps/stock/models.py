@@ -8,6 +8,13 @@ from apps.core.decimal_validation import validate_finite_decimal
 from apps.core.models import TimeStampedModel
 
 
+def format_decimal_label(value):
+    label = format(value, "f")
+    if "." in label:
+        label = label.rstrip("0").rstrip(".")
+    return label or "0"
+
+
 class Stock(TimeStampedModel):
     """Real-time inventory tracking by batch/location."""
 
@@ -106,6 +113,16 @@ class Stock(TimeStampedModel):
     def available_quantity(self):
         """Available stock = quantity - reserved."""
         return self.quantity - self.reserved
+
+    @property
+    def picker_label(self):
+        funding_code = self.sumber_dana.code if self.sumber_dana_id else "-"
+        return (
+            f"{self.batch_lot} | "
+            f"Tersedia: {format_decimal_label(self.available_quantity)} | "
+            f"Exp: {self.expiry_date_display} | Dokumen: {self.source_document_number} | "
+            f"Dana: {funding_code} | Harga: {format_decimal_label(self.unit_price)}"
+        )
 
     @property
     def total_value(self):

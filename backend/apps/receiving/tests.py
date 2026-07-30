@@ -173,6 +173,25 @@ class ReceivingModelDocumentNumberCollisionTests(TestCase):
         self.assertIn("document_number", exc.exception.message_dict)
         self.assertFalse(Receiving.objects.exists())
 
+    def test_save_allows_unchanged_legacy_opening_balance_collision(self):
+        receiving = Receiving.objects.create(
+            document_number="RCV-LEGACY-COLLISION",
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            status=Receiving.Status.DRAFT,
+            created_by=self.user,
+        )
+        self._create_opening_balance_import("RCV-LEGACY-COLLISION")
+
+        receiving.notes = "Status update on migrated document"
+        receiving.full_clean()
+        receiving.save()
+
+        receiving.refresh_from_db()
+        self.assertEqual(receiving.document_number, "RCV-LEGACY-COLLISION")
+        self.assertEqual(receiving.notes, "Status update on migrated document")
+
     def test_generated_document_number_skips_opening_balance_numbers(self):
         year = timezone.now().year
         self._create_opening_balance_import(f"RCV-{year}-00001")
