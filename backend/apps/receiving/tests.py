@@ -34,7 +34,7 @@ from apps.receiving.models import (
     ReceivingOrderItem,
     ReceivingTypeOption,
 )
-from apps.stock.models import OpeningBalanceImport, Stock, Transaction
+from apps.stock.models import OpeningBalanceImport, SourceDocumentNumberClaim, Stock, Transaction
 from apps.users.access import ensure_default_module_access
 from apps.users.models import User
 
@@ -163,6 +163,44 @@ class ReceivingModelDocumentNumberCollisionTests(TestCase):
         with self.assertRaises(ValidationError) as exc:
             Receiving.objects.create(
                 document_number="RCV-OB-SAVE-COLLISION",
+                receiving_type=Receiving.ReceivingType.GRANT,
+                receiving_date=date(2026, 1, 15),
+                sumber_dana=self.funding,
+                status=Receiving.Status.DRAFT,
+                created_by=self.user,
+            )
+
+        self.assertIn("document_number", exc.exception.message_dict)
+        self.assertFalse(Receiving.objects.exists())
+
+    def test_save_claims_receiving_document_number(self):
+        receiving = Receiving.objects.create(
+            document_number="RCV-CLAIM-001",
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            status=Receiving.Status.DRAFT,
+            created_by=self.user,
+        )
+
+        claim = SourceDocumentNumberClaim.objects.get(
+            document_number="RCV-CLAIM-001"
+        )
+        self.assertEqual(
+            claim.source_type,
+            SourceDocumentNumberClaim.SourceType.RECEIVING,
+        )
+        self.assertEqual(claim.source_id, receiving.pk)
+
+    def test_save_rejects_preclaimed_source_document_number(self):
+        SourceDocumentNumberClaim.objects.create(
+            document_number="RCV-PRECLAIMED-001",
+            source_type=SourceDocumentNumberClaim.SourceType.OPENING_BALANCE,
+        )
+
+        with self.assertRaises(ValidationError) as exc:
+            Receiving.objects.create(
+                document_number="RCV-PRECLAIMED-001",
                 receiving_type=Receiving.ReceivingType.GRANT,
                 receiving_date=date(2026, 1, 15),
                 sumber_dana=self.funding,

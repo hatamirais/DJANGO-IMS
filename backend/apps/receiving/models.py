@@ -327,7 +327,7 @@ class Receiving(TimeStampedModel):
         if not self.document_number:
             return
 
-        from apps.stock.models import OpeningBalanceImport
+        from apps.stock.models import OpeningBalanceImport, SourceDocumentNumberClaim
 
         if OpeningBalanceImport.objects.filter(
             document_number=self.document_number
@@ -341,6 +341,24 @@ class Receiving(TimeStampedModel):
                 }
             )
 
+        claimed_numbers = SourceDocumentNumberClaim.objects.filter(
+            document_number=self.document_number
+        )
+        if self.pk:
+            claimed_numbers = claimed_numbers.exclude(
+                source_type=SourceDocumentNumberClaim.SourceType.RECEIVING,
+                source_id=self.pk,
+            )
+        if claimed_numbers.exists() and not self._document_number_is_unchanged():
+            raise ValidationError(
+                {
+                    "document_number": (
+                        f"Nomor dokumen '{self.document_number}' sudah diklaim "
+                        "oleh dokumen sumber stok lain."
+                    )
+                }
+            )
+
     def _document_number_is_unchanged(self):
         if not self.pk or not self.document_number:
             return False
@@ -348,6 +366,40 @@ class Receiving(TimeStampedModel):
             pk=self.pk,
             document_number=self.document_number,
         ).exists()
+
+    def _claim_document_number(self, old_document_number=None):
+        if old_document_number == self.document_number:
+            return None
+
+        from apps.stock.models import SourceDocumentNumberClaim
+
+        try:
+            return SourceDocumentNumberClaim.objects.create(
+                document_number=self.document_number,
+                source_type=SourceDocumentNumberClaim.SourceType.RECEIVING,
+                source_id=self.pk,
+            )
+        except IntegrityError as exc:
+            raise ValidationError(
+                {
+                    "document_number": (
+                        f"Nomor dokumen '{self.document_number}' sudah diklaim "
+                        "oleh dokumen sumber stok lain."
+                    )
+                }
+            ) from exc
+
+    def _release_old_document_number_claim(self, old_document_number):
+        if not old_document_number or old_document_number == self.document_number:
+            return
+
+        from apps.stock.models import SourceDocumentNumberClaim
+
+        SourceDocumentNumberClaim.objects.filter(
+            document_number=old_document_number,
+            source_type=SourceDocumentNumberClaim.SourceType.RECEIVING,
+            source_id=self.pk,
+        ).delete()
 
     def has_posted_stock_movements(self):
         if not self.pk:
@@ -411,11 +463,26 @@ class Receiving(TimeStampedModel):
         return f"{prefix}{num:05d}"
 
     def save(self, *args, **kwargs):
+        old_document_number = None
+        if self.pk:
+            old_document_number = (
+                Receiving.objects.filter(pk=self.pk)
+                .values_list("document_number", flat=True)
+                .first()
+            )
+
         if not self.document_number:
             self.document_number = self.generate_document_number()
         self._validate_document_number_not_opening_balance_collision()
         self._validate_document_number_immutable_after_movements()
-        super().save(*args, **kwargs)
+
+        with transaction.atomic():
+            claim = self._claim_document_number(old_document_number)
+            super().save(*args, **kwargs)
+            if claim and claim.source_id != self.pk:
+                claim.source_id = self.pk
+                claim.save(update_fields=["source_id", "updated_at"])
+            self._release_old_document_number_claim(old_document_number)
 
 
 class ReceivingItem(models.Model):

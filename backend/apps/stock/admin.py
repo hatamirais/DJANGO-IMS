@@ -25,6 +25,7 @@ from apps.core.upload_validation import validate_csv_upload
 from .models import (
     OpeningBalanceImport,
     OpeningBalanceImportItem,
+    SourceDocumentNumberClaim,
     Stock,
     Transaction,
     StockTransfer,
@@ -373,6 +374,17 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
         counts = {"imports": 0, "items": 0, "stock": 0, "transactions": 0}
 
         for document in preview["documents"]:
+            try:
+                claim = SourceDocumentNumberClaim.objects.create(
+                    document_number=document["document_number"],
+                    source_type=SourceDocumentNumberClaim.SourceType.OPENING_BALANCE,
+                )
+            except IntegrityError as exc:
+                raise ValueError(
+                    f"Nomor dokumen '{document['document_number']}' sudah diklaim "
+                    "oleh dokumen sumber stok lain."
+                ) from exc
+
             opening_balance = OpeningBalanceImport.objects.create(
                 document_number=document["document_number"],
                 effective_date=document["effective_date"],
@@ -380,6 +392,8 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                 posted_at=timezone.now(),
                 notes=f"Imported via opening balance CSV on {timezone.now().strftime('%Y-%m-%d %H:%M')}",
             )
+            claim.source_id = opening_balance.pk
+            claim.save(update_fields=["source_id", "updated_at"])
             counts["imports"] += 1
 
             for row in document["rows"]:
@@ -485,6 +499,9 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
         receiving_documents = set(
             Receiving.objects.values_list("document_number", flat=True)
         )
+        claimed_documents = set(
+            SourceDocumentNumberClaim.objects.values_list("document_number", flat=True)
+        )
         seen_doc_dates = {}
         seen_stock_expiry = {}
         seen_stock_price = {}
@@ -554,6 +571,13 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                         "document_number",
                         doc_number,
                         f"Nomor dokumen '{doc_number}' sudah digunakan oleh dokumen penerimaan. Gunakan document_number saldo awal yang berbeda.",
+                    )
+                if doc_number in claimed_documents:
+                    add_error(
+                        row_num,
+                        "document_number",
+                        doc_number,
+                        f"Nomor dokumen '{doc_number}' sudah diklaim oleh dokumen sumber stok lain.",
                     )
 
             effective_date_str = row.get("effective_date") or row.get("receiving_date")

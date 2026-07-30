@@ -63,7 +63,7 @@ def export_rincian_excel(report_data, start_date, end_date):
     ws.title = "Laporan Rincian"
 
     # Title rows
-    ws.merge_cells("A1:M1")
+    ws.merge_cells("A1:N1")
     title_cell = ws.cell(
         row=1,
         column=1,
@@ -72,7 +72,7 @@ def export_rincian_excel(report_data, start_date, end_date):
     title_cell.font = Font(bold=True, size=14)
     title_cell.alignment = Alignment(horizontal="center")
 
-    ws.merge_cells("A2:M2")
+    ws.merge_cells("A2:N2")
     period_cell = ws.cell(
         row=2,
         column=1,
@@ -83,11 +83,11 @@ def export_rincian_excel(report_data, start_date, end_date):
 
     # Headers
     headers = [
-        "No", "Nama Barang", "Satuan", "Batch", "Dokumen Sumber", "Kedaluwarsa",
+        "No", "Nama Barang", "Satuan", "Lokasi", "Batch", "Dokumen Sumber", "Kedaluwarsa",
         "Sumber Dana", "Harga Satuan", "Stok Awal",
         "Diterima", "Didistribusi", "ED/Rusak", "Stok Akhir"
     ]
-    col_widths = [6, 30, 10, 15, 20, 14, 18, 18, 14, 14, 14, 14, 14]
+    col_widths = [6, 30, 10, 22, 15, 20, 14, 18, 18, 14, 14, 14, 14, 14]
     _apply_header_row(ws, 4, headers, col_widths)
 
     row_num = 5
@@ -100,7 +100,7 @@ def export_rincian_excel(report_data, start_date, end_date):
             current_category = cat
             item_counter = 0
             # Category row
-            ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=13)
+            ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=14)
             cat_cell = ws.cell(
                 row=row_num,
                 column=1,
@@ -108,7 +108,7 @@ def export_rincian_excel(report_data, start_date, end_date):
             )
             cat_cell.font = Font(bold=True, size=11)
             cat_cell.fill = CATEGORY_FILL
-            _apply_border(ws, row_num, 13)
+            _apply_border(ws, row_num, 14)
             row_num += 1
 
         item_counter += 1
@@ -122,6 +122,7 @@ def export_rincian_excel(report_data, start_date, end_date):
             item_counter,
             row.get('item__nama_barang', ''),
             row.get('item__satuan__name', ''),
+            row.get('location__name', ''),
             row.get('batch_lot', ''),
             row.get('source_document_number', ''),
             expiry,
@@ -136,7 +137,7 @@ def export_rincian_excel(report_data, start_date, end_date):
         for col_idx, val in enumerate(values, 1):
             cell = ws.cell(row=row_num, column=col_idx, value=_cell_value(val))
             cell.border = THIN_BORDER
-            if col_idx >= 8:  # Numeric columns
+            if col_idx >= 9:  # Numeric columns
                 cell.number_format = IDR_FORMAT
                 cell.alignment = Alignment(horizontal="right")
             elif col_idx == 1:

@@ -62,6 +62,7 @@ def reports_index(request):
         # A specific batch of an item from a specific funding source usually has a consistent expiry_date.
         expiry_sq = Stock.objects.filter(
             item=OuterRef('item'),
+            location=OuterRef('location'),
             batch_lot=OuterRef('batch_lot'),
             sumber_dana=OuterRef('sumber_dana'),
             source_document_number=OuterRef('source_document_number'),
@@ -113,6 +114,7 @@ def reports_index(request):
             'item__kategori__sort_order',
             'item__nama_barang',
             'item__satuan__name',
+            'location__name',
             'batch_lot',
             'source_document_number',
             'sumber_dana__name',
@@ -188,7 +190,13 @@ def reports_index(request):
                 ),
                 0, output_field=models.DecimalField()
             )
-        ).order_by('item__kategori__sort_order', 'item__kategori__name', 'item__nama_barang', 'batch_lot')
+        ).order_by(
+            'item__kategori__sort_order',
+            'item__kategori__name',
+            'item__nama_barang',
+            'location__name',
+            'batch_lot',
+        )
         
         # We need a second annotate step (or list comprehension) to properly add ending_stock safely.
         # F-expressions mapped over coalesced outputs in annotate chaining sometimes act up on PostgreSQL.

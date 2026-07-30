@@ -260,6 +260,30 @@ class OpeningBalanceImport(TimeStampedModel):
         return f"{self.document_number} ({self.effective_date:%Y-%m-%d})"
 
 
+class SourceDocumentNumberClaim(TimeStampedModel):
+    """Shared uniqueness registry for stock source document numbers."""
+
+    class SourceType(models.TextChoices):
+        RECEIVING = "RECEIVING", "Penerimaan"
+        OPENING_BALANCE = "OPENING_BALANCE", "Saldo Awal"
+
+    document_number = models.CharField(max_length=100, unique=True)
+    source_type = models.CharField(max_length=30, choices=SourceType.choices)
+    source_id = models.PositiveIntegerField(null=True, blank=True)
+
+    class Meta:
+        db_table = "source_document_number_claims"
+        indexes = [
+            models.Index(
+                fields=["source_type", "source_id"],
+                name="idx_source_doc_claim_source",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.document_number} ({self.source_type})"
+
+
 class OpeningBalanceImportItem(models.Model):
     """Line item posted by an opening stock import batch."""
 

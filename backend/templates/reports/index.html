@@ -177,6 +177,7 @@
                                 <th style="width: 50px;">No</th>
                                 <th>Item Name</th>
                                 <th>Unit</th>
+                                <th>Location</th>
                                 <th>Batch</th>
                                 <th>Source Document</th>
                                 <th>Expiry Date</th>
@@ -194,13 +195,14 @@
                                 {% regroup report_data by item__kategori__name as category_list %}
                                 {% for category in category_list %}
                                 <tr class="table-secondary fw-bold">
-                                    <td colspan="13">{{ category.grouper|default:"KATEGORI TIDAK DIKETAHUI" }}</td>
+                                    <td colspan="14">{{ category.grouper|default:"KATEGORI TIDAK DIKETAHUI" }}</td>
                                 </tr>
                                 {% for row in category.list %}
                                 <tr>
                                     <td class="text-center">{{ forloop.counter }}</td>
                                     <td>{{ row.item__nama_barang }}</td>
                                     <td>{{ row.item__satuan__name }}</td>
+                                    <td>{{ row.location__name }}</td>
                                     <td>{{ row.batch_lot }}</td>
                                     <td>{{ row.source_document_number }}</td>
                                     <td>{% if row.expiry_date %}{{ row.expiry_date|date:"d M Y" }}{% else %}-{% endif %}</td>
@@ -216,7 +218,7 @@
                                 {% endfor %}
                             {% else %}
                             <tr>
-                                <td colspan="13" class="text-center text-muted py-4">
+                                <td colspan="14" class="text-center text-muted py-4">
                                     <i class="bi bi-inbox d-block mb-2" style="font-size: 2rem;"></i>
                                     Tidak ada data untuk periode ini.
                                 </td>

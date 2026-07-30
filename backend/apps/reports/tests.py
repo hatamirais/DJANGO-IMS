@@ -498,13 +498,92 @@ class RekapOpeningBalanceReportTests(TestCase):
 		self.assertEqual(export_response.status_code, 200)
 		workbook = load_workbook(BytesIO(export_response.content))
 		sheet = workbook.active
-		self.assertEqual(sheet["E4"].value, "Dokumen Sumber")
+		self.assertEqual(sheet["D4"].value, "Lokasi")
+		self.assertEqual(sheet["F4"].value, "Dokumen Sumber")
 		source_values = {
-			sheet.cell(row=row_idx, column=5).value
+			sheet.cell(row=row_idx, column=6).value
 			for row_idx in range(5, sheet.max_row + 1)
 		}
 		self.assertIn("SALDO-AWAL-SOURCE-A", source_values)
 		self.assertIn("SALDO-AWAL-SOURCE-B", source_values)
+
+	def test_detailed_report_separates_same_source_batch_by_location_expiry(self):
+		other_location = Location.objects.create(
+			code="RO-LOC-OTHER",
+			name="Gudang Pembantu",
+		)
+		Stock.objects.create(
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-LOCATION-SPLIT",
+			source_document_number="RCV-LOCATION-SPLIT",
+			expiry_date=date(2030, 1, 1),
+			quantity=Decimal("5"),
+			reserved=Decimal("0"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+		)
+		Stock.objects.create(
+			item=self.item,
+			location=other_location,
+			batch_lot="RO-BATCH-LOCATION-SPLIT",
+			source_document_number="RCV-LOCATION-SPLIT",
+			expiry_date=date(2031, 1, 1),
+			quantity=Decimal("7"),
+			reserved=Decimal("0"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+		)
+		Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.IN,
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-LOCATION-SPLIT",
+			source_document_number="RCV-LOCATION-SPLIT",
+			quantity=Decimal("5"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+			reference_type=Transaction.ReferenceType.RECEIVING,
+			reference_id=21,
+			user=self.user,
+		)
+		Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.IN,
+			item=self.item,
+			location=other_location,
+			batch_lot="RO-BATCH-LOCATION-SPLIT",
+			source_document_number="RCV-LOCATION-SPLIT",
+			quantity=Decimal("7"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+			reference_type=Transaction.ReferenceType.RECEIVING,
+			reference_id=22,
+			user=self.user,
+		)
+
+		response = self.client.get(
+			reverse("reports:index"),
+			{"start_date": "2026-01-01", "end_date": "2026-12-31"},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		rows = sorted(
+			(
+				row["location__name"],
+				row["expiry_date"],
+				row["received"],
+			)
+			for row in response.context["report_data"]
+			if row["batch_lot"] == "RO-BATCH-LOCATION-SPLIT"
+		)
+		self.assertEqual(
+			rows,
+			[
+				("Gudang Pembantu", date(2031, 1, 1), Decimal("7")),
+				("Gudang Rekap", date(2030, 1, 1), Decimal("5")),
+			],
+		)
+		self.assertContains(response, "Gudang Pembantu")
 
 	def test_rekap_next_year_carries_prior_year_ending_balance_without_reimport(self):
 		Transaction.objects.create(

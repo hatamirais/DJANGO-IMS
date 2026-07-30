@@ -30,6 +30,7 @@ from apps.stock import views as stock_views
 from apps.stock.models import (
     OpeningBalanceImport,
     OpeningBalanceImportItem,
+    SourceDocumentNumberClaim,
     Stock,
     StockTransfer,
     StockTransferItem,
@@ -297,7 +298,15 @@ class OpeningBalanceImportAdminTests(TestCase):
         opening_balance = OpeningBalanceImport.objects.get(
             document_number="SALDO-AWAL-2026"
         )
+        claim = SourceDocumentNumberClaim.objects.get(
+            document_number="SALDO-AWAL-2026"
+        )
         self.assertEqual(opening_balance.effective_date, date(2026, 1, 1))
+        self.assertEqual(
+            claim.source_type,
+            SourceDocumentNumberClaim.SourceType.OPENING_BALANCE,
+        )
+        self.assertEqual(claim.source_id, opening_balance.pk)
         self.assertEqual(OpeningBalanceImportItem.objects.count(), 1)
         stock = Stock.objects.get(
             item=self.item,
@@ -312,6 +321,31 @@ class OpeningBalanceImportAdminTests(TestCase):
         tx = Transaction.objects.get(reference_type=Transaction.ReferenceType.INITIAL_IMPORT)
         self.assertEqual(tx.reference_id, opening_balance.pk)
         self.assertEqual(tx.quantity, Decimal("10"))
+
+    def test_opening_balance_import_rejects_claimed_source_document_number(self):
+        SourceDocumentNumberClaim.objects.create(
+            document_number="SALDO-AWAL-CLAIMED",
+            source_type=SourceDocumentNumberClaim.SourceType.RECEIVING,
+        )
+        self.client.force_login(self.admin_user)
+        csv_content = (
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price\n"
+            f"SALDO-AWAL-CLAIMED,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},10,BATCH-001,01/01/2028,2500\n"
+        )
+
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(csv_content)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "sudah diklaim oleh dokumen sumber stok lain",
+        )
+        self.assertFalse(OpeningBalanceImport.objects.exists())
 
     def test_opening_balance_import_clears_existing_receiving_reference(self):
         receiving = Receiving.objects.create(

@@ -195,6 +195,11 @@ This section reflects model code in `backend/apps/*/models.py`.
   - FK: `created_by`
   - Report semantics: matching `INITIAL_IMPORT` transactions count as opening balance (`saldo_awal`) when `effective_date <= report.start_date`; when `report.start_date < effective_date <= report.end_date`, they count as in-period received stock
 
+- `stock.SourceDocumentNumberClaim` (`source_document_number_claims`):
+  - Shared uniqueness registry for new stock source document numbers
+  - Fields: `document_number` (unique), `source_type` (`RECEIVING` or `OPENING_BALANCE`), `source_id`
+  - Receiving creation/update and opening-balance confirmation claim numbers here in the same transaction so concurrent workflows cannot commit the same source-layer identifier
+
 - `stock.OpeningBalanceImportItem` (`opening_balance_import_items`):
   - FKs: `opening_balance`, `item`, `location`, `sumber_dana`
   - Fields: `batch_lot`, `expiry_date`, `quantity`, `unit_price`, `created_at`
@@ -467,7 +472,7 @@ Operational mutation points (from app behavior and admin import logic):
 - Procurement contract/amendment approval is restricted to Admin/Superuser or `KEPALA` with procurement approval scope and never mutates stock; it only creates or re-syncs the linked planned receiving execution document.
 - Procurement-linked receiving leftovers are closed audit-first through procurement amendments; direct receiving-side close-items cancellation is reserved for non-contract planned receivings.
 - Receiving verify/receive path posts `Transaction(IN, source_document_number=Receiving.document_number)` and updates/creates `Stock(source_document_number=Receiving.document_number)`.
-- Receiving `document_number` values are validated against posted opening-balance import document numbers, and generated receiving numbers skip opening-balance-owned `RCV-YYYY-NNNNN` values so source-layer identifiers remain workflow-unique.
+- Receiving `document_number` values are validated and claimed against posted opening-balance import document numbers, and generated receiving numbers skip opening-balance-owned `RCV-YYYY-NNNNN` values so source-layer identifiers remain workflow-unique.
 - Receiving `document_number` becomes immutable once stock rows or ledger transactions exist.
 - Receiving CSV admin import (`import-csv/`) posts:
   - `Receiving(status=VERIFIED)`
@@ -481,7 +486,7 @@ Operational mutation points (from app behavior and admin import logic):
   - `OpeningBalanceImportItem`
   - `Stock(source_document_number=OpeningBalanceImport.document_number, receiving_ref=NULL)` update/create
   - `Transaction(IN, source_document_number=OpeningBalanceImport.document_number, reference_type=INITIAL_IMPORT, reference_id=OpeningBalanceImport.pk)`
-- Opening balance CSV template download (`/admin/stock/stock/opening-balance/export-csv-template/`) returns `opening_balance_template.csv`. The importer accepts comma or semicolon delimiters, uses one consistent non-future `effective_date` per `document_number` for report classification, accepts `receiving_date` only as a compatibility alias, rejects populated `receiving_type` / `supplier_code` columns, rejects `document_number` collisions with posted opening-balance imports or receiving documents, validates destination decimal precision before preview, rejects negative `unit_price`, generates blank batches with document identity, and rejects same-source-document collisions with different `expiry_date` or `unit_price`.
+- Opening balance CSV template download (`/admin/stock/stock/opening-balance/export-csv-template/`) returns `opening_balance_template.csv`. The importer accepts comma or semicolon delimiters, uses one consistent non-future `effective_date` per `document_number` for report classification, accepts `receiving_date` only as a compatibility alias, rejects populated `receiving_type` / `supplier_code` columns, rejects or serializes `document_number` collisions with posted opening-balance imports, receiving documents, or existing source-document claims, validates destination decimal precision before preview, rejects negative `unit_price`, generates blank batches with document identity, and rejects same-source-document collisions with different `expiry_date` or `unit_price`.
 - Reports classify dedicated opening-balance `INITIAL_IMPORT` rows by `effective_date`: rows effective on/before the report start count as `saldo_awal`, while rows effective after the start and within the report period count as `nilai_terima` so ending stock stays aligned with posted stock. Later-year opening balance is derived from the prior ledger balance and does not require re-import. Legacy unlinked `INITIAL_IMPORT` rows still use compatibility behavior: rows up to the report start date count as opening balance, and rows after the start date count as in-period received stock.
 - LPLPO approval/finalize creates a Distribution document mapped 1:1, marks the LPLPO `APPROVED`, and closes the LPLPO once the linked Distribution reaches `DISTRIBUTED`.
 - For generated LPLPO draft distributions, the preparation edit UI displays both requested and approved quantities for reference but locks those values and rejects added/deleted rows; users only assign batches and preparation metadata there.
