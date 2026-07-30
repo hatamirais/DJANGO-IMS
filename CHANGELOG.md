@@ -19,6 +19,7 @@ The format is based on Keep a Changelog and follows Semantic Versioning (`MAJOR.
 ### Fixed
 
 - Opening-balance import validation now catches malformed row counts, invalid decimal precision, unknown references, and same-document price/expiry conflicts before database writes.
+- Historical stock migration now keeps ambiguous multi-document aggregate balances in a legacy source layer instead of assigning the whole balance to one receiving document.
 
 ## [1.30.0] - 2026-07-29
 

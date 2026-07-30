@@ -8,29 +8,44 @@ def backfill_source_document_number(apps, schema_editor):
 
     for stock in Stock.objects.select_related("receiving_ref").iterator():
         source_document_number = ""
-        if stock.receiving_ref_id:
-            source_document_number = stock.receiving_ref.document_number
-        else:
-            tx = (
-                Transaction.objects.filter(
-                    item_id=stock.item_id,
-                    location_id=stock.location_id,
-                    batch_lot=stock.batch_lot,
-                    sumber_dana_id=stock.sumber_dana_id,
-                    reference_type="INITIAL_IMPORT",
-                    transaction_type="IN",
-                )
-                .order_by("created_at", "id")
+
+        stock_transaction_filters = {
+            "item_id": stock.item_id,
+            "location_id": stock.location_id,
+            "batch_lot": stock.batch_lot,
+            "sumber_dana_id": stock.sumber_dana_id,
+            "transaction_type": "IN",
+        }
+        receiving_reference_ids = list(
+            Transaction.objects.filter(
+                **stock_transaction_filters,
+                reference_type="RECEIVING",
+            )
+            .values_list("reference_id", flat=True)
+            .distinct()
+        )
+        opening_reference_ids = list(
+            Transaction.objects.filter(
+                **stock_transaction_filters,
+                reference_type="INITIAL_IMPORT",
+            )
+            .values_list("reference_id", flat=True)
+            .distinct()
+        )
+
+        if len(receiving_reference_ids) == 1 and not opening_reference_ids:
+            if stock.receiving_ref_id == receiving_reference_ids[0]:
+                source_document_number = stock.receiving_ref.document_number
+        elif len(opening_reference_ids) == 1 and not receiving_reference_ids:
+            opening_balance = (
+                OpeningBalanceImport.objects.filter(pk=opening_reference_ids[0])
+                .only("document_number")
                 .first()
             )
-            if tx:
-                opening_balance = (
-                    OpeningBalanceImport.objects.filter(pk=tx.reference_id)
-                    .only("document_number")
-                    .first()
-                )
-                if opening_balance:
-                    source_document_number = opening_balance.document_number
+            if opening_balance:
+                source_document_number = opening_balance.document_number
+        elif stock.receiving_ref_id and not receiving_reference_ids and not opening_reference_ids:
+            source_document_number = stock.receiving_ref.document_number
 
         if not source_document_number:
             source_document_number = f"LEGACY-{stock.pk}"

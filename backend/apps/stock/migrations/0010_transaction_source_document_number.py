@@ -9,6 +9,18 @@ def backfill_transaction_source_document_number(apps, schema_editor):
 
     for tx in Transaction.objects.iterator():
         source_document_number = ""
+        matching_stock_source_numbers = list(
+            Stock.objects.filter(
+                item_id=tx.item_id,
+                location_id=tx.location_id,
+                batch_lot=tx.batch_lot,
+                sumber_dana_id=tx.sumber_dana_id,
+                unit_price=tx.unit_price,
+            )
+            .values_list("source_document_number", flat=True)
+            .distinct()
+            .order_by("source_document_number")
+        )
         if tx.reference_type == "INITIAL_IMPORT":
             opening_balance = (
                 OpeningBalanceImport.objects.filter(pk=tx.reference_id)
@@ -26,21 +38,14 @@ def backfill_transaction_source_document_number(apps, schema_editor):
             if receiving:
                 source_document_number = receiving.document_number
 
-        if not source_document_number:
-            matching_stock = (
-                Stock.objects.filter(
-                    item_id=tx.item_id,
-                    location_id=tx.location_id,
-                    batch_lot=tx.batch_lot,
-                    sumber_dana_id=tx.sumber_dana_id,
-                    unit_price=tx.unit_price,
-                )
-                .order_by("source_document_number", "id")
-                .only("source_document_number")
-                .first()
-            )
-            if matching_stock:
-                source_document_number = matching_stock.source_document_number
+        if len(matching_stock_source_numbers) == 1:
+            source_document_number = matching_stock_source_numbers[0]
+        elif (
+            source_document_number
+            and matching_stock_source_numbers
+            and source_document_number not in matching_stock_source_numbers
+        ):
+            source_document_number = ""
 
         if not source_document_number:
             source_document_number = "LEGACY"

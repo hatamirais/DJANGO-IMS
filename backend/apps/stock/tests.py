@@ -955,6 +955,118 @@ class LegacyNoExpiryItemBackfillMigrationTests(TestCase):
         self.assertFalse(receiving_item.requires_expiry_date)
         self.assertTrue(unaffected_item.requires_expiry_date)
 
+
+class SourceDocumentBackfillMigrationTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_superuser(
+            username='source-doc-backfill-admin',
+            password='secret12345',
+        )
+        self.unit = Unit.objects.create(code='SDM', name='Source Doc Unit')
+        self.category = Category.objects.create(
+            code='SDM-CAT',
+            name='Source Doc Category',
+            sort_order=1,
+        )
+        self.item = Item.objects.create(
+            kode_barang='ITM-SDM-001',
+            nama_barang='Source Doc Item',
+            satuan=self.unit,
+            kategori=self.category,
+            minimum_stock=Decimal('0'),
+        )
+        self.location = Location.objects.create(code='SDM-LOC', name='Source Doc Location')
+        self.funding = FundingSource.objects.create(code='SDM-FUND', name='Source Doc Fund')
+
+    class MigrationApps:
+        @staticmethod
+        def get_model(app_label, model_name):
+            mapping = {
+                ('receiving', 'Receiving'): Receiving,
+                ('stock', 'OpeningBalanceImport'): OpeningBalanceImport,
+                ('stock', 'Stock'): Stock,
+                ('stock', 'Transaction'): Transaction,
+            }
+            return mapping[(app_label, model_name)]
+
+    def _create_receiving(self, document_number):
+        return Receiving.objects.create(
+            document_number=document_number,
+            receiving_date=date(2026, 1, 10),
+            receiving_type=Receiving.ReceivingType.GRANT,
+            sumber_dana=self.funding,
+            created_by=self.user,
+        )
+
+    def _create_receiving_transaction(self, receiving, quantity):
+        return Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot='SDM-BATCH',
+            quantity=quantity,
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=receiving.pk,
+            user=self.user,
+        )
+
+    def test_stock_backfill_marks_multi_document_aggregate_as_legacy(self):
+        migration_module = importlib.import_module(
+            'apps.stock.migrations.0009_stock_source_document_number'
+        )
+        first_receiving = self._create_receiving('RCV-SDM-001')
+        second_receiving = self._create_receiving('RCV-SDM-002')
+        stock = Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot='SDM-BATCH',
+            expiry_date=date(2030, 1, 1),
+            quantity=Decimal('12'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            receiving_ref=first_receiving,
+            source_document_number='',
+        )
+        self._create_receiving_transaction(first_receiving, Decimal('5'))
+        self._create_receiving_transaction(second_receiving, Decimal('7'))
+
+        migration_module.backfill_source_document_number(self.MigrationApps(), None)
+
+        stock.refresh_from_db()
+        self.assertEqual(stock.source_document_number, f'LEGACY-{stock.pk}')
+
+    def test_transaction_backfill_uses_legacy_stock_layer_when_receiving_is_ambiguous(self):
+        migration_module = importlib.import_module(
+            'apps.stock.migrations.0010_transaction_source_document_number'
+        )
+        receiving = self._create_receiving('RCV-SDM-LEGACY')
+        stock = Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot='SDM-BATCH',
+            expiry_date=date(2030, 1, 1),
+            quantity=Decimal('12'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            receiving_ref=receiving,
+            source_document_number='LEGACY-SDM-STOCK',
+        )
+        tx = self._create_receiving_transaction(receiving, Decimal('12'))
+        Transaction.objects.filter(pk=tx.pk).update(source_document_number='')
+
+        migration_module.backfill_transaction_source_document_number(
+            self.MigrationApps(),
+            None,
+        )
+
+        tx.refresh_from_db()
+        self.assertEqual(tx.source_document_number, stock.source_document_number)
+
+
 class DownstreamNoExpirySentinelBackfillMigrationTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_superuser(
