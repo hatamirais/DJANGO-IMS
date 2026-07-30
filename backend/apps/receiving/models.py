@@ -307,6 +307,7 @@ class Receiving(TimeStampedModel):
         super().clean()
         self.receiving_type = validate_receiving_type_code(self.receiving_type)
         self._validate_document_number_not_opening_balance_collision()
+        self._validate_document_number_immutable_after_movements()
         if self.receiving_type == self.ReceivingType.PROCUREMENT and not self.supplier_id:
             raise ValidationError(
                 {"supplier": "Supplier wajib diisi untuk tipe Pengadaan."}
@@ -340,6 +341,43 @@ class Receiving(TimeStampedModel):
                 }
             )
 
+    def has_posted_stock_movements(self):
+        if not self.pk:
+            return False
+
+        from apps.stock.models import Stock, Transaction
+
+        return (
+            Transaction.objects.filter(
+                reference_type=Transaction.ReferenceType.RECEIVING,
+                reference_id=self.pk,
+            ).exists()
+            or Stock.objects.filter(receiving_ref_id=self.pk).exists()
+        )
+
+    def _validate_document_number_immutable_after_movements(self):
+        if not self.pk or not self.document_number:
+            return
+
+        old_document_number = (
+            Receiving.objects.filter(pk=self.pk)
+            .values_list("document_number", flat=True)
+            .first()
+        )
+        if (
+            old_document_number
+            and old_document_number != self.document_number
+            and self.has_posted_stock_movements()
+        ):
+            raise ValidationError(
+                {
+                    "document_number": (
+                        "Nomor dokumen penerimaan tidak dapat diubah setelah "
+                        "stok atau transaksi ledger dibuat."
+                    )
+                }
+            )
+
     @staticmethod
     def generate_document_number():
         year = timezone.now().year
@@ -368,6 +406,7 @@ class Receiving(TimeStampedModel):
         if not self.document_number:
             self.document_number = self.generate_document_number()
         self._validate_document_number_not_opening_balance_collision()
+        self._validate_document_number_immutable_after_movements()
         super().save(*args, **kwargs)
 
 

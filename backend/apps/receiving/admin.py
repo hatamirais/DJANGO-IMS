@@ -171,6 +171,12 @@ class ReceivingAdmin(admin.ModelAdmin):
 
     change_list_template = "admin/receiving/receiving_changelist.html"
 
+    def get_readonly_fields(self, request, obj=None):
+        readonly_fields = list(super().get_readonly_fields(request, obj))
+        if obj and obj.has_posted_stock_movements() and "document_number" not in readonly_fields:
+            readonly_fields.append("document_number")
+        return readonly_fields
+
     def save_formset(self, request, form, formset, change):
         if formset.model is not ReceivingDocument:
             return super().save_formset(request, form, formset, change)

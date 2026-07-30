@@ -1096,6 +1096,96 @@ class SourceDocumentBackfillMigrationTests(TestCase):
         tx.refresh_from_db()
         self.assertEqual(tx.source_document_number, stock.source_document_number)
 
+    def test_stock_and_transaction_backfill_preserve_opening_balance_transfer_layer(self):
+        stock_migration = importlib.import_module(
+            'apps.stock.migrations.0009_stock_source_document_number'
+        )
+        transaction_migration = importlib.import_module(
+            'apps.stock.migrations.0010_transaction_source_document_number'
+        )
+        destination = Location.objects.create(code='SDM-DST', name='Transfer Destination')
+        opening_balance = OpeningBalanceImport.objects.create(
+            document_number='SALDO-SDM-TRANSFER',
+            effective_date=date(2026, 1, 1),
+            created_by=self.user,
+        )
+        source_stock = Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot='SDM-BATCH',
+            expiry_date=date(2030, 1, 1),
+            quantity=Decimal('5'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            source_document_number='',
+        )
+        destination_stock = Stock.objects.create(
+            item=self.item,
+            location=destination,
+            batch_lot='SDM-BATCH',
+            expiry_date=date(2030, 1, 1),
+            quantity=Decimal('5'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            source_document_number='',
+        )
+        opening_tx = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot='SDM-BATCH',
+            quantity=Decimal('10'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.INITIAL_IMPORT,
+            reference_id=opening_balance.pk,
+            user=self.user,
+        )
+        transfer_out = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.OUT,
+            item=self.item,
+            location=self.location,
+            batch_lot='SDM-BATCH',
+            quantity=Decimal('5'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.TRANSFER,
+            reference_id=777,
+            user=self.user,
+        )
+        transfer_in = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=destination,
+            batch_lot='SDM-BATCH',
+            quantity=Decimal('5'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.TRANSFER,
+            reference_id=777,
+            user=self.user,
+        )
+
+        stock_migration.backfill_source_document_number(self.MigrationApps(), None)
+        source_stock.refresh_from_db()
+        destination_stock.refresh_from_db()
+
+        self.assertEqual(source_stock.source_document_number, 'SALDO-SDM-TRANSFER')
+        self.assertEqual(destination_stock.source_document_number, 'SALDO-SDM-TRANSFER')
+
+        transaction_migration.backfill_transaction_source_document_number(
+            self.MigrationApps(),
+            None,
+        )
+        opening_tx.refresh_from_db()
+        transfer_out.refresh_from_db()
+        transfer_in.refresh_from_db()
+        self.assertEqual(opening_tx.source_document_number, 'SALDO-SDM-TRANSFER')
+        self.assertEqual(transfer_out.source_document_number, 'SALDO-SDM-TRANSFER')
+        self.assertEqual(transfer_in.source_document_number, 'SALDO-SDM-TRANSFER')
+
 
 class DownstreamNoExpirySentinelBackfillMigrationTests(TestCase):
     def setUp(self):

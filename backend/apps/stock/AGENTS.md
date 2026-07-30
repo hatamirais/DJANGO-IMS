@@ -22,6 +22,7 @@ App-specific guidance for stock balances and ledger behavior.
 - Never mutate historical `Transaction` rows.
 - Do not replace stock movement reporting with auditlog entries.
 - Stock transfer completion writes paired `OUT` and `IN` transactions.
+- Source-layer migrations must keep paired transfer `OUT` and `IN` movements on the same source document layer.
 
 ## Opening Balance Import
 

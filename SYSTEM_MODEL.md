@@ -468,6 +468,7 @@ Operational mutation points (from app behavior and admin import logic):
 - Procurement-linked receiving leftovers are closed audit-first through procurement amendments; direct receiving-side close-items cancellation is reserved for non-contract planned receivings.
 - Receiving verify/receive path posts `Transaction(IN, source_document_number=Receiving.document_number)` and updates/creates `Stock(source_document_number=Receiving.document_number)`.
 - Receiving `document_number` values are validated against posted opening-balance import document numbers, and generated receiving numbers skip opening-balance-owned `RCV-YYYY-NNNNN` values so source-layer identifiers remain workflow-unique.
+- Receiving `document_number` becomes immutable once stock rows or ledger transactions exist.
 - Receiving CSV admin import (`import-csv/`) posts:
   - `Receiving(status=VERIFIED)`
   - `ReceivingItem`

@@ -113,6 +113,21 @@ class ReceivingModelDocumentNumberCollisionTests(TestCase):
             username="receiving-docnum-admin",
             password="secret12345",
         )
+        self.unit = Unit.objects.create(code="RCV-DOCNUM-UNT", name="Docnum Unit")
+        self.category = Category.objects.create(
+            code="RCV-DOCNUM-CAT",
+            name="Docnum Category",
+        )
+        self.item = Item.objects.create(
+            kode_barang="RCV-DOCNUM-ITEM",
+            nama_barang="Receiving Docnum Item",
+            satuan=self.unit,
+            kategori=self.category,
+        )
+        self.location = Location.objects.create(
+            code="RCV-DOCNUM-LOC",
+            name="Receiving Docnum Location",
+        )
         self.funding = FundingSource.objects.create(code="RCV-DOCNUM", name="Dana Docnum")
 
     def _create_opening_balance_import(self, document_number):
@@ -171,6 +186,93 @@ class ReceivingModelDocumentNumberCollisionTests(TestCase):
         )
 
         self.assertEqual(receiving.document_number, f"RCV-{year}-00002")
+
+    def test_full_clean_rejects_document_number_change_after_ledger_transaction(self):
+        receiving = Receiving.objects.create(
+            document_number="RCV-LOCKED-001",
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            status=Receiving.Status.VERIFIED,
+            created_by=self.user,
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot="RCV-LOCKED-BATCH",
+            quantity=Decimal("5"),
+            unit_price=Decimal("1000"),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=receiving.pk,
+            user=self.user,
+        )
+        receiving.document_number = "RCV-LOCKED-RENAMED"
+
+        with self.assertRaises(ValidationError) as exc:
+            receiving.full_clean()
+
+        self.assertIn("document_number", exc.exception.message_dict)
+        self.assertIn(
+            "tidak dapat diubah",
+            exc.exception.message_dict["document_number"][0],
+        )
+
+    def test_save_rejects_document_number_change_after_stock_posting(self):
+        receiving = Receiving.objects.create(
+            document_number="RCV-STOCK-LOCKED-001",
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            status=Receiving.Status.VERIFIED,
+            created_by=self.user,
+        )
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot="RCV-STOCK-LOCKED-BATCH",
+            expiry_date=date(2030, 1, 1),
+            quantity=Decimal("5"),
+            reserved=Decimal("0"),
+            unit_price=Decimal("1000"),
+            sumber_dana=self.funding,
+            receiving_ref=receiving,
+            source_document_number=receiving.document_number,
+        )
+        receiving.document_number = "RCV-STOCK-LOCKED-RENAMED"
+
+        with self.assertRaises(ValidationError) as exc:
+            receiving.save()
+
+        self.assertIn("document_number", exc.exception.message_dict)
+        receiving.refresh_from_db()
+        self.assertEqual(receiving.document_number, "RCV-STOCK-LOCKED-001")
+
+    def test_receiving_admin_makes_document_number_readonly_after_posting(self):
+        receiving = Receiving.objects.create(
+            document_number="RCV-ADMIN-LOCKED-001",
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            status=Receiving.Status.VERIFIED,
+            created_by=self.user,
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot="RCV-ADMIN-LOCKED-BATCH",
+            quantity=Decimal("5"),
+            unit_price=Decimal("1000"),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=receiving.pk,
+            user=self.user,
+        )
+        admin = ReceivingAdmin(Receiving, AdminSite())
+
+        self.assertIn("document_number", admin.get_readonly_fields(None, receiving))
 
 
 class ReceivingCSVImportTest(TestCase):
