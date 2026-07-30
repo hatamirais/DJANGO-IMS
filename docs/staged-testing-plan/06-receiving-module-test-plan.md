@@ -168,8 +168,8 @@ Prioritas: Kritis
 
 Prioritas: Kritis
 
-1. Verifikasi receiving membuat `Stock` baru bila tuple `(item, location, batch_lot, sumber_dana)` belum ada.
-2. Verifikasi receiving menginkrementasi `Stock.quantity` bila tuple sudah ada.
+1. Verifikasi receiving membuat `Stock` baru bila tuple `(item, location, batch_lot, sumber_dana, source_document_number)` belum ada.
+2. Verifikasi receiving menginkrementasi `Stock.quantity` bila tuple source-document yang sama sudah ada, dan membuat layer stok terpisah untuk `document_number` berbeda.
 3. Setiap item receiving menghasilkan tepat satu `Transaction` dengan `type=IN`.
 4. `Transaction.quantity`, `Transaction.batch_lot`, `Transaction.expiry_date`, dan `Transaction.unit_price` sesuai item receiving.
 5. `Transaction.reference_number` sesuai `document_number` receiving.

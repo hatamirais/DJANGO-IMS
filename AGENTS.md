@@ -70,7 +70,7 @@ Stock movement is ledger-first: historical `stock.Transaction` rows are append-o
 
 Inbound: `procurement` approved SPJ/amendment -> linked planned `receiving` document -> receiving execution/import -> `stock.Stock` update + `stock.Transaction(IN)`.
 
-Opening balance: Stock Admin opening-balance import -> `stock.OpeningBalanceImport` / `OpeningBalanceImportItem` -> `Stock` update with `receiving_ref=NULL` -> `Transaction(IN, reference_type=INITIAL_IMPORT)`.
+Opening balance: Stock Admin opening-balance import -> `stock.OpeningBalanceImport` / `OpeningBalanceImportItem` -> `Stock(source_document_number=OpeningBalanceImport.document_number, receiving_ref=NULL)` update/create -> `Transaction(IN, reference_type=INITIAL_IMPORT)`.
 
 Outbound: `allocation` approval or `lplpo` PIC review or manual/special request -> `distribution.Distribution` / `DistributionItem` -> stock reservation at verification -> stock deduction and reservation clearing at final distribution.
 
@@ -80,7 +80,9 @@ Consumption: `puskesmas.PuskesmasConsumption` / entries -> same-month editable `
 
 Availability checks across distribution, recall, expired, transfer, and several selectors use `Stock.available_quantity` (`quantity - reserved`). Batch selectors should order dated stock by FEFO and place `expiry_date=NULL` rows last as non-expiring stock.
 
-Receiving and opening-balance imports enforce `Item.requires_expiry_date`: blank `expiry_date` is allowed only for catalog items marked as non-expiring. Legacy no-expiry sentinel backfills normalize copied outbound history fields to `NULL` so historical UI/reporting renders `Tanpa kedaluwarsa` consistently.
+Stock rows are uniquely identified by item, location, batch, funding source, and `source_document_number`. Receiving uses the receiving document number as the stock source document; opening balance uses the opening-balance document number. Do not average unit prices across source documents. Same item/location/batch/funding can exist in separate source-document layers, while conflicts within the same source document must preserve exact expiry and unit price.
+
+Receiving and opening-balance imports enforce `Item.requires_expiry_date`: blank `expiry_date` is allowed only for catalog items marked as non-expiring. Opening-balance CSV imports accept comma or semicolon delimiters. Legacy no-expiry sentinel backfills normalize copied outbound history fields to `NULL` so historical UI/reporting renders `Tanpa kedaluwarsa` consistently.
 
 ## Global Workflow Rules
 

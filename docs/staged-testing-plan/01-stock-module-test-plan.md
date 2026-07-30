@@ -142,7 +142,7 @@ Skenario:
 4. `is_near_expiry` true untuk expiry dalam 90 hari dan false bila sudah expired.
 5. Constraint `quantity >= 0` ditolak saat invalid.
 6. Constraint `reserved >= 0` ditolak saat invalid.
-7. Unique stock tuple `(item, location, batch_lot, sumber_dana)` tidak boleh duplikat.
+7. Unique stock tuple `(item, location, batch_lot, sumber_dana, source_document_number)` tidak boleh duplikat.
 
 ### B. Transaction Model
 

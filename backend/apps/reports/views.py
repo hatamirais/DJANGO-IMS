@@ -63,7 +63,8 @@ def reports_index(request):
         expiry_sq = Stock.objects.filter(
             item=OuterRef('item'),
             batch_lot=OuterRef('batch_lot'),
-            sumber_dana=OuterRef('sumber_dana')
+            sumber_dana=OuterRef('sumber_dana'),
+            unit_price=OuterRef('unit_price'),
         ).values('expiry_date')[:1]
 
         # First level query to annotate initial balances and period flows

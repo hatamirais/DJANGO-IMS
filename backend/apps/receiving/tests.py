@@ -796,7 +796,7 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertContains(response, "Tanggal kedaluwarsa wajib diisi untuk barang ini.")
         self.assertEqual(Receiving.objects.count(), 0)
 
-    def test_regular_receiving_create_rejects_same_batch_with_different_expiry(self):
+    def test_regular_receiving_create_allows_same_batch_with_different_expiry_for_new_document(self):
         Stock.objects.create(
             item=self.item,
             location=self.location,
@@ -806,6 +806,7 @@ class ReceivingWorkflowCleanupTest(TestCase):
             reserved=Decimal("0"),
             unit_price=Decimal("1500"),
             sumber_dana=self.funding,
+            source_document_number="LEGACY-DOC",
         )
 
         response = self.client.post(
@@ -831,14 +832,18 @@ class ReceivingWorkflowCleanupTest(TestCase):
             secure=True,
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(
-            response,
-            "Batch stok yang sama tidak boleh memiliki tanggal kedaluwarsa berbeda.",
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            list(
+                Stock.objects.filter(item=self.item, batch_lot="BATCH-DUP")
+                .order_by("source_document_number")
+                .values_list("source_document_number", "expiry_date", "quantity")
+            ),
+            [
+                ("LEGACY-DOC", date(2030, 1, 1), Decimal("5.00")),
+                (Receiving.objects.get().document_number, date(2030, 2, 1), Decimal("10.00")),
+            ],
         )
-        stock = Stock.objects.get(item=self.item, batch_lot="BATCH-DUP")
-        self.assertEqual(stock.quantity, Decimal("5"))
-        self.assertEqual(Receiving.objects.count(), 0)
 
     def test_regular_receiving_create_rejects_non_finite_quantity(self):
         response = self.client.post(
@@ -2203,7 +2208,7 @@ class ReceivingStockConcurrencyTest(TransactionTestCase):
         finally:
             connections.close_all()
 
-    def test_regular_receiving_concurrent_posts_accumulate_single_stock_row(self):
+    def test_regular_receiving_concurrent_posts_create_source_document_layers(self):
         from apps.receiving import models as receiving_models
 
         barrier = threading.Barrier(2)
@@ -2254,21 +2259,21 @@ class ReceivingStockConcurrencyTest(TransactionTestCase):
             sorted(result["status_code"] for result in results.values()),
             [302, 302],
         )
-        stock = Stock.objects.get(
-            item=self.item,
-            location=self.location,
-            batch_lot=self.batch_lot,
-            sumber_dana=self.funding,
-        )
-        self.assertEqual(stock.quantity, Decimal("7"))
         self.assertEqual(
-            Stock.objects.filter(
-                item=self.item,
-                location=self.location,
-                batch_lot=self.batch_lot,
-                sumber_dana=self.funding,
-            ).count(),
-            1,
+            list(
+                Stock.objects.filter(
+                    item=self.item,
+                    location=self.location,
+                    batch_lot=self.batch_lot,
+                    sumber_dana=self.funding,
+                )
+                .order_by("source_document_number")
+                .values_list("source_document_number", "quantity")
+            ),
+            [
+                ("RCV-2026-RACE-REG-1", Decimal("3.00")),
+                ("RCV-2026-RACE-REG-2", Decimal("4.00")),
+            ],
         )
         self.assertEqual(Receiving.objects.count(), 2)
         self.assertEqual(ReceivingItem.objects.count(), 2)
@@ -2298,7 +2303,11 @@ class ReceivingStockConcurrencyTest(TransactionTestCase):
                 return self
 
             def first(self):
-                return {"pk": 99, "expiry_date": date(2031, 1, 1)}
+                return {
+                    "pk": 99,
+                    "expiry_date": date(2031, 1, 1),
+                    "unit_price": Decimal("1500"),
+                }
 
         with (
             patch(
@@ -2325,6 +2334,7 @@ class ReceivingStockConcurrencyTest(TransactionTestCase):
                     quantity=Decimal('3'),
                     unit_price=Decimal('1500'),
                     receiving_ref=None,
+                    source_document_number="RCV-RACE",
                 )
 
         self.assertIn('tanggal kedaluwarsa berbeda', str(exc.exception))
@@ -2332,7 +2342,7 @@ class ReceivingStockConcurrencyTest(TransactionTestCase):
         _, second_call_kwargs = mock_filter.call_args_list[1]
         self.assertEqual(second_call_kwargs['expiry_date'], date(2030, 1, 1))
 
-    def test_planned_receiving_concurrent_posts_accumulate_existing_stock(self):
+    def test_planned_receiving_concurrent_posts_create_source_document_layers(self):
         from apps.receiving import models as receiving_models
 
         Stock.objects.create(
@@ -2435,8 +2445,26 @@ class ReceivingStockConcurrencyTest(TransactionTestCase):
             location=self.location,
             batch_lot=self.batch_lot,
             sumber_dana=self.funding,
+            source_document_number="LEGACY",
         )
-        self.assertEqual(stock.quantity, Decimal("17"))
+        self.assertEqual(stock.quantity, Decimal("10"))
+        self.assertEqual(
+            list(
+                Stock.objects.filter(
+                    item=self.item,
+                    location=self.location,
+                    batch_lot=self.batch_lot,
+                    sumber_dana=self.funding,
+                )
+                .order_by("source_document_number")
+                .values_list("source_document_number", "quantity")
+            ),
+            [
+                ("LEGACY", Decimal("10.00")),
+                ("RCV-2026-RACE-PLAN-1", Decimal("3.00")),
+                ("RCV-2026-RACE-PLAN-2", Decimal("4.00")),
+            ],
+        )
         order_item_one.refresh_from_db()
         order_item_two.refresh_from_db()
         self.assertEqual(order_item_one.received_quantity, Decimal("3"))
@@ -2450,7 +2478,7 @@ class ReceivingStockConcurrencyTest(TransactionTestCase):
             2,
         )
 
-    def test_csv_import_concurrent_runs_accumulate_single_stock_row(self):
+    def test_csv_import_concurrent_runs_create_source_document_layers(self):
         from apps.receiving import models as receiving_models
 
         barrier = threading.Barrier(2)
@@ -2493,13 +2521,22 @@ class ReceivingStockConcurrencyTest(TransactionTestCase):
         self.assertNotIn("error", results.get("two", {}))
         self.assertEqual(results["one"]["counts"]["stock"], 1)
         self.assertEqual(results["two"]["counts"]["stock"], 1)
-        stock = Stock.objects.get(
-            item=self.item,
-            location=self.location,
-            batch_lot=self.batch_lot,
-            sumber_dana=self.funding,
+        self.assertEqual(
+            list(
+                Stock.objects.filter(
+                    item=self.item,
+                    location=self.location,
+                    batch_lot=self.batch_lot,
+                    sumber_dana=self.funding,
+                )
+                .order_by("source_document_number")
+                .values_list("source_document_number", "quantity")
+            ),
+            [
+                ("RCV-2026-RACE-CSV-1", Decimal("6.00")),
+                ("RCV-2026-RACE-CSV-2", Decimal("8.00")),
+            ],
         )
-        self.assertEqual(stock.quantity, Decimal("14"))
         self.assertEqual(Receiving.objects.count(), 2)
         self.assertEqual(ReceivingItem.objects.count(), 2)
         self.assertEqual(

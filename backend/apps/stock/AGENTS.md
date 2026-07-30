@@ -12,6 +12,8 @@ App-specific guidance for stock balances and ledger behavior.
 - `stok tersedia` is `quantity - reserved`.
 - Availability checks across distribution, recall, expired, transfer, and several selectors use `Stock.available_quantity`.
 - Batch selectors should order dated stock by FEFO and place `expiry_date=NULL` rows last as non-expiring stock.
+- Stock rows are source-document layers. The unique stock tuple is `item + location + batch_lot + sumber_dana + source_document_number`.
+- Do not merge same-batch rows from different source documents by averaging prices; accounting values stay tied to the posted source layer.
 
 ## Ledger Rules
 
@@ -27,12 +29,13 @@ App-specific guidance for stock balances and ledger behavior.
 - Generic Stock admin import plus direct Stock add/change/delete mutations are disabled so stock cannot be written without ledger transactions.
 - Opening-balance import is restricted to superuser / role `ADMIN`.
 - Opening-balance import uses one consistent non-future `effective_date` per `document_number` for report classification.
+- Opening-balance CSV imports accept comma or semicolon delimiters.
 - It rejects populated `receiving_type` / `supplier_code`.
 - It validates decimal precision before preview/confirm.
 - It rejects negative unit prices.
 - It generates blank batches with document identity.
-- It rejects existing-stock collisions with different `expiry_date` or `unit_price`.
-- Confirmed imports create `OpeningBalanceImport` and `OpeningBalanceImportItem`, update stock with `receiving_ref=NULL`, and write `Transaction(IN, reference_type=INITIAL_IMPORT)`.
+- It rejects conflicts inside the same source document layer when `expiry_date` or `unit_price` differs.
+- Confirmed imports create `OpeningBalanceImport` and `OpeningBalanceImportItem`, update stock with `source_document_number=document_number` and `receiving_ref=NULL`, and write `Transaction(IN, reference_type=INITIAL_IMPORT)`.
 - Rekap/yearly reports classify opening-balance rows as `saldo_awal` when effective on/before the report start, or as in-period received stock when effective after the start and within the selected period.
 - Later years carry forward from the ledger and do not require re-import.
 

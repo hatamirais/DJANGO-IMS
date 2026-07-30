@@ -124,13 +124,20 @@ class StockResource(resources.ModelResource):
             "item",
             "location",
             "batch_lot",
+            "source_document_number",
             "expiry_date",
             "quantity",
             "reserved",
             "unit_price",
             "sumber_dana",
         )
-        import_id_fields = ("item", "location", "batch_lot", "sumber_dana")
+        import_id_fields = (
+            "item",
+            "location",
+            "batch_lot",
+            "sumber_dana",
+            "source_document_number",
+        )
         skip_unchanged = True
         report_skipped = False
 
@@ -146,6 +153,7 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
         "item",
         "location",
         "batch_lot",
+        "source_document_number",
         "expiry_date",
         "quantity",
         "reserved",
@@ -153,14 +161,19 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
         "sumber_dana",
     )
     list_filter = ("location", "sumber_dana", "item__kategori")
-    search_fields = ("item__kode_barang", "item__nama_barang", "batch_lot")
+    search_fields = (
+        "item__kode_barang",
+        "item__nama_barang",
+        "batch_lot",
+        "source_document_number",
+    )
     raw_id_fields = ("item", "receiving_ref")
     list_per_page = 50
     date_hierarchy = "expiry_date"
     import_guide = {
         "title": "Stok Barang",
         "description": (
-            "Identifier unik: item_code + location_code + batch_lot + sumber_dana_code"
+            "Identifier unik: item_code + location_code + batch_lot + sumber_dana_code + source_document_number"
         ),
         "columns": [
             {
@@ -174,6 +187,11 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                 "description": "Kode lokasi dari tabel Locations",
             },
             {"name": "batch_lot", "required": True, "description": "Nomor batch/lot"},
+            {
+                "name": "source_document_number",
+                "required": False,
+                "description": "Nomor dokumen sumber lapisan stok",
+            },
             {
                 "name": "expiry_date",
                 "required": False,
@@ -293,6 +311,18 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
             if form.is_valid():
                 try:
                     decoded = self._decode_opening_balance_csv(form.cleaned_data["csv_file"])
+                    validation_report = self._preflight_opening_balance_csv(decoded)
+                    if validation_report["errors"]:
+                        return render(
+                            request,
+                            "admin/stock/opening_balance_csv_import.html",
+                            {
+                                "form": form,
+                                "validation_report": validation_report,
+                                "title": "Validasi Import Saldo Awal dari CSV",
+                                "opts": self.model._meta,
+                            },
+                        )
                     preview = self._parse_opening_balance_csv(decoded)
                     previews = request.session.get(OPENING_BALANCE_PREVIEW_SESSION_KEY, {})
                     preview_token = secrets.token_urlsafe(24)
@@ -333,6 +363,11 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
 
     @transaction.atomic
     def _process_opening_balance_csv(self, decoded, user):
+        validation_report = self._preflight_opening_balance_csv(decoded)
+        if validation_report["errors"]:
+            raise ValueError(
+                f"CSV saldo awal memiliki {len(validation_report['errors'])} error validasi. Unggah ulang file yang sudah diperbaiki."
+            )
         preview = self._parse_opening_balance_csv(decoded)
         counts = {"imports": 0, "items": 0, "stock": 0, "transactions": 0}
 
@@ -363,6 +398,7 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                     item=row["item"],
                     location=row["location"],
                     batch_lot=row["batch_lot"],
+                    source_document_number=document["document_number"],
                     sumber_dana=row["funding"],
                     expiry_date=row["expiry_date"],
                     quantity=row["quantity"],
@@ -387,15 +423,26 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
 
         return counts
 
-    def _parse_opening_balance_csv(self, decoded):
-        reader = csv.DictReader(io.StringIO(decoded))
+    def _preflight_opening_balance_csv(self, decoded):
+        fieldnames, rows, dialect_info = self._read_opening_balance_csv(decoded)
+        errors = []
+        report = {
+            "delimiter": dialect_info["delimiter_label"],
+            "format_label": dialect_info["format_label"],
+            "total_rows": max(len(rows) - 1, 0),
+            "errors": errors,
+        }
 
-        if not reader.fieldnames:
-            raise ValueError("Header CSV tidak ditemukan.")
-        reader.fieldnames = [
-            self._normalize_opening_balance_text(h, row_num=1, field_name="header").lower()
-            for h in reader.fieldnames
-        ]
+        if not fieldnames:
+            errors.append(
+                {
+                    "row_num": 1,
+                    "field": "header",
+                    "value": "",
+                    "message": "Header CSV tidak ditemukan.",
+                }
+            )
+            return report
 
         required_columns = {
             "document_number",
@@ -404,19 +451,354 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
             "item_code",
             "quantity",
         }
-        if "effective_date" not in reader.fieldnames and "receiving_date" not in reader.fieldnames:
+        if "effective_date" not in fieldnames and "receiving_date" not in fieldnames:
             required_columns.add("effective_date")
-        missing_columns = sorted(required_columns - set(reader.fieldnames))
+        for column in sorted(required_columns - set(fieldnames)):
+            errors.append(
+                {
+                    "row_num": 1,
+                    "field": column,
+                    "value": "",
+                    "message": "Kolom wajib tidak ditemukan.",
+                }
+            )
+        if errors:
+            return report
+
+        item_cache = {
+            item.kode_barang: item
+            for item in Item.objects.all().only("id", "kode_barang", "requires_expiry_date")
+        }
+        funding_cache = {
+            source.code: source
+            for source in FundingSource.objects.all().only("id", "code")
+        }
+        location_cache = {
+            location.code: location
+            for location in Location.objects.all().only("id", "code")
+        }
+        imported_documents = set(
+            OpeningBalanceImport.objects.values_list("document_number", flat=True)
+        )
+        seen_doc_dates = {}
+        seen_stock_expiry = {}
+        seen_stock_price = {}
+        posting_date = timezone.localdate()
+
+        def add_error(row_num, field, value, message):
+            errors.append(
+                {
+                    "row_num": row_num,
+                    "field": field,
+                    "value": value,
+                    "message": message,
+                }
+            )
+
+        for row_num, row in rows[1:]:
+            if row.get(None):
+                add_error(
+                    row_num,
+                    "row",
+                    ", ".join(row.get(None) or []),
+                    "Jumlah kolom melebihi header CSV. Pastikan nilai yang mengandung delimiter diapit tanda kutip.",
+                )
+
+            row = {
+                (key or "").strip(): self._normalize_opening_balance_text(
+                    value,
+                    row_num=row_num,
+                    field_name=(key or "kolom"),
+                )
+                for key, value in row.items()
+                if key is not None
+            }
+
+            for field_name in ("receiving_type", "supplier_code"):
+                value = row.get(field_name, "")
+                if value:
+                    add_error(
+                        row_num,
+                        field_name,
+                        value,
+                        f"{field_name} tidak digunakan untuk import saldo awal.",
+                    )
+
+            doc_number = row.get("document_number", "")
+            if not doc_number:
+                add_error(row_num, "document_number", doc_number, "document_number kosong.")
+            else:
+                try:
+                    self._validate_opening_balance_text_length(
+                        doc_number,
+                        "document_number",
+                        row_num,
+                    )
+                except ValueError as exc:
+                    add_error(row_num, "document_number", doc_number, str(exc))
+                if doc_number in imported_documents:
+                    add_error(
+                        row_num,
+                        "document_number",
+                        doc_number,
+                        f"Dokumen saldo awal '{doc_number}' sudah pernah diimport.",
+                    )
+
+            effective_date_str = row.get("effective_date") or row.get("receiving_date")
+            effective_date = None
+            if not effective_date_str:
+                add_error(row_num, "effective_date", "", "effective_date kosong.")
+            else:
+                try:
+                    effective_date = self._parse_opening_balance_date(
+                        effective_date_str,
+                        row_num=row_num,
+                        field_name="effective_date",
+                    )
+                    if effective_date > posting_date:
+                        add_error(
+                            row_num,
+                            "effective_date",
+                            effective_date_str,
+                            f"effective_date tidak boleh melebihi tanggal posting ({posting_date:%d/%m/%Y}).",
+                        )
+                    if doc_number:
+                        first_effective_date = seen_doc_dates.setdefault(
+                            doc_number,
+                            effective_date,
+                        )
+                        if first_effective_date != effective_date:
+                            add_error(
+                                row_num,
+                                "effective_date",
+                                effective_date_str,
+                                f"effective_date harus sama dengan dokumen '{doc_number}' ({first_effective_date:%d/%m/%Y}).",
+                            )
+                except ValueError as exc:
+                    add_error(row_num, "effective_date", effective_date_str, str(exc))
+
+            item_code = row.get("item_code", "")
+            funding_code = row.get("sumber_dana_code", "")
+            location_code = row.get("location_code", "")
+            item = item_cache.get(item_code)
+            funding = funding_cache.get(funding_code)
+            location = location_cache.get(location_code)
+
+            for field_name, value, cache, model_label in (
+                ("item_code", item_code, item_cache, "item_code"),
+                ("sumber_dana_code", funding_code, funding_cache, "sumber_dana_code"),
+                ("location_code", location_code, location_cache, "location_code"),
+            ):
+                if not value:
+                    add_error(row_num, field_name, value, f"{field_name} kosong.")
+                else:
+                    try:
+                        self._validate_opening_balance_text_length(
+                            value,
+                            field_name,
+                            row_num,
+                        )
+                    except ValueError as exc:
+                        add_error(row_num, field_name, value, str(exc))
+                    if value not in cache:
+                        add_error(
+                            row_num,
+                            field_name,
+                            value,
+                            f"{model_label} '{value}' tidak ditemukan.",
+                        )
+
+            quantity = self._preflight_parse_opening_balance_decimal(
+                row.get("quantity", ""),
+                row_num=row_num,
+                field_name="quantity",
+                required=True,
+                must_be_positive=True,
+                max_digits=12,
+                decimal_places=2,
+                add_error=add_error,
+            )
+            unit_price = self._preflight_parse_opening_balance_decimal(
+                row.get("unit_price", "0"),
+                row_num=row_num,
+                field_name="unit_price",
+                must_be_non_negative=True,
+                max_digits=15,
+                decimal_places=2,
+                add_error=add_error,
+            )
+
+            batch_lot = row.get("batch_lot", "").strip() or self._generate_opening_balance_batch_lot(
+                doc_number or "SALDO-AWAL",
+                row_num,
+            )
+            try:
+                self._validate_opening_balance_text_length(
+                    batch_lot,
+                    "batch_lot",
+                    row_num,
+                )
+            except ValueError as exc:
+                add_error(row_num, "batch_lot", batch_lot, str(exc))
+
+            expiry_date_str = row.get("expiry_date", "").strip()
+            expiry_date = None
+            if expiry_date_str:
+                try:
+                    expiry_date = self._parse_opening_balance_date(
+                        expiry_date_str,
+                        row_num=row_num,
+                        field_name="expiry_date",
+                    )
+                except ValueError as exc:
+                    add_error(row_num, "expiry_date", expiry_date_str, str(exc))
+            elif item and item.requires_expiry_date:
+                add_error(
+                    row_num,
+                    "expiry_date",
+                    expiry_date_str,
+                    f"expiry_date wajib diisi untuk item '{item.kode_barang}'.",
+                )
+
+            if item and funding and location and unit_price is not None and doc_number:
+                stock_key = (
+                    item.pk,
+                    location.pk,
+                    batch_lot,
+                    funding.pk,
+                    doc_number,
+                )
+                existing_expiry = seen_stock_expiry.setdefault(stock_key, expiry_date)
+                if existing_expiry != expiry_date:
+                    add_error(
+                        row_num,
+                        "expiry_date",
+                        expiry_date_str,
+                        "Batch stok yang sama dalam dokumen sumber yang sama tidak boleh memiliki tanggal kedaluwarsa berbeda.",
+                    )
+                existing_price = seen_stock_price.setdefault(stock_key, unit_price)
+                if existing_price != unit_price:
+                    add_error(
+                        row_num,
+                        "unit_price",
+                        row.get("unit_price", ""),
+                        "Batch stok yang sama dalam dokumen sumber yang sama tidak boleh memiliki harga satuan berbeda. Gunakan document_number berbeda untuk memisahkan lapisan harga.",
+                    )
+                existing_stock = Stock.objects.filter(
+                    item=item,
+                    location=location,
+                    batch_lot=batch_lot,
+                    sumber_dana=funding,
+                    source_document_number=doc_number,
+                ).values("expiry_date", "unit_price").first()
+                if existing_stock and existing_stock["expiry_date"] != expiry_date:
+                    add_error(
+                        row_num,
+                        "expiry_date",
+                        expiry_date_str,
+                        "Batch stok sudah ada untuk dokumen sumber ini dengan tanggal kedaluwarsa berbeda.",
+                    )
+                if existing_stock and existing_stock["unit_price"] != unit_price:
+                    add_error(
+                        row_num,
+                        "unit_price",
+                        row.get("unit_price", ""),
+                        "Batch stok sudah ada untuk dokumen sumber ini dengan harga satuan berbeda.",
+                    )
+
+        return report
+
+    @staticmethod
+    def _preflight_parse_opening_balance_decimal(
+        value,
+        *,
+        row_num,
+        field_name,
+        add_error,
+        required=False,
+        must_be_positive=False,
+        must_be_non_negative=False,
+        max_digits=None,
+        decimal_places=None,
+    ):
+        try:
+            return StockAdmin._parse_opening_balance_decimal(
+                value,
+                row_num=row_num,
+                field_name=field_name,
+                required=required,
+                must_be_positive=must_be_positive,
+                must_be_non_negative=must_be_non_negative,
+                max_digits=max_digits,
+                decimal_places=decimal_places,
+            )
+        except ValueError as exc:
+            add_error(row_num, field_name, value, str(exc))
+            return None
+
+    def _read_opening_balance_csv(self, decoded):
+        dialect_info = self._detect_opening_balance_csv_dialect(decoded)
+        reader = csv.DictReader(
+            io.StringIO(decoded),
+            delimiter=dialect_info["delimiter"],
+        )
+
+        if not reader.fieldnames:
+            return [], [], dialect_info
+
+        reader.fieldnames = [
+            self._normalize_opening_balance_text(h, row_num=1, field_name="header").lower()
+            for h in reader.fieldnames
+        ]
+        rows = [(1, {})]
+        rows.extend((row_num, row) for row_num, row in enumerate(reader, start=2))
+        return reader.fieldnames, rows, dialect_info
+
+    @staticmethod
+    def _detect_opening_balance_csv_dialect(decoded):
+        sample = decoded[:4096]
+        first_line = sample.splitlines()[0] if sample.splitlines() else ""
+        semicolon_count = first_line.count(";")
+        comma_count = first_line.count(",")
+        if semicolon_count > comma_count:
+            delimiter = ";"
+        else:
+            try:
+                delimiter = csv.Sniffer().sniff(sample, delimiters=",;").delimiter
+            except csv.Error:
+                delimiter = ","
+        return {
+            "delimiter": delimiter,
+            "delimiter_label": "semicolon (;)" if delimiter == ";" else "comma (,)",
+            "format_label": "CSV semicolon" if delimiter == ";" else "CSV comma",
+        }
+
+    def _parse_opening_balance_csv(self, decoded):
+        fieldnames, rows, dialect_info = self._read_opening_balance_csv(decoded)
+
+        if not fieldnames:
+            raise ValueError("Header CSV tidak ditemukan.")
+
+        required_columns = {
+            "document_number",
+            "sumber_dana_code",
+            "location_code",
+            "item_code",
+            "quantity",
+        }
+        if "effective_date" not in fieldnames and "receiving_date" not in fieldnames:
+            required_columns.add("effective_date")
+        missing_columns = sorted(required_columns - set(fieldnames))
         if missing_columns:
             raise ValueError(
                 "Kolom wajib tidak ditemukan: " + ", ".join(missing_columns)
             )
 
         grouped = defaultdict(list)
-        for row_num, row in enumerate(reader, start=2):
+        for row_num, row in rows[1:]:
             if row.get(None):
                 raise ValueError(
-                    f"Baris {row_num}: jumlah kolom melebihi header CSV. Pastikan nilai yang mengandung koma diapit tanda kutip."
+                    f"Baris {row_num}: jumlah kolom melebihi header CSV. Pastikan nilai yang mengandung delimiter diapit tanda kutip."
                 )
             row = {
                 (k or "").strip(): self._normalize_opening_balance_text(
@@ -448,7 +830,13 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
         if not grouped:
             raise ValueError("CSV saldo awal tidak memiliki baris data.")
 
-        preview = {"documents": [], "total_documents": 0, "total_rows": 0}
+        preview = {
+            "documents": [],
+            "total_documents": 0,
+            "total_rows": 0,
+            "delimiter": dialect_info["delimiter_label"],
+            "format_label": dialect_info["format_label"],
+        }
         seen_stock_expiry = {}
         seen_stock_price = {}
         posting_date = timezone.localdate()
@@ -562,7 +950,7 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                 else:
                     expiry_date = None
 
-                stock_key = (item.pk, location.pk, batch_lot, funding.pk)
+                stock_key = (item.pk, location.pk, batch_lot, funding.pk, doc_number)
                 if stock_key in seen_stock_expiry and seen_stock_expiry[stock_key] != expiry_date:
                     raise ValueError(
                         f"Baris {row_num}: batch stok yang sama tidak boleh memiliki tanggal kedaluwarsa berbeda."
@@ -578,6 +966,7 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                     location=location,
                     batch_lot=batch_lot,
                     sumber_dana=funding,
+                    source_document_number=doc_number,
                 ).values("expiry_date", "unit_price").first()
                 if existing_stock and existing_stock["expiry_date"] != expiry_date:
                     raise ValueError(
@@ -621,6 +1010,7 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
         item,
         location,
         batch_lot,
+        source_document_number,
         sumber_dana,
         expiry_date,
         quantity,
@@ -631,6 +1021,7 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
             "location": location,
             "batch_lot": batch_lot,
             "sumber_dana": sumber_dana,
+            "source_document_number": source_document_number,
         }
         existing_stock = Stock.objects.filter(**stock_filters).values(
             "expiry_date",
@@ -664,6 +1055,7 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                     item=item,
                     location=location,
                     batch_lot=batch_lot,
+                    source_document_number=source_document_number,
                     sumber_dana=sumber_dana,
                     expiry_date=expiry_date,
                     quantity=quantity,

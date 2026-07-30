@@ -119,6 +119,7 @@ def _create_verified_receiving(request, form, formset):
                 quantity=item.quantity,
                 unit_price=item.unit_price,
                 receiving_ref=receiving,
+                source_document_number=receiving.document_number,
             )
 
             pending_transactions.append(
@@ -688,6 +689,7 @@ def receiving_plan_receive(request, pk):
                         quantity=item.quantity,
                         unit_price=item.unit_price,
                         receiving_ref=receiving,
+                        source_document_number=receiving.document_number,
                     )
 
                     pending_transactions.append(

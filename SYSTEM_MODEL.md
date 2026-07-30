@@ -174,11 +174,11 @@ This section reflects model code in `backend/apps/*/models.py`.
 
 - `stock.Stock` (`stock`):
   - FKs: `item`, `location`, `sumber_dana`, `receiving_ref` (nullable)
-  - Fields: `batch_lot`, `expiry_date` (nullable for non-expiring stock), `quantity`, `reserved`, `unit_price`
+  - Fields: `batch_lot`, `source_document_number`, `expiry_date` (nullable for non-expiring stock), `quantity`, `reserved`, `unit_price`
   - Semantics: `quantity` is physical stock, `reserved` is outbound stock already booked by active distribution documents, and `available_quantity = quantity - reserved` is the allocatable balance shown on LPLPO review, allocation, special-request, and stock summary surfaces
-  - Unique: `uq_stock_batch` on `(item, location, batch_lot, sumber_dana)`
+  - Unique: `uq_stock_batch` on `(item, location, batch_lot, sumber_dana, source_document_number)`
   - Checks: `quantity >= 0`, `reserved >= 0`
-  - Indexes: `idx_stock_fefo`, `idx_stock_expiry`, `idx_stock_item_loc`
+  - Indexes: `idx_stock_fefo`, `idx_stock_expiry`, `idx_stock_item_loc`, `idx_stock_source_doc`
   - Properties: `available_quantity`, `total_value`, `is_expired`, `is_near_expiry`
 
 - `stock.Transaction` (`transactions`):
@@ -466,20 +466,20 @@ Operational mutation points (from app behavior and admin import logic):
 
 - Procurement contract/amendment approval is restricted to Admin/Superuser or `KEPALA` with procurement approval scope and never mutates stock; it only creates or re-syncs the linked planned receiving execution document.
 - Procurement-linked receiving leftovers are closed audit-first through procurement amendments; direct receiving-side close-items cancellation is reserved for non-contract planned receivings.
-- Receiving verify/receive path posts `Transaction(IN)` and updates/creates `Stock`.
+- Receiving verify/receive path posts `Transaction(IN)` and updates/creates `Stock(source_document_number=Receiving.document_number)`.
 - Receiving CSV admin import (`import-csv/`) posts:
   - `Receiving(status=VERIFIED)`
   - `ReceivingItem`
-  - `Stock` update/create
+  - `Stock(source_document_number=document_number)` update/create
   - `Transaction(IN)`
   - Rows are grouped by `document_number`; the first row supplies header-level values, while row-level `sumber_dana_code` and `location_code` can override header defaults
 - Receiving CSV admin template download (`export-csv-template/`) returns a blank `receiving_template.csv` with the exact columns accepted by the dedicated importer and does not mutate data.
 - Opening balance CSV admin import (`/admin/stock/stock/opening-balance/import-csv/`) is restricted to superuser / role `ADMIN`. Generic Stock admin import plus direct Stock add/change/delete mutations are disabled so stock cannot be written without ledger transactions. Upload first validates and renders a preview; only the explicit `Konfirmasi Import` submit posts:
   - `OpeningBalanceImport`
   - `OpeningBalanceImportItem`
-  - `Stock` update/create with `receiving_ref=NULL`
+  - `Stock(source_document_number=OpeningBalanceImport.document_number, receiving_ref=NULL)` update/create
   - `Transaction(IN, reference_type=INITIAL_IMPORT, reference_id=OpeningBalanceImport.pk)`
-- Opening balance CSV template download (`/admin/stock/stock/opening-balance/export-csv-template/`) returns `opening_balance_template.csv`. The importer uses one consistent non-future `effective_date` per `document_number` for report classification, accepts `receiving_date` only as a compatibility alias, rejects populated `receiving_type` / `supplier_code` columns, validates destination decimal precision before preview, rejects negative `unit_price`, generates blank batches with document identity, and rejects existing-stock collisions with different `expiry_date` or `unit_price`.
+- Opening balance CSV template download (`/admin/stock/stock/opening-balance/export-csv-template/`) returns `opening_balance_template.csv`. The importer accepts comma or semicolon delimiters, uses one consistent non-future `effective_date` per `document_number` for report classification, accepts `receiving_date` only as a compatibility alias, rejects populated `receiving_type` / `supplier_code` columns, validates destination decimal precision before preview, rejects negative `unit_price`, generates blank batches with document identity, and rejects same-source-document collisions with different `expiry_date` or `unit_price`.
 - Reports classify dedicated opening-balance `INITIAL_IMPORT` rows by `effective_date`: rows effective on/before the report start count as `saldo_awal`, while rows effective after the start and within the report period count as `nilai_terima` so ending stock stays aligned with posted stock. Later-year opening balance is derived from the prior ledger balance and does not require re-import. Legacy unlinked `INITIAL_IMPORT` rows still use compatibility behavior: rows up to the report start date count as opening balance, and rows after the start date count as in-period received stock.
 - LPLPO approval/finalize creates a Distribution document mapped 1:1, marks the LPLPO `APPROVED`, and closes the LPLPO once the linked Distribution reaches `DISTRIBUTED`.
 - For generated LPLPO draft distributions, the preparation edit UI displays both requested and approved quantities for reference but locks those values and rejects added/deleted rows; users only assign batches and preparation metadata there.

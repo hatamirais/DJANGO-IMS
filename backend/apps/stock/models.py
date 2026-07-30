@@ -22,6 +22,11 @@ class Stock(TimeStampedModel):
         related_name="stock_entries",
     )
     batch_lot = models.CharField(max_length=100)
+    source_document_number = models.CharField(
+        max_length=100,
+        default="LEGACY",
+        help_text="Original source document that created this stock valuation layer.",
+    )
     expiry_date = models.DateField(null=True, blank=True)
     quantity = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     reserved = models.DecimalField(
@@ -56,7 +61,13 @@ class Stock(TimeStampedModel):
                 name="chk_stock_reserved_gte_0",
             ),
             models.UniqueConstraint(
-                fields=["item", "location", "batch_lot", "sumber_dana"],
+                fields=[
+                    "item",
+                    "location",
+                    "batch_lot",
+                    "sumber_dana",
+                    "source_document_number",
+                ],
                 name="uq_stock_batch",
             ),
         ]
@@ -64,13 +75,19 @@ class Stock(TimeStampedModel):
             models.Index(
                 fields=["item", "location", "expiry_date"], name="idx_stock_fefo"
             ),
+            models.Index(
+                fields=["source_document_number"], name="idx_stock_source_doc"
+            ),
             models.Index(fields=["expiry_date"], name="idx_stock_expiry"),
             models.Index(fields=["item", "location"], name="idx_stock_item_loc"),
         ]
         ordering = ["item", "expiry_date"]
 
     def __str__(self):
-        return f"{self.item} | {self.batch_lot} | Qty: {self.quantity}"
+        return (
+            f"{self.item} | {self.batch_lot} | "
+            f"{self.source_document_number} | Qty: {self.quantity}"
+        )
 
     def clean(self):
         errors = {}

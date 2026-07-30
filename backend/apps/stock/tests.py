@@ -69,6 +69,7 @@ class StockAdminCsvExportSecurityTest(TestCase):
             reserved=Decimal('0'),
             unit_price=Decimal('1000'),
             sumber_dana=self.funding,
+            source_document_number='SRC-DOC-TRF',
         )
 
         dataset = StockResource().export(Stock.objects.filter(pk=stock.pk))
@@ -270,8 +271,10 @@ class OpeningBalanceImportAdminTests(TestCase):
             location=self.location,
             batch_lot="BATCH-001",
             sumber_dana=self.funding,
+            source_document_number="SALDO-AWAL-2026",
         )
         self.assertEqual(stock.quantity, Decimal("10"))
+        self.assertEqual(stock.source_document_number, "SALDO-AWAL-2026")
         self.assertIsNone(stock.receiving_ref)
         tx = Transaction.objects.get(reference_type=Transaction.ReferenceType.INITIAL_IMPORT)
         self.assertEqual(tx.reference_id, opening_balance.pk)
@@ -294,6 +297,7 @@ class OpeningBalanceImportAdminTests(TestCase):
             unit_price=Decimal("2500"),
             sumber_dana=self.funding,
             receiving_ref=receiving,
+            source_document_number="SALDO-AWAL-2026",
         )
         self.client.force_login(self.admin_user)
         csv_content = (
@@ -323,9 +327,60 @@ class OpeningBalanceImportAdminTests(TestCase):
             location=self.location,
             batch_lot="BATCH-001",
             sumber_dana=self.funding,
+            source_document_number="SALDO-AWAL-2026",
         )
         self.assertEqual(stock.quantity, Decimal("15"))
         self.assertIsNone(stock.receiving_ref)
+
+    def test_opening_balance_import_accepts_semicolon_csv_with_decimal_comma(self):
+        self.client.force_login(self.admin_user)
+        csv_content = (
+            "document_number;effective_date;sumber_dana_code;location_code;item_code;"
+            "quantity;batch_lot;expiry_date;unit_price\n"
+            f"SALDO-AWAL-2026;01/01/2026;{self.funding.code};{self.location.code};"
+            f"{self.item.kode_barang};10;BATCH-001;01/01/2028;2500,25\n"
+        )
+
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(csv_content)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "CONFIRM IMPORT")
+        self.assertContains(response, "CSV semicolon")
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"action": "confirm", "preview_token": response.context["preview_token"]},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        stock = Stock.objects.get(source_document_number="SALDO-AWAL-2026")
+        self.assertEqual(stock.unit_price, Decimal("2500.25"))
+
+    def test_opening_balance_import_reports_multiple_preflight_errors(self):
+        self.client.force_login(self.admin_user)
+        csv_content = (
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price\n"
+            f"SALDO-AWAL-2026,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},0,BATCH-001,01/01/2028,-1\n"
+            f"SALDO-AWAL-2026,01/01/2026,{self.funding.code},{self.location.code},"
+            f"UNKNOWN,1,BATCH-002,01/01/2028,100\n"
+        )
+
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(csv_content)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Validasi gagal")
+        self.assertContains(response, "quantity harus lebih dari 0")
+        self.assertContains(response, "unit_price tidak boleh negatif")
+        self.assertContains(response, "item_code &#x27;UNKNOWN&#x27; tidak ditemukan")
+        self.assertFalse(OpeningBalanceImport.objects.exists())
+        self.assertFalse(Stock.objects.exists())
 
     def test_opening_balance_import_changelist_shows_import_actions(self):
         self.client.force_login(self.admin_user)
@@ -359,6 +414,7 @@ class OpeningBalanceImportAdminTests(TestCase):
             quantity=Decimal("5"),
             unit_price=Decimal("100"),
             sumber_dana=self.funding,
+            source_document_number="SALDO-AWAL-2026",
         )
         self.client.force_login(self.admin_user)
 
@@ -390,6 +446,7 @@ class OpeningBalanceImportAdminTests(TestCase):
             quantity=Decimal("5"),
             unit_price=Decimal("100"),
             sumber_dana=self.funding,
+            source_document_number="SALDO-AWAL-2026",
         )
         self.client.force_login(self.admin_user)
 
@@ -456,7 +513,7 @@ class OpeningBalanceImportAdminTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "jumlah kolom melebihi header CSV")
+        self.assertContains(response, "kolom melebihi header CSV")
         self.assertFalse(OpeningBalanceImport.objects.exists())
         self.assertFalse(Stock.objects.exists())
 
@@ -581,6 +638,7 @@ class OpeningBalanceImportAdminTests(TestCase):
             quantity=Decimal("5"),
             unit_price=Decimal("100"),
             sumber_dana=self.funding,
+            source_document_number="SALDO-AWAL-2026",
         )
         self.client.force_login(self.admin_user)
         csv_content = (
@@ -619,6 +677,46 @@ class OpeningBalanceImportAdminTests(TestCase):
         self.assertContains(response, "harga satuan berbeda")
         self.assertFalse(OpeningBalanceImport.objects.exists())
         self.assertFalse(Stock.objects.exists())
+
+    def test_opening_balance_import_allows_same_batch_price_layers_with_different_documents(self):
+        self.client.force_login(self.admin_user)
+        csv_content = (
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price\n"
+            f"SALDO-AWAL-2026-A,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},10,BATCH-001,01/01/2028,100\n"
+            f"SALDO-AWAL-2026-B,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},5,BATCH-001,01/01/2028,200\n"
+        )
+
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(csv_content)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "CONFIRM IMPORT")
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"action": "confirm", "preview_token": response.context["preview_token"]},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Stock.objects.count(), 2)
+        self.assertTrue(
+            Stock.objects.filter(
+                batch_lot="BATCH-001",
+                source_document_number="SALDO-AWAL-2026-A",
+                unit_price=Decimal("100"),
+            ).exists()
+        )
+        self.assertTrue(
+            Stock.objects.filter(
+                batch_lot="BATCH-001",
+                source_document_number="SALDO-AWAL-2026-B",
+                unit_price=Decimal("200"),
+            ).exists()
+        )
 
     def test_opening_balance_confirm_uses_preview_token_from_same_upload(self):
         self.client.force_login(self.admin_user)
@@ -808,6 +906,7 @@ class LegacyNoExpiryItemBackfillMigrationTests(TestCase):
             reserved=Decimal('0'),
             unit_price=Decimal('1000'),
             sumber_dana=self.funding,
+            source_document_number='SRC-DOC-TRF',
         )
         from apps.receiving.models import Receiving, ReceivingItem
 
@@ -1575,6 +1674,7 @@ class StockTransferConcurrencyTests(TransactionTestCase):
             reserved=Decimal('0'),
             unit_price=Decimal('1000'),
             sumber_dana=self.funding,
+            source_document_number='SRC-DOC-TRF',
         )
         self.transfer = StockTransfer.objects.create(
             source_location=self.source_location,
@@ -1653,14 +1753,17 @@ class StockTransferConcurrencyTests(TransactionTestCase):
             location=self.destination_location,
             batch_lot='TRF-BATCH-01',
             sumber_dana=self.funding,
+            source_document_number='SRC-DOC-TRF',
         )
         self.assertEqual(destination_stock.quantity, Decimal('4'))
+        self.assertEqual(destination_stock.source_document_number, 'SRC-DOC-TRF')
         self.assertEqual(
             Stock.objects.filter(
                 item=self.item,
                 location=self.destination_location,
                 batch_lot='TRF-BATCH-01',
                 sumber_dana=self.funding,
+                source_document_number='SRC-DOC-TRF',
             ).count(),
             1,
         )

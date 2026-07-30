@@ -76,6 +76,7 @@ def _create_receiving_stock_row(
     quantity,
     unit_price,
     receiving_ref,
+    source_document_number,
 ):
     from apps.stock.models import Stock
 
@@ -83,6 +84,7 @@ def _create_receiving_stock_row(
         item=item,
         location=location,
         batch_lot=batch_lot,
+        source_document_number=source_document_number,
         sumber_dana=sumber_dana,
         expiry_date=expiry_date,
         quantity=quantity,
@@ -101,6 +103,7 @@ def increment_receiving_stock(
     quantity,
     unit_price,
     receiving_ref,
+    source_document_number,
 ):
     if not transaction.get_connection().in_atomic_block:
         raise RuntimeError("increment_receiving_stock harus dipanggil dalam transaksi.")
@@ -112,21 +115,27 @@ def increment_receiving_stock(
         "location": location,
         "batch_lot": batch_lot,
         "sumber_dana": sumber_dana,
+        "source_document_number": source_document_number,
     }
     updated_at = timezone.now()
     existing_stock = (
         Stock.objects.filter(**stock_filters)
-        .values("pk", "expiry_date")
+        .values("pk", "expiry_date", "unit_price")
         .first()
     )
     if existing_stock and existing_stock["expiry_date"] != expiry_date:
         raise ValueError(
             "Batch stok yang sama tidak boleh memiliki tanggal kedaluwarsa berbeda."
         )
+    if existing_stock and existing_stock["unit_price"] != unit_price:
+        raise ValueError(
+            "Batch stok yang sama dalam dokumen sumber yang sama tidak boleh memiliki harga satuan berbeda."
+        )
 
     update_filters = {
         **stock_filters,
         "expiry_date": expiry_date,
+        "unit_price": unit_price,
     }
     updated = Stock.objects.filter(**update_filters).update(
         quantity=F("quantity") + quantity,
@@ -146,16 +155,21 @@ def increment_receiving_stock(
                 quantity=quantity,
                 unit_price=unit_price,
                 receiving_ref=receiving_ref,
+                source_document_number=source_document_number,
             )
     except IntegrityError:
         existing_stock = (
             Stock.objects.filter(**stock_filters)
-            .values("pk", "expiry_date")
+            .values("pk", "expiry_date", "unit_price")
             .first()
         )
         if existing_stock and existing_stock["expiry_date"] != expiry_date:
             raise ValueError(
                 "Batch stok yang sama tidak boleh memiliki tanggal kedaluwarsa berbeda."
+            )
+        if existing_stock and existing_stock["unit_price"] != unit_price:
+            raise ValueError(
+                "Batch stok yang sama dalam dokumen sumber yang sama tidak boleh memiliki harga satuan berbeda."
             )
         updated = Stock.objects.filter(**update_filters).update(
             quantity=F("quantity") + quantity,

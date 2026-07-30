@@ -9,6 +9,9 @@ App-specific guidance for receiving workflows.
 ## Stock Mutation
 
 - Receiving admin CSV import writes `Receiving`, `ReceivingItem`, updates or creates `Stock`, and writes `Transaction(IN)`.
+- Receiving stock rows use the receiving `document_number` as `Stock.source_document_number`.
+- Same item/location/batch/funding can appear in different receiving documents as separate stock layers; do not average their `unit_price` values.
+- Within one receiving source-document layer, expiry date and unit price must remain exact. A same-layer mismatch is rejected instead of merged.
 - Stock mutation belongs to receiving execution/import workflow actions, not arbitrary model saves.
 - Receiving and opening-balance imports enforce `Item.requires_expiry_date`: blank `expiry_date` is allowed only for catalog items marked as non-expiring.
 

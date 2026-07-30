@@ -742,6 +742,7 @@ def stock_list(request):
             Q(item__kode_barang__icontains=search)
             | Q(item__nama_barang__icontains=search)
             | Q(batch_lot__icontains=search)
+            | Q(source_document_number__icontains=search)
         )
 
     location = _resolve_selected_id(request.GET.get("location"), active_location_ids)
@@ -1721,6 +1722,7 @@ def transfer_complete(request, transfer_id):
                         location=transfer.destination_location,
                         batch_lot=source_stock.batch_lot,
                         sumber_dana=source_stock.sumber_dana,
+                        source_document_number=source_stock.source_document_number,
                         defaults={
                             "expiry_date": source_stock.expiry_date,
                             "quantity": line.quantity,

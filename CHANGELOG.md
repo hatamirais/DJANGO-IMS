@@ -7,6 +7,19 @@ The format is based on Keep a Changelog and follows Semantic Versioning (`MAJOR.
 
 ## [Unreleased]
 
+### Added
+
+- Stock rows now track `source_document_number`, separating same item/location/batch/funding stock into document-specific layers.
+- Opening-balance CSV import now accepts both comma and semicolon delimiters and reports validation issues before preview/confirm.
+
+### Changed
+
+- Receiving and opening-balance stock posting now use the source document number as part of the stock identity instead of averaging or merging price layers across documents.
+
+### Fixed
+
+- Opening-balance import validation now catches malformed row counts, invalid decimal precision, unknown references, and same-document price/expiry conflicts before database writes.
+
 ## [1.30.0] - 2026-07-29
 
 ### Added

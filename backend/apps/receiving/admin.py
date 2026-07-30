@@ -580,6 +580,7 @@ class ReceivingAdmin(admin.ModelAdmin):
                     quantity=quantity,
                     unit_price=unit_price,
                     receiving_ref=receiving,
+                    source_document_number=receiving.document_number,
                 )
                 counts["stock"] += 1
 
