@@ -1029,10 +1029,27 @@ def _build_stock_card_data(item, location_id=None, sumber_dana_id=None,
     if sumber_dana_id:
         stock_queryset = stock_queryset.filter(sumber_dana_id=sumber_dana_id)
     batch_expiry_map = {
-        (batch_lot, stock_location_id, stock_sumber_dana_id): expiry_date
-        for batch_lot, stock_location_id, stock_sumber_dana_id, expiry_date in (
+        (
+            batch_lot,
+            stock_location_id,
+            stock_sumber_dana_id,
+            source_document_number,
+        ): expiry_date
+        for (
+            batch_lot,
+            stock_location_id,
+            stock_sumber_dana_id,
+            source_document_number,
+            expiry_date,
+        ) in (
             stock_queryset
-            .values_list("batch_lot", "location_id", "sumber_dana_id", "expiry_date")
+            .values_list(
+                "batch_lot",
+                "location_id",
+                "sumber_dana_id",
+                "source_document_number",
+                "expiry_date",
+            )
             .distinct()
         )
     }
@@ -1303,7 +1320,12 @@ def _build_stock_card_data(item, location_id=None, sumber_dana_id=None,
             # Expiry date from batch if available (pre-fetched)
             tx.expiry_display = ""
             if tx.batch_lot:
-                batch_scope = (tx.batch_lot, tx.location_id, tx.sumber_dana_id)
+                batch_scope = (
+                    tx.batch_lot,
+                    tx.location_id,
+                    tx.sumber_dana_id,
+                    tx.source_document_number,
+                )
                 expiry_date = batch_expiry_map.get(batch_scope)
                 if expiry_date:
                     tx.expiry_display = expiry_date.strftime("%d/%m/%Y")

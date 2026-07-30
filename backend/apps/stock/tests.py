@@ -1464,6 +1464,75 @@ class StockCardTest(TestCase):
             'Tanpa kedaluwarsa',
         )
 
+    def test_stock_card_keeps_expiry_lookup_scoped_by_source_document(self):
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot='SOURCE-SHARED-01',
+            source_document_number='RCV-SOURCE-A',
+            expiry_date=date(2031, 5, 1),
+            quantity=Decimal('10'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+        )
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot='SOURCE-SHARED-01',
+            source_document_number='RCV-SOURCE-B',
+            expiry_date=date(2032, 6, 1),
+            quantity=Decimal('8'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+        )
+
+        first_tx = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot='SOURCE-SHARED-01',
+            source_document_number='RCV-SOURCE-A',
+            quantity=Decimal('10'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=4,
+            user=self.user,
+        )
+        second_tx = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot='SOURCE-SHARED-01',
+            source_document_number='RCV-SOURCE-B',
+            quantity=Decimal('8'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=5,
+            user=self.user,
+        )
+        first_tx.created_at = timezone.now() - timedelta(hours=2)
+        first_tx.save(update_fields=['created_at'])
+        second_tx.created_at = timezone.now() - timedelta(hours=1)
+        second_tx.save(update_fields=['created_at'])
+
+        response = self.client.get(reverse('stock:stock_card_detail', args=[self.item.id]))
+
+        self.assertEqual(response.status_code, 200)
+        cards = response.context['funding_source_cards']
+        txs = [
+            tx
+            for card in cards
+            for tx in card['transactions']
+            if tx.batch_lot == 'SOURCE-SHARED-01'
+        ]
+        self.assertEqual(len(txs), 2)
+
+        tx_by_source = {tx.source_document_number: tx for tx in txs}
+        self.assertEqual(tx_by_source['RCV-SOURCE-A'].expiry_display, '01/05/2031')
+        self.assertEqual(tx_by_source['RCV-SOURCE-B'].expiry_display, '01/06/2032')
+
     def test_stock_card_transfer_transactions_display_computed_fields(self):
         """Verify transfer transactions have computed display fields for UI rendering."""
         destination = Location.objects.create(code='PKM2', name='Puskesmas Pembantu')
