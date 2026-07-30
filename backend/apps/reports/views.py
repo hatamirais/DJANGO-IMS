@@ -160,6 +160,21 @@ def reports_index(request):
                 ),
                 0, output_field=models.DecimalField()
             ),
+            transfer_in=Coalesce(
+                Sum(
+                    Case(
+                        When(
+                            created_at__date__range=[start_date, end_date],
+                            reference_type='TRANSFER',
+                            transaction_type='IN',
+                            then=F('quantity'),
+                        ),
+                        default=0,
+                        output_field=models.DecimalField(),
+                    )
+                ),
+                0, output_field=models.DecimalField()
+            ),
             distributed=Coalesce(
                 Sum(
                     Case(
@@ -171,6 +186,21 @@ def reports_index(request):
                         ),
                         default=0,
                         output_field=models.DecimalField()
+                    )
+                ),
+                0, output_field=models.DecimalField()
+            ),
+            transfer_out=Coalesce(
+                Sum(
+                    Case(
+                        When(
+                            created_at__date__range=[start_date, end_date],
+                            reference_type='TRANSFER',
+                            transaction_type='OUT',
+                            then=F('quantity'),
+                        ),
+                        default=0,
+                        output_field=models.DecimalField(),
                     )
                 ),
                 0, output_field=models.DecimalField()
@@ -204,13 +234,17 @@ def reports_index(request):
             row['ending_stock'] = (
                 row['initial_stock'] 
                 + row['received'] 
+                + row['transfer_in']
                 - row['distributed'] 
+                - row['transfer_out']
                 - row['expired']
             )
             # Only include rows that have actual movement or stock
             if (row['initial_stock'] != 0 or 
                 row['received'] != 0 or 
+                row['transfer_in'] != 0 or
                 row['distributed'] != 0 or 
+                row['transfer_out'] != 0 or
                 row['expired'] != 0):
                 report_data.append(row)
 

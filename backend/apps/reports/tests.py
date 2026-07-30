@@ -585,6 +585,92 @@ class RekapOpeningBalanceReportTests(TestCase):
 		)
 		self.assertContains(response, "Gudang Pembantu")
 
+	def test_detailed_report_applies_in_period_transfers_by_location(self):
+		destination = Location.objects.create(
+			code="RO-LOC-TRANSFER",
+			name="Gudang Transfer",
+		)
+		Stock.objects.create(
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-TRANSFER",
+			source_document_number="RCV-TRANSFER-SOURCE",
+			expiry_date=date(2030, 1, 1),
+			quantity=Decimal("6"),
+			reserved=Decimal("0"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+		)
+		Stock.objects.create(
+			item=self.item,
+			location=destination,
+			batch_lot="RO-BATCH-TRANSFER",
+			source_document_number="RCV-TRANSFER-SOURCE",
+			expiry_date=date(2030, 1, 1),
+			quantity=Decimal("4"),
+			reserved=Decimal("0"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+		)
+		Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.IN,
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-TRANSFER",
+			source_document_number="RCV-TRANSFER-SOURCE",
+			quantity=Decimal("10"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+			reference_type=Transaction.ReferenceType.RECEIVING,
+			reference_id=31,
+			user=self.user,
+		)
+		Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.OUT,
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-TRANSFER",
+			source_document_number="RCV-TRANSFER-SOURCE",
+			quantity=Decimal("4"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+			reference_type=Transaction.ReferenceType.TRANSFER,
+			reference_id=32,
+			user=self.user,
+		)
+		Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.IN,
+			item=self.item,
+			location=destination,
+			batch_lot="RO-BATCH-TRANSFER",
+			source_document_number="RCV-TRANSFER-SOURCE",
+			quantity=Decimal("4"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+			reference_type=Transaction.ReferenceType.TRANSFER,
+			reference_id=32,
+			user=self.user,
+		)
+
+		response = self.client.get(
+			reverse("reports:index"),
+			{"start_date": "2026-01-01", "end_date": "2026-12-31"},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		rows = {
+			row["location__name"]: row
+			for row in response.context["report_data"]
+			if row["batch_lot"] == "RO-BATCH-TRANSFER"
+		}
+		self.assertEqual(rows["Gudang Rekap"]["received"], Decimal("10"))
+		self.assertEqual(rows["Gudang Rekap"]["transfer_out"], Decimal("4"))
+		self.assertEqual(rows["Gudang Rekap"]["ending_stock"], Decimal("6"))
+		self.assertEqual(rows["Gudang Transfer"]["transfer_in"], Decimal("4"))
+		self.assertEqual(rows["Gudang Transfer"]["ending_stock"], Decimal("4"))
+		self.assertContains(response, "Transfer In")
+		self.assertContains(response, "Transfer Out")
+
 	def test_rekap_next_year_carries_prior_year_ending_balance_without_reimport(self):
 		Transaction.objects.create(
 			transaction_type=Transaction.TransactionType.IN,

@@ -185,7 +185,9 @@
                                 <th>Unit Price</th>
                                 <th>Initial Stock</th>
                                 <th>Total Received</th>
+                                <th>Transfer In</th>
                                 <th>Total Distributed</th>
+                                <th>Transfer Out</th>
                                 <th>Expired/Damaged</th>
                                 <th>Ending Stock</th>
                             </tr>
@@ -195,7 +197,7 @@
                                 {% regroup report_data by item__kategori__name as category_list %}
                                 {% for category in category_list %}
                                 <tr class="table-secondary fw-bold">
-                                    <td colspan="14">{{ category.grouper|default:"KATEGORI TIDAK DIKETAHUI" }}</td>
+                                    <td colspan="16">{{ category.grouper|default:"KATEGORI TIDAK DIKETAHUI" }}</td>
                                 </tr>
                                 {% for row in category.list %}
                                 <tr>
@@ -210,7 +212,9 @@
                                     <td class="text-end">{{ row.unit_price|floatformat:2 }}</td>
                                     <td class="text-end">{{ row.initial_stock|floatformat:2 }}</td>
                                     <td class="text-end">{{ row.received|floatformat:2 }}</td>
+                                    <td class="text-end">{{ row.transfer_in|floatformat:2 }}</td>
                                     <td class="text-end">{{ row.distributed|floatformat:2 }}</td>
+                                    <td class="text-end">{{ row.transfer_out|floatformat:2 }}</td>
                                     <td class="text-end">{{ row.expired|floatformat:2 }}</td>
                                     <td class="text-end fw-bold">{{ row.ending_stock|floatformat:2 }}</td>
                                 </tr>
@@ -218,7 +222,7 @@
                                 {% endfor %}
                             {% else %}
                             <tr>
-                                <td colspan="14" class="text-center text-muted py-4">
+                                <td colspan="16" class="text-center text-muted py-4">
                                     <i class="bi bi-inbox d-block mb-2" style="font-size: 2rem;"></i>
                                     Tidak ada data untuk periode ini.
                                 </td>
