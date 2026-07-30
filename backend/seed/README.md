@@ -177,6 +177,7 @@ Expected columns for custom receiving import:
 Import notes:
 
 - Baris pertama per `document_number` menjadi sumber data header `Receiving`.
+- `document_number` tidak boleh sama dengan dokumen saldo awal yang sudah diposting karena nomor dokumen receiving menjadi identitas source layer stok.
 - `sumber_dana_code` dan `location_code` pada baris item akan override nilai header bila diisi.
 - Baris dengan `quantity` kosong, `0`, negatif, `NaN`, atau `Infinity` akan ditolak pada validasi import.
 - Import menormalisasi spasi dan Unicode NFC pada header/sel teks, menolak null byte, serta menolak nilai teks yang melampaui panjang kolom model sebelum data disimpan.
@@ -212,7 +213,7 @@ Opening balance import notes:
 - Rows are grouped by `document_number`.
 - Comma and semicolon delimiters are accepted. For comma-delimited files, quote decimal-comma values such as `"2500,50"` so the parser does not treat them as extra columns.
 - Every data row must match the header column count.
-- `document_number` must not already exist as a posted opening-balance import or receiving document.
+- `document_number` must not already exist as a posted opening-balance import or receiving document. Receiving import enforces the reverse rule as well.
 - The stock layer key is `item_code + location_code + batch_lot + sumber_dana_code + document_number`.
 - Rows for the same stock layer must use the same `expiry_date` and `unit_price`; mismatches are rejected instead of merged. The same batch from a different `document_number` is kept as a separate layer and prices are not averaged.
 - Import creates one `OpeningBalanceImport` header plus `OpeningBalanceImportItem` rows.

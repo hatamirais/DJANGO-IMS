@@ -12,6 +12,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, connections, transaction
 from django.test import Client, TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.distribution.models import Distribution, DistributionItem
 from apps.items.models import Category, Facility, FundingSource, Item, Location, Supplier, Unit
@@ -33,7 +34,7 @@ from apps.receiving.models import (
     ReceivingOrderItem,
     ReceivingTypeOption,
 )
-from apps.stock.models import Stock, Transaction
+from apps.stock.models import OpeningBalanceImport, Stock, Transaction
 from apps.users.access import ensure_default_module_access
 from apps.users.models import User
 
@@ -104,6 +105,72 @@ class ReceivingItemModelExpiryValidationTests(TestCase):
         )
 
         receiving_item.full_clean()
+
+
+class ReceivingModelDocumentNumberCollisionTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_superuser(
+            username="receiving-docnum-admin",
+            password="secret12345",
+        )
+        self.funding = FundingSource.objects.create(code="RCV-DOCNUM", name="Dana Docnum")
+
+    def _create_opening_balance_import(self, document_number):
+        return OpeningBalanceImport.objects.create(
+            document_number=document_number,
+            effective_date=date(2026, 1, 1),
+            created_by=self.user,
+        )
+
+    def test_full_clean_rejects_opening_balance_document_number_collision(self):
+        self._create_opening_balance_import("RCV-OB-COLLISION")
+        receiving = Receiving(
+            document_number="RCV-OB-COLLISION",
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            status=Receiving.Status.DRAFT,
+            created_by=self.user,
+        )
+
+        with self.assertRaises(ValidationError) as exc:
+            receiving.full_clean()
+
+        self.assertIn("document_number", exc.exception.message_dict)
+        self.assertIn(
+            "sudah digunakan oleh dokumen saldo awal",
+            exc.exception.message_dict["document_number"][0],
+        )
+
+    def test_save_rejects_opening_balance_document_number_collision(self):
+        self._create_opening_balance_import("RCV-OB-SAVE-COLLISION")
+
+        with self.assertRaises(ValidationError) as exc:
+            Receiving.objects.create(
+                document_number="RCV-OB-SAVE-COLLISION",
+                receiving_type=Receiving.ReceivingType.GRANT,
+                receiving_date=date(2026, 1, 15),
+                sumber_dana=self.funding,
+                status=Receiving.Status.DRAFT,
+                created_by=self.user,
+            )
+
+        self.assertIn("document_number", exc.exception.message_dict)
+        self.assertFalse(Receiving.objects.exists())
+
+    def test_generated_document_number_skips_opening_balance_numbers(self):
+        year = timezone.now().year
+        self._create_opening_balance_import(f"RCV-{year}-00001")
+
+        receiving = Receiving.objects.create(
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            status=Receiving.Status.DRAFT,
+            created_by=self.user,
+        )
+
+        self.assertEqual(receiving.document_number, f"RCV-{year}-00002")
 
 
 class ReceivingCSVImportTest(TestCase):
@@ -210,6 +277,29 @@ class ReceivingCSVImportTest(TestCase):
         self.assertEqual(stock.quantity, Decimal("10"))
         self.assertEqual(stock.batch_lot, "SALDO-0002")
         self.assertIsNone(stock.expiry_date)
+
+    def test_process_csv_rejects_opening_balance_document_number_collision(self):
+        OpeningBalanceImport.objects.create(
+            document_number="RCV-2026-OB-COLLISION",
+            effective_date=date(2026, 1, 1),
+            created_by=self.user,
+        )
+        csv_content = (
+            "document_number,receiving_type,receiving_date,supplier_code,sumber_dana_code,"
+            "location_code,item_code,quantity,batch_lot,expiry_date,unit_price\n"
+            "RCV-2026-OB-COLLISION,GRANT,12/03/2026,,APBD,GUDANG,ITM-TEST-0001,10,B-001,01/01/2030,1000\n"
+        )
+
+        with self.assertRaisesMessage(
+            ValueError,
+            "sudah digunakan oleh dokumen saldo awal",
+        ):
+            self.admin._process_csv(self._csv_file(csv_content), self.user)
+
+        self.assertEqual(Receiving.objects.count(), 0)
+        self.assertEqual(ReceivingItem.objects.count(), 0)
+        self.assertEqual(Stock.objects.count(), 0)
+        self.assertEqual(Transaction.objects.count(), 0)
 
     def test_process_csv_rejects_blank_expiry_for_items_that_require_it(self):
         csv_content = (
@@ -767,6 +857,42 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertIsNone(receiving_item.expiry_date)
         stock = Stock.objects.get(item=self.item, batch_lot="BATCH-NO-EXP")
         self.assertIsNone(stock.expiry_date)
+
+    def test_regular_receiving_create_rejects_opening_balance_document_number_collision(self):
+        OpeningBalanceImport.objects.create(
+            document_number="RCV-2026-WF-COLLISION",
+            effective_date=date(2026, 1, 1),
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            reverse("receiving:receiving_create"),
+            {
+                "document_number": "RCV-2026-WF-COLLISION",
+                "receiving_type": Receiving.ReceivingType.GRANT,
+                "receiving_date": "2026-03-16",
+                "supplier": "",
+                "sumber_dana": self.funding.pk,
+                "notes": "",
+                "items-TOTAL_FORMS": "1",
+                "items-INITIAL_FORMS": "0",
+                "items-MIN_NUM_FORMS": "0",
+                "items-MAX_NUM_FORMS": "1000",
+                "items-0-item": self.item.pk,
+                "items-0-quantity": "10",
+                "items-0-batch_lot": "BATCH-OB-COLLISION",
+                "items-0-expiry_date": "2030-01-01",
+                "items-0-unit_price": "1500",
+                "items-0-location": self.location.pk,
+            },
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "sudah digunakan oleh dokumen saldo awal")
+        self.assertEqual(Receiving.objects.count(), 0)
+        self.assertEqual(Stock.objects.count(), 0)
+        self.assertEqual(Transaction.objects.count(), 0)
 
     def test_regular_receiving_create_requires_expiry_for_expiring_item(self):
         response = self.client.post(

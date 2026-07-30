@@ -306,6 +306,7 @@ class Receiving(TimeStampedModel):
     def clean(self):
         super().clean()
         self.receiving_type = validate_receiving_type_code(self.receiving_type)
+        self._validate_document_number_not_opening_balance_collision()
         if self.receiving_type == self.ReceivingType.PROCUREMENT and not self.supplier_id:
             raise ValidationError(
                 {"supplier": "Supplier wajib diisi untuk tipe Pengadaan."}
@@ -321,28 +322,52 @@ class Receiving(TimeStampedModel):
             if duplicate_qs.exists():
                 raise ValidationError({"contract": "Setiap kontrak SPJ hanya boleh memiliki satu rencana penerimaan."})
 
+    def _validate_document_number_not_opening_balance_collision(self):
+        if not self.document_number:
+            return
+
+        from apps.stock.models import OpeningBalanceImport
+
+        if OpeningBalanceImport.objects.filter(
+            document_number=self.document_number
+        ).exists():
+            raise ValidationError(
+                {
+                    "document_number": (
+                        f"Nomor dokumen '{self.document_number}' sudah digunakan "
+                        "oleh dokumen saldo awal. Gunakan nomor penerimaan yang berbeda."
+                    )
+                }
+            )
+
     @staticmethod
     def generate_document_number():
         year = timezone.now().year
         prefix = f"RCV-{year}-"
-        last = (
+
+        from apps.stock.models import OpeningBalanceImport
+
+        document_numbers = list(
             Receiving.objects.filter(document_number__startswith=prefix)
-            .order_by("-document_number")
             .values_list("document_number", flat=True)
-            .first()
         )
-        if last:
+        document_numbers.extend(
+            OpeningBalanceImport.objects.filter(document_number__startswith=prefix)
+            .values_list("document_number", flat=True)
+        )
+        max_num = 0
+        for document_number in document_numbers:
             try:
-                num = int(last.split("-")[-1]) + 1
+                max_num = max(max_num, int(document_number.split("-")[-1]))
             except (ValueError, IndexError):
-                num = 1
-        else:
-            num = 1
+                continue
+        num = max_num + 1
         return f"{prefix}{num:05d}"
 
     def save(self, *args, **kwargs):
         if not self.document_number:
             self.document_number = self.generate_document_number()
+        self._validate_document_number_not_opening_balance_collision()
         super().save(*args, **kwargs)
 
 
