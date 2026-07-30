@@ -339,6 +339,7 @@ def execute_stock_distribution(distribution, user):
                 batch_lot=stock.batch_lot,
                 quantity=quantity,
                 unit_price=stock.unit_price,
+                source_document_number=stock.source_document_number,
                 sumber_dana=stock.sumber_dana,
                 reference_type=Transaction.ReferenceType.DISTRIBUTION,
                 reference_id=distribution.id,

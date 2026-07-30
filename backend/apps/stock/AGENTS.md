@@ -18,6 +18,7 @@ App-specific guidance for stock balances and ledger behavior.
 ## Ledger Rules
 
 - `stock.Transaction` is the authoritative append-only stock movement ledger.
+- `stock.Transaction.source_document_number` identifies the source stock layer moved by the transaction and must be set by every stock-changing workflow.
 - Never mutate historical `Transaction` rows.
 - Do not replace stock movement reporting with auditlog entries.
 - Stock transfer completion writes paired `OUT` and `IN` transactions.

@@ -592,6 +592,7 @@ class ReceivingAdmin(admin.ModelAdmin):
                     batch_lot=batch_lot,
                     quantity=quantity,
                     unit_price=unit_price,
+                    source_document_number=receiving.document_number,
                     sumber_dana=row_sumber_dana,
                     reference_type=Transaction.ReferenceType.RECEIVING,
                     reference_id=receiving.pk,

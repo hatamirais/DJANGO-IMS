@@ -413,6 +413,7 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                     batch_lot=row["batch_lot"],
                     quantity=row["quantity"],
                     unit_price=row["unit_price"],
+                    source_document_number=document["document_number"],
                     sumber_dana=row["funding"],
                     reference_type=Transaction.ReferenceType.INITIAL_IMPORT,
                     reference_id=opening_balance.pk,

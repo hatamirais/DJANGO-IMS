@@ -412,6 +412,79 @@ class RekapOpeningBalanceReportTests(TestCase):
 		self.assertEqual(row["received"], Decimal("7"))
 		self.assertEqual(row["ending_stock"], Decimal("7"))
 
+	def test_detailed_report_separates_same_batch_price_by_source_document(self):
+		Stock.objects.create(
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-SOURCE-SPLIT",
+			source_document_number="SALDO-AWAL-SOURCE-A",
+			expiry_date=date(2030, 1, 1),
+			quantity=Decimal("5"),
+			reserved=Decimal("0"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+		)
+		Stock.objects.create(
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-SOURCE-SPLIT",
+			source_document_number="SALDO-AWAL-SOURCE-B",
+			expiry_date=date(2031, 1, 1),
+			quantity=Decimal("7"),
+			reserved=Decimal("0"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+		)
+		Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.IN,
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-SOURCE-SPLIT",
+			source_document_number="SALDO-AWAL-SOURCE-A",
+			quantity=Decimal("5"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+			reference_type=Transaction.ReferenceType.RECEIVING,
+			reference_id=11,
+			user=self.user,
+		)
+		Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.IN,
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-SOURCE-SPLIT",
+			source_document_number="SALDO-AWAL-SOURCE-B",
+			quantity=Decimal("7"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+			reference_type=Transaction.ReferenceType.RECEIVING,
+			reference_id=12,
+			user=self.user,
+		)
+
+		response = self.client.get(
+			reverse("reports:index"),
+			{"start_date": "2026-01-01", "end_date": "2026-12-31"},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		rows = sorted(
+			(
+				row["source_document_number"],
+				row["expiry_date"],
+				row["received"],
+			)
+			for row in response.context["report_data"]
+			if row["batch_lot"] == "RO-BATCH-SOURCE-SPLIT"
+		)
+		self.assertEqual(
+			rows,
+			[
+				("SALDO-AWAL-SOURCE-A", date(2030, 1, 1), Decimal("5")),
+				("SALDO-AWAL-SOURCE-B", date(2031, 1, 1), Decimal("7")),
+			],
+		)
+
 	def test_rekap_next_year_carries_prior_year_ending_balance_without_reimport(self):
 		Transaction.objects.create(
 			transaction_type=Transaction.TransactionType.IN,

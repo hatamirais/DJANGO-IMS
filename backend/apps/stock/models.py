@@ -167,6 +167,11 @@ class Transaction(models.Model):
         related_name="transactions",
     )
     batch_lot = models.CharField(max_length=100)
+    source_document_number = models.CharField(
+        max_length=100,
+        default="LEGACY",
+        help_text="Original source document for the stock valuation layer moved by this transaction.",
+    )
     quantity = models.DecimalField(max_digits=12, decimal_places=2)
     unit_price = models.DecimalField(
         max_digits=15, decimal_places=2, null=True, blank=True
@@ -200,6 +205,9 @@ class Transaction(models.Model):
             models.Index(fields=["item", "-created_at"], name="idx_trans_item_date"),
             models.Index(
                 fields=["reference_type", "reference_id"], name="idx_trans_reference"
+            ),
+            models.Index(
+                fields=["source_document_number"], name="idx_trans_source_doc"
             ),
             models.Index(fields=["created_at"], name="idx_trans_created"),
         ]

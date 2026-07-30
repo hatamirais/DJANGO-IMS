@@ -1775,6 +1775,39 @@ class StockTransferConcurrencyTests(TransactionTestCase):
             2,
         )
 
+    def test_transfer_complete_rejects_conflicting_destination_source_layer(self):
+        Stock.objects.create(
+            item=self.item,
+            location=self.destination_location,
+            batch_lot='TRF-BATCH-01',
+            expiry_date=date(2030, 2, 1),
+            quantity=Decimal('2'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            source_document_number='SRC-DOC-TRF',
+        )
+        client = Client()
+        client.force_login(self.user)
+
+        response = client.post(
+            reverse('stock:transfer_complete', args=[self.transfer.pk]),
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.transfer.refresh_from_db()
+        self.source_stock.refresh_from_db()
+        self.assertEqual(self.transfer.status, StockTransfer.Status.DRAFT)
+        self.assertEqual(self.source_stock.quantity, Decimal('10'))
+        self.assertEqual(
+            Transaction.objects.filter(
+                reference_type=Transaction.ReferenceType.TRANSFER,
+                reference_id=self.transfer.pk,
+            ).count(),
+            0,
+        )
+
 
 @override_settings(SECURE_SSL_REDIRECT=False, ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
 class StockTransferCreateValidationTests(TestCase):

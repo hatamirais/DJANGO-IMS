@@ -9,12 +9,12 @@ The format is based on Keep a Changelog and follows Semantic Versioning (`MAJOR.
 
 ### Added
 
-- Stock rows now track `source_document_number`, separating same item/location/batch/funding stock into document-specific layers.
+- Stock rows and stock transactions now track `source_document_number`, separating same item/location/batch/funding stock into document-specific layers.
 - Opening-balance CSV import now accepts both comma and semicolon delimiters and reports validation issues before preview/confirm.
 
 ### Changed
 
-- Receiving and opening-balance stock posting now use the source document number as part of the stock identity instead of averaging or merging price layers across documents.
+- Receiving, transfer, outbound, expired, recall, allocation, and opening-balance stock posting now use the source document number as part of the stock identity instead of averaging or merging price layers across documents.
 
 ### Fixed
 

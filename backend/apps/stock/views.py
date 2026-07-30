@@ -1733,6 +1733,14 @@ def transfer_complete(request, transfer_id):
                     )
                 )
                 if not created:
+                    if destination_stock.expiry_date != source_stock.expiry_date:
+                        raise ValueError(
+                            "Batch tujuan dengan dokumen sumber yang sama memiliki tanggal kedaluwarsa berbeda."
+                        )
+                    if destination_stock.unit_price != source_stock.unit_price:
+                        raise ValueError(
+                            "Batch tujuan dengan dokumen sumber yang sama memiliki harga satuan berbeda."
+                        )
                     destination_stock.quantity = (
                         destination_stock.quantity + line.quantity
                     )
@@ -1745,6 +1753,7 @@ def transfer_complete(request, transfer_id):
                     batch_lot=source_stock.batch_lot,
                     quantity=line.quantity,
                     unit_price=source_stock.unit_price,
+                    source_document_number=source_stock.source_document_number,
                     sumber_dana=source_stock.sumber_dana,
                     reference_type=Transaction.ReferenceType.TRANSFER,
                     reference_id=transfer.pk,
@@ -1758,6 +1767,7 @@ def transfer_complete(request, transfer_id):
                     batch_lot=source_stock.batch_lot,
                     quantity=line.quantity,
                     unit_price=source_stock.unit_price,
+                    source_document_number=source_stock.source_document_number,
                     sumber_dana=source_stock.sumber_dana,
                     reference_type=Transaction.ReferenceType.TRANSFER,
                     reference_id=transfer.pk,

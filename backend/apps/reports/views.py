@@ -64,7 +64,7 @@ def reports_index(request):
             item=OuterRef('item'),
             batch_lot=OuterRef('batch_lot'),
             sumber_dana=OuterRef('sumber_dana'),
-            unit_price=OuterRef('unit_price'),
+            source_document_number=OuterRef('source_document_number'),
         ).values('expiry_date')[:1]
 
         # First level query to annotate initial balances and period flows
@@ -114,6 +114,7 @@ def reports_index(request):
             'item__nama_barang',
             'item__satuan__name',
             'batch_lot',
+            'source_document_number',
             'sumber_dana__name',
             'unit_price'
         ).annotate(

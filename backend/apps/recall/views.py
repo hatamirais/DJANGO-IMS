@@ -207,6 +207,7 @@ def recall_verify(request, pk):
                     batch_lot=stock.batch_lot,
                     quantity=recall_item.quantity,
                     unit_price=stock.unit_price,
+                    source_document_number=stock.source_document_number,
                     sumber_dana=stock.sumber_dana,
                     reference_type=Transaction.ReferenceType.RECALL,
                     reference_id=recall.id,

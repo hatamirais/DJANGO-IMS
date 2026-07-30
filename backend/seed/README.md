@@ -50,7 +50,7 @@ Import behavior summary:
 Use `/admin/stock/stock/opening-balance/import-csv/` for first-time stock bootstrap.
 Use `/admin/stock/stock/opening-balance/export-csv-template/` to download a blank `opening_balance_template.csv`.
 
-This route is restricted to superuser / role `ADMIN` accounts and is not part of normal operational receiving. Uploading a CSV first runs validation and shows a preview table; the database is changed only after the admin presses `Konfirmasi Import`. Confirmed imports create stock source-document layers using `Stock.source_document_number = document_number` and post `Transaction(IN)` rows with `reference_type=INITIAL_IMPORT`; rekap/yearly reports classify those rows by opening balance `effective_date`: `saldo_awal` when effective on/before the report start, or in-period received stock when effective after the report start and within the selected period.
+This route is restricted to superuser / role `ADMIN` accounts and is not part of normal operational receiving. Uploading a CSV first runs validation and shows a preview table; the database is changed only after the admin presses `Konfirmasi Import`. Confirmed imports create stock source-document layers using `Stock.source_document_number = document_number` and post `Transaction(IN)` rows with `source_document_number=document_number` and `reference_type=INITIAL_IMPORT`; rekap/yearly reports classify those rows by opening balance `effective_date`: `saldo_awal` when effective on/before the report start, or in-period received stock when effective after the report start and within the selected period.
 
 Opening balance imports must not use `receiving_type` or `supplier_code`. If those columns are present with values, the importer rejects the file so receiving templates are not silently treated as saldo awal.
 
@@ -216,7 +216,7 @@ Opening balance import notes:
 - Rows for the same stock layer must use the same `expiry_date` and `unit_price`; mismatches are rejected instead of merged. The same batch from a different `document_number` is kept as a separate layer and prices are not averaged.
 - Import creates one `OpeningBalanceImport` header plus `OpeningBalanceImportItem` rows.
 - Stock rows are updated/created with `source_document_number=document_number` and `receiving_ref=NULL`.
-- Transactions use `reference_type=INITIAL_IMPORT` and `reference_id` pointing to the `OpeningBalanceImport`.
+- Transactions use `source_document_number=document_number`, `reference_type=INITIAL_IMPORT`, and `reference_id` pointing to the `OpeningBalanceImport`.
 - Date formats and decimal parsing follow the receiving CSV parser rules.
 
 ### `stock.csv` (reference only)
