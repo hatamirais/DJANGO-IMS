@@ -1,4 +1,18 @@
+import hashlib
+
 from django.db import migrations, models
+
+
+def _source_document_number(document_type, document_number, collision_documents):
+    if document_number not in collision_documents:
+        return document_number
+
+    prefix = "RCV" if document_type == "RECEIVING" else "OBI"
+    digest = hashlib.sha1(
+        f"{document_type}:{document_number}".encode("utf-8")
+    ).hexdigest()[:8]
+    suffix_length = 100 - len(prefix) - len(digest) - 2
+    return f"{prefix}-{digest}-{document_number[:suffix_length]}"
 
 
 def backfill_transaction_source_document_number(apps, schema_editor):
@@ -6,6 +20,14 @@ def backfill_transaction_source_document_number(apps, schema_editor):
     Stock = apps.get_model("stock", "Stock")
     OpeningBalanceImport = apps.get_model("stock", "OpeningBalanceImport")
     Receiving = apps.get_model("receiving", "Receiving")
+
+    receiving_document_numbers = set(
+        Receiving.objects.values_list("document_number", flat=True)
+    )
+    opening_document_numbers = set(
+        OpeningBalanceImport.objects.values_list("document_number", flat=True)
+    )
+    collision_documents = receiving_document_numbers & opening_document_numbers
 
     for tx in Transaction.objects.iterator():
         source_document_number = ""
@@ -39,7 +61,11 @@ def backfill_transaction_source_document_number(apps, schema_editor):
                 .first()
             )
             if opening_balance:
-                source_document_number = opening_balance.document_number
+                source_document_number = _source_document_number(
+                    "INITIAL_IMPORT",
+                    opening_balance.document_number,
+                    collision_documents,
+                )
         elif tx.reference_type == "RECEIVING":
             receiving = (
                 Receiving.objects.filter(pk=tx.reference_id)
@@ -47,7 +73,11 @@ def backfill_transaction_source_document_number(apps, schema_editor):
                 .first()
             )
             if receiving:
-                source_document_number = receiving.document_number
+                source_document_number = _source_document_number(
+                    "RECEIVING",
+                    receiving.document_number,
+                    collision_documents,
+                )
 
         if len(matching_stock_source_numbers) == 1:
             source_document_number = matching_stock_source_numbers[0]

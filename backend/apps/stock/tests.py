@@ -1186,6 +1186,89 @@ class SourceDocumentBackfillMigrationTests(TestCase):
         self.assertEqual(transfer_out.source_document_number, 'SALDO-SDM-TRANSFER')
         self.assertEqual(transfer_in.source_document_number, 'SALDO-SDM-TRANSFER')
 
+    def test_backfills_disambiguate_cross_type_document_number_collision(self):
+        stock_migration = importlib.import_module(
+            'apps.stock.migrations.0009_stock_source_document_number'
+        )
+        transaction_migration = importlib.import_module(
+            'apps.stock.migrations.0010_transaction_source_document_number'
+        )
+        opening_location = Location.objects.create(
+            code='SDM-OBI-COLLIDE',
+            name='Opening Collision Location',
+        )
+        receiving = self._create_receiving('SRC-COLLIDE')
+        opening_balance = OpeningBalanceImport.objects.create(
+            document_number='SRC-COLLIDE',
+            effective_date=date(2026, 1, 1),
+            created_by=self.user,
+        )
+        receiving_stock = Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot='SDM-BATCH',
+            expiry_date=date(2030, 1, 1),
+            quantity=Decimal('5'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            receiving_ref=receiving,
+            source_document_number='',
+        )
+        opening_stock = Stock.objects.create(
+            item=self.item,
+            location=opening_location,
+            batch_lot='SDM-BATCH',
+            expiry_date=date(2030, 1, 1),
+            quantity=Decimal('7'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            source_document_number='',
+        )
+        receiving_tx = self._create_receiving_transaction(receiving, Decimal('5'))
+        opening_tx = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=opening_location,
+            batch_lot='SDM-BATCH',
+            quantity=Decimal('7'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.INITIAL_IMPORT,
+            reference_id=opening_balance.pk,
+            user=self.user,
+        )
+
+        stock_migration.backfill_source_document_number(self.MigrationApps(), None)
+        receiving_stock.refresh_from_db()
+        opening_stock.refresh_from_db()
+
+        self.assertNotEqual(
+            receiving_stock.source_document_number,
+            opening_stock.source_document_number,
+        )
+        self.assertNotEqual(receiving_stock.source_document_number, 'SRC-COLLIDE')
+        self.assertNotEqual(opening_stock.source_document_number, 'SRC-COLLIDE')
+        self.assertTrue(receiving_stock.source_document_number.startswith('RCV-'))
+        self.assertTrue(opening_stock.source_document_number.startswith('OBI-'))
+
+        transaction_migration.backfill_transaction_source_document_number(
+            self.MigrationApps(),
+            None,
+        )
+        receiving_tx.refresh_from_db()
+        opening_tx.refresh_from_db()
+
+        self.assertEqual(
+            receiving_tx.source_document_number,
+            receiving_stock.source_document_number,
+        )
+        self.assertEqual(
+            opening_tx.source_document_number,
+            opening_stock.source_document_number,
+        )
+
 
 class DownstreamNoExpirySentinelBackfillMigrationTests(TestCase):
     def setUp(self):

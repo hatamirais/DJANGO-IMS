@@ -23,6 +23,7 @@ The format is based on Keep a Changelog and follows Semantic Versioning (`MAJOR.
 - Receiving creation/import now rejects `document_number` values already used by opening-balance imports, and generated receiving numbers skip opening-balance-owned `RCV-YYYY-NNNNN` values.
 - Receiving document numbers can no longer be changed after stock rows or ledger transactions exist.
 - Historical stock migration now keeps ambiguous multi-document aggregate balances in a legacy source layer instead of assigning the whole balance to one receiving document.
+- Historical stock migration now disambiguates pre-existing receiving/opening-balance document-number collisions before source-layer reporting is enabled.
 - Historical stock migration now preserves opening-balance source layers across pre-upgrade stock transfers.
 - Historical transaction migration now maps all movements for a single legacy aggregate stock layer to that legacy source even when old contributing receipts had different prices.
 - Detailed inventory report rows and Excel export now display `source_document_number` when source-layer grouping splits otherwise identical rows.

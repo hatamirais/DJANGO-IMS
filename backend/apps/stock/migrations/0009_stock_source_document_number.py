@@ -1,10 +1,33 @@
+import hashlib
+
 from django.db import migrations, models
+
+
+def _source_document_number(document_type, document_number, collision_documents):
+    if document_number not in collision_documents:
+        return document_number
+
+    prefix = "RCV" if document_type == "RECEIVING" else "OBI"
+    digest = hashlib.sha1(
+        f"{document_type}:{document_number}".encode("utf-8")
+    ).hexdigest()[:8]
+    suffix_length = 100 - len(prefix) - len(digest) - 2
+    return f"{prefix}-{digest}-{document_number[:suffix_length]}"
 
 
 def backfill_source_document_number(apps, schema_editor):
     Stock = apps.get_model("stock", "Stock")
     Transaction = apps.get_model("stock", "Transaction")
     OpeningBalanceImport = apps.get_model("stock", "OpeningBalanceImport")
+    Receiving = apps.get_model("receiving", "Receiving")
+
+    receiving_document_numbers = set(
+        Receiving.objects.values_list("document_number", flat=True)
+    )
+    opening_document_numbers = set(
+        OpeningBalanceImport.objects.values_list("document_number", flat=True)
+    )
+    collision_documents = receiving_document_numbers & opening_document_numbers
 
     for stock in Stock.objects.select_related("receiving_ref").iterator():
         source_document_number = ""
@@ -35,7 +58,11 @@ def backfill_source_document_number(apps, schema_editor):
 
         if len(receiving_reference_ids) == 1 and not opening_reference_ids:
             if stock.receiving_ref_id == receiving_reference_ids[0]:
-                source_document_number = stock.receiving_ref.document_number
+                source_document_number = _source_document_number(
+                    "RECEIVING",
+                    stock.receiving_ref.document_number,
+                    collision_documents,
+                )
         elif len(opening_reference_ids) == 1 and not receiving_reference_ids:
             opening_balance = (
                 OpeningBalanceImport.objects.filter(pk=opening_reference_ids[0])
@@ -43,9 +70,17 @@ def backfill_source_document_number(apps, schema_editor):
                 .first()
             )
             if opening_balance:
-                source_document_number = opening_balance.document_number
+                source_document_number = _source_document_number(
+                    "INITIAL_IMPORT",
+                    opening_balance.document_number,
+                    collision_documents,
+                )
         elif stock.receiving_ref_id and not receiving_reference_ids and not opening_reference_ids:
-            source_document_number = stock.receiving_ref.document_number
+            source_document_number = _source_document_number(
+                "RECEIVING",
+                stock.receiving_ref.document_number,
+                collision_documents,
+            )
 
         if not source_document_number:
             source_document_number = f"LEGACY-{stock.pk}"
