@@ -89,71 +89,82 @@ def backfill_source_document_number(apps, schema_editor):
             source_document_number=source_document_number
         )
 
-    transfer_in_rows = (
-        Transaction.objects.filter(
-            reference_type="TRANSFER",
-            transaction_type="IN",
-        )
-        .exclude(reference_id__isnull=True)
-        .values(
-            "reference_id",
-            "item_id",
-            "location_id",
-            "batch_lot",
-            "sumber_dana_id",
-        )
-        .distinct()
-    )
-    for transfer_in in transfer_in_rows:
-        destination_stock = (
-            Stock.objects.filter(
-                item_id=transfer_in["item_id"],
-                location_id=transfer_in["location_id"],
-                batch_lot=transfer_in["batch_lot"],
-                sumber_dana_id=transfer_in["sumber_dana_id"],
-            )
-            .only("pk", "source_document_number")
-            .first()
-        )
-        if not destination_stock:
-            continue
-        if not (
-            destination_stock.source_document_number == f"LEGACY-{destination_stock.pk}"
-            or destination_stock.source_document_number == "LEGACY"
-        ):
-            continue
-
-        transfer_out = (
+    changed = True
+    while changed:
+        changed = False
+        transfer_in_rows = (
             Transaction.objects.filter(
                 reference_type="TRANSFER",
-                transaction_type="OUT",
-                reference_id=transfer_in["reference_id"],
-                item_id=transfer_in["item_id"],
-                batch_lot=transfer_in["batch_lot"],
-                sumber_dana_id=transfer_in["sumber_dana_id"],
+                transaction_type="IN",
             )
-            .exclude(location_id=transfer_in["location_id"])
-            .order_by("pk")
-            .first()
+            .exclude(reference_id__isnull=True)
+            .values(
+                "reference_id",
+                "item_id",
+                "location_id",
+                "batch_lot",
+                "sumber_dana_id",
+            )
+            .distinct()
         )
-        if not transfer_out:
-            continue
+        for transfer_in in transfer_in_rows:
+            destination_stock = (
+                Stock.objects.filter(
+                    item_id=transfer_in["item_id"],
+                    location_id=transfer_in["location_id"],
+                    batch_lot=transfer_in["batch_lot"],
+                    sumber_dana_id=transfer_in["sumber_dana_id"],
+                )
+                .only("pk", "source_document_number")
+                .first()
+            )
+            if not destination_stock:
+                continue
+            if not (
+                destination_stock.source_document_number
+                == f"LEGACY-{destination_stock.pk}"
+                or destination_stock.source_document_number == "LEGACY"
+            ):
+                continue
 
-        source_stock = (
-            Stock.objects.filter(
-                item_id=transfer_out.item_id,
-                location_id=transfer_out.location_id,
-                batch_lot=transfer_out.batch_lot,
-                sumber_dana_id=transfer_out.sumber_dana_id,
+            transfer_out = (
+                Transaction.objects.filter(
+                    reference_type="TRANSFER",
+                    transaction_type="OUT",
+                    reference_id=transfer_in["reference_id"],
+                    item_id=transfer_in["item_id"],
+                    batch_lot=transfer_in["batch_lot"],
+                    sumber_dana_id=transfer_in["sumber_dana_id"],
+                )
+                .exclude(location_id=transfer_in["location_id"])
+                .order_by("pk")
+                .first()
             )
-            .exclude(source_document_number="")
-            .order_by("pk")
-            .first()
-        )
-        if source_stock and source_stock.source_document_number:
+            if not transfer_out:
+                continue
+
+            source_stock = (
+                Stock.objects.filter(
+                    item_id=transfer_out.item_id,
+                    location_id=transfer_out.location_id,
+                    batch_lot=transfer_out.batch_lot,
+                    sumber_dana_id=transfer_out.sumber_dana_id,
+                )
+                .exclude(source_document_number="")
+                .order_by("pk")
+                .first()
+            )
+            if not source_stock or not source_stock.source_document_number:
+                continue
+            if source_stock.source_document_number in {
+                "LEGACY",
+                f"LEGACY-{source_stock.pk}",
+            }:
+                continue
             Stock.objects.filter(pk=destination_stock.pk).update(
                 source_document_number=source_stock.source_document_number
             )
+            changed = True
 
 
 class Migration(migrations.Migration):

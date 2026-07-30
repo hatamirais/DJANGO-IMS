@@ -9,8 +9,8 @@ App-specific guidance for receiving workflows.
 ## Stock Mutation
 
 - Receiving admin CSV import writes `Receiving`, `ReceivingItem`, updates or creates `Stock`, and writes `Transaction(IN)`.
-- Receiving stock rows use the receiving `document_number` as `Stock.source_document_number`.
-- Receiving transactions use the same receiving `document_number` as `Transaction.source_document_number`.
+- Receiving stock rows use the receiving `document_number` as `Stock.source_document_number`, except migrated historical document-number collisions continue on their disambiguated existing stock source layer.
+- Receiving transactions use the same receiving source document value as the stock row they post to.
 - Receiving `document_number` values must not collide with opening-balance import document numbers; generated receiving numbers skip opening-balance-owned `RCV-YYYY-NNNNN` values.
 - Receiving `document_number` is immutable after stock rows or ledger transactions exist.
 - Same item/location/batch/funding can appear in different receiving documents as separate stock layers; do not average their `unit_price` values.

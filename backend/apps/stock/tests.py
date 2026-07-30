@@ -1254,6 +1254,120 @@ class SourceDocumentBackfillMigrationTests(TestCase):
         self.assertEqual(transfer_out.source_document_number, 'SALDO-SDM-TRANSFER')
         self.assertEqual(transfer_in.source_document_number, 'SALDO-SDM-TRANSFER')
 
+    def test_stock_backfill_resolves_transfer_source_chains(self):
+        stock_migration = importlib.import_module(
+            'apps.stock.migrations.0009_stock_source_document_number'
+        )
+        middle = Location.objects.create(code='SDM-MID', name='Transfer Middle')
+        destination = Location.objects.create(code='SDM-END', name='Transfer End')
+        opening_balance = OpeningBalanceImport.objects.create(
+            document_number='SALDO-SDM-CHAIN',
+            effective_date=date(2026, 1, 1),
+            created_by=self.user,
+        )
+        source_stock = Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot='SDM-CHAIN',
+            expiry_date=date(2030, 1, 1),
+            quantity=Decimal('10'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            source_document_number='',
+        )
+        middle_stock = Stock.objects.create(
+            item=self.item,
+            location=middle,
+            batch_lot='SDM-CHAIN',
+            expiry_date=date(2030, 1, 1),
+            quantity=Decimal('5'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            source_document_number='',
+        )
+        destination_stock = Stock.objects.create(
+            item=self.item,
+            location=destination,
+            batch_lot='SDM-CHAIN',
+            expiry_date=date(2030, 1, 1),
+            quantity=Decimal('2'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            source_document_number='',
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot='SDM-CHAIN',
+            quantity=Decimal('10'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.INITIAL_IMPORT,
+            reference_id=opening_balance.pk,
+            user=self.user,
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.OUT,
+            item=self.item,
+            location=self.location,
+            batch_lot='SDM-CHAIN',
+            quantity=Decimal('5'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.TRANSFER,
+            reference_id=801,
+            user=self.user,
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=middle,
+            batch_lot='SDM-CHAIN',
+            quantity=Decimal('5'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.TRANSFER,
+            reference_id=801,
+            user=self.user,
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.OUT,
+            item=self.item,
+            location=middle,
+            batch_lot='SDM-CHAIN',
+            quantity=Decimal('2'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.TRANSFER,
+            reference_id=802,
+            user=self.user,
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=destination,
+            batch_lot='SDM-CHAIN',
+            quantity=Decimal('2'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.TRANSFER,
+            reference_id=802,
+            user=self.user,
+        )
+
+        stock_migration.backfill_source_document_number(self.MigrationApps(), None)
+
+        source_stock.refresh_from_db()
+        middle_stock.refresh_from_db()
+        destination_stock.refresh_from_db()
+        self.assertEqual(source_stock.source_document_number, 'SALDO-SDM-CHAIN')
+        self.assertEqual(middle_stock.source_document_number, 'SALDO-SDM-CHAIN')
+        self.assertEqual(destination_stock.source_document_number, 'SALDO-SDM-CHAIN')
+
     def test_backfills_disambiguate_cross_type_document_number_collision(self):
         stock_migration = importlib.import_module(
             'apps.stock.migrations.0009_stock_source_document_number'

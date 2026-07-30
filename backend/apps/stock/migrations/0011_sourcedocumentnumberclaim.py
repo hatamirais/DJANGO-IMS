@@ -21,6 +21,14 @@ def backfill_source_document_number_claims(apps, schema_editor):
             document_number=""
         ).values_list("document_number", "pk")
     }
+    stock_receiving_ids = {
+        source_document_number: receiving_ref_id
+        for source_document_number, receiving_ref_id in Stock.objects.exclude(
+            source_document_number=""
+        )
+        .exclude(receiving_ref_id__isnull=True)
+        .values_list("source_document_number", "receiving_ref_id")
+    }
     document_numbers = set(
         Stock.objects.exclude(source_document_number="")
         .values_list("source_document_number", flat=True)
@@ -34,7 +42,10 @@ def backfill_source_document_number_claims(apps, schema_editor):
     for document_number in sorted(document_numbers):
         source_type = "OPENING_BALANCE"
         source_id = opening_balance_ids.get(document_number)
-        if document_number in receiving_ids:
+        if document_number in stock_receiving_ids:
+            source_type = "RECEIVING"
+            source_id = stock_receiving_ids[document_number]
+        elif document_number in receiving_ids:
             source_type = "RECEIVING"
             source_id = receiving_ids[document_number]
 

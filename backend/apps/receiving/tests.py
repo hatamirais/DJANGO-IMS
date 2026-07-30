@@ -2099,6 +2099,76 @@ class ReceivingWorkflowCleanupTest(TestCase):
             ).exists()
         )
 
+    def test_plan_receive_continues_migrated_disambiguated_source_layer(self):
+        receiving = Receiving.objects.create(
+            document_number="SRC-COLLIDE-PLAN",
+            receiving_type=Receiving.ReceivingType.PROCUREMENT,
+            receiving_date=date(2026, 3, 16),
+            sumber_dana=self.funding,
+            status=Receiving.Status.PARTIAL,
+            is_planned=True,
+            created_by=self.user,
+            approved_by=self.user,
+        )
+        order_item = ReceivingOrderItem.objects.create(
+            receiving=receiving,
+            item=self.item,
+            planned_quantity=Decimal("5"),
+            received_quantity=Decimal("2"),
+            unit_price=Decimal("100"),
+            is_cancelled=False,
+        )
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot="MIGRATED-ALIAS",
+            source_document_number="RCV-HASHED-SRC-COLLIDE-PLAN",
+            expiry_date=date(2030, 11, 30),
+            quantity=Decimal("2"),
+            reserved=Decimal("0"),
+            unit_price=Decimal("100"),
+            sumber_dana=self.funding,
+            receiving_ref=receiving,
+        )
+
+        response = self.client.post(
+            reverse("receiving:receiving_plan_receive", args=[receiving.pk]),
+            {
+                "items-TOTAL_FORMS": "1",
+                "items-INITIAL_FORMS": "0",
+                "items-MIN_NUM_FORMS": "0",
+                "items-MAX_NUM_FORMS": "1000",
+                "items-0-order_item": str(order_item.pk),
+                "items-0-quantity": "3",
+                "items-0-batch_lot": "MIGRATED-ALIAS",
+                "items-0-expiry_date": "2030-11-30",
+                "items-0-unit_price": "100.00",
+                "items-0-location": str(self.location.pk),
+            },
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        stock = Stock.objects.get(
+            receiving_ref=receiving,
+            source_document_number="RCV-HASHED-SRC-COLLIDE-PLAN",
+        )
+        self.assertEqual(stock.quantity, Decimal("5"))
+        self.assertFalse(
+            Stock.objects.filter(
+                receiving_ref=receiving,
+                source_document_number="SRC-COLLIDE-PLAN",
+            ).exists()
+        )
+        self.assertTrue(
+            Transaction.objects.filter(
+                reference_type=Transaction.ReferenceType.RECEIVING,
+                reference_id=receiving.pk,
+                source_document_number="RCV-HASHED-SRC-COLLIDE-PLAN",
+                quantity=Decimal("3"),
+            ).exists()
+        )
+
     def test_plan_receive_rejects_stale_locked_overage(self):
         from apps.receiving import views as receiving_views
 

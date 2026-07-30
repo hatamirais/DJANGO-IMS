@@ -26,6 +26,7 @@ from .models import (
     ReceivingOrderItem,
     ReceivingTypeOption,
     increment_receiving_stock,
+    resolve_receiving_source_document_number,
 )
 from apps.items.models import Item, FundingSource, Location, Supplier
 from apps.core.upload_validation import validate_csv_upload, validate_receiving_document_upload
@@ -475,6 +476,9 @@ class ReceivingAdmin(admin.ModelAdmin):
                 raise ValueError(f"Baris {first_row_num}: {detail}") from exc
             receiving.save()
             counts["receivings"] += 1
+            source_document_number = resolve_receiving_source_document_number(
+                receiving
+            )
 
             # Create ReceivingItem + Stock + Transaction for each row
             for row_num, row in rows:
@@ -586,7 +590,7 @@ class ReceivingAdmin(admin.ModelAdmin):
                     quantity=quantity,
                     unit_price=unit_price,
                     receiving_ref=receiving,
-                    source_document_number=receiving.document_number,
+                    source_document_number=source_document_number,
                 )
                 counts["stock"] += 1
 
@@ -598,7 +602,7 @@ class ReceivingAdmin(admin.ModelAdmin):
                     batch_lot=batch_lot,
                     quantity=quantity,
                     unit_price=unit_price,
-                    source_document_number=receiving.document_number,
+                    source_document_number=source_document_number,
                     sumber_dana=row_sumber_dana,
                     reference_type=Transaction.ReferenceType.RECEIVING,
                     reference_id=receiving.pk,
