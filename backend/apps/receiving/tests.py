@@ -244,6 +244,24 @@ class ReceivingModelDocumentNumberCollisionTests(TestCase):
 
         self.assertEqual(receiving.document_number, f"RCV-{year}-00002")
 
+    def test_generated_document_number_skips_retained_registry_claims(self):
+        year = timezone.now().year
+        SourceDocumentNumberClaim.objects.create(
+            document_number=f"RCV-{year}-00001",
+            source_type=SourceDocumentNumberClaim.SourceType.RECEIVING,
+            source_id=999999,
+        )
+
+        receiving = Receiving.objects.create(
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            status=Receiving.Status.DRAFT,
+            created_by=self.user,
+        )
+
+        self.assertEqual(receiving.document_number, f"RCV-{year}-00002")
+
     def test_full_clean_rejects_document_number_change_after_ledger_transaction(self):
         receiving = Receiving.objects.create(
             document_number="RCV-LOCKED-001",

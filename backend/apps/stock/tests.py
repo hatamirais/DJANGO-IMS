@@ -2074,6 +2074,95 @@ class StockCardTest(TestCase):
         self.assertContains(response, 'Dokumen Sumber: RCV-PRICE-A')
         self.assertContains(response, 'Dokumen Sumber: RCV-PRICE-B')
 
+    def test_stock_card_preserves_batch_prices_within_one_receiving_document(self):
+        receiving = Receiving.objects.create(
+            receiving_type=Receiving.ReceivingType.PROCUREMENT,
+            document_number='RCV-BATCH-PRICE',
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            created_by=self.user,
+        )
+        ReceivingItem.objects.create(
+            receiving=receiving,
+            item=self.item,
+            quantity=Decimal('10'),
+            batch_lot='PRICE-BATCH-A',
+            expiry_date=date(2031, 5, 1),
+            unit_price=Decimal('1000'),
+            location=self.location,
+        )
+        ReceivingItem.objects.create(
+            receiving=receiving,
+            item=self.item,
+            quantity=Decimal('8'),
+            batch_lot='PRICE-BATCH-B',
+            expiry_date=date(2031, 6, 1),
+            unit_price=Decimal('2000'),
+            location=self.location,
+        )
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot='PRICE-BATCH-A',
+            source_document_number='RCV-BATCH-PRICE',
+            expiry_date=date(2031, 5, 1),
+            quantity=Decimal('10'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+        )
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot='PRICE-BATCH-B',
+            source_document_number='RCV-BATCH-PRICE',
+            expiry_date=date(2031, 6, 1),
+            quantity=Decimal('8'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('2000'),
+            sumber_dana=self.funding,
+        )
+        first_tx = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot='PRICE-BATCH-A',
+            source_document_number='RCV-BATCH-PRICE',
+            quantity=Decimal('10'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=receiving.id,
+            user=self.user,
+        )
+        second_tx = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot='PRICE-BATCH-B',
+            source_document_number='RCV-BATCH-PRICE',
+            quantity=Decimal('8'),
+            unit_price=Decimal('2000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=receiving.id,
+            user=self.user,
+        )
+
+        response = self.client.get(reverse('stock:stock_card_detail', args=[self.item.id]))
+
+        self.assertEqual(response.status_code, 200)
+        cards_by_batch = {
+            card['batch_lot']: card
+            for card in response.context['funding_source_cards']
+            if card['source_document_number'] == 'RCV-BATCH-PRICE'
+        }
+        self.assertEqual(set(cards_by_batch), {'PRICE-BATCH-A', 'PRICE-BATCH-B'})
+        self.assertEqual(cards_by_batch['PRICE-BATCH-A']['unit_price'], Decimal('1000'))
+        self.assertEqual(cards_by_batch['PRICE-BATCH-B']['unit_price'], Decimal('2000'))
+        self.assertEqual(cards_by_batch['PRICE-BATCH-A']['transactions'], [first_tx])
+        self.assertEqual(cards_by_batch['PRICE-BATCH-B']['transactions'], [second_tx])
+
     def test_stock_card_transfer_transactions_display_computed_fields(self):
         """Verify transfer transactions have computed display fields for UI rendering."""
         destination = Location.objects.create(code='PKM2', name='Puskesmas Pembantu')

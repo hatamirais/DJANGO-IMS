@@ -468,7 +468,7 @@ class Receiving(TimeStampedModel):
         year = timezone.now().year
         prefix = f"RCV-{year}-"
 
-        from apps.stock.models import OpeningBalanceImport
+        from apps.stock.models import OpeningBalanceImport, SourceDocumentNumberClaim
 
         document_numbers = list(
             Receiving.objects.filter(document_number__startswith=prefix)
@@ -477,6 +477,11 @@ class Receiving(TimeStampedModel):
         document_numbers.extend(
             OpeningBalanceImport.objects.filter(document_number__startswith=prefix)
             .values_list("document_number", flat=True)
+        )
+        document_numbers.extend(
+            SourceDocumentNumberClaim.objects.filter(
+                document_number__startswith=prefix
+            ).values_list("document_number", flat=True)
         )
         max_num = 0
         for document_number in document_numbers:
