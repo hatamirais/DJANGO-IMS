@@ -248,6 +248,8 @@ def backfill_source_document_number(apps, schema_editor):
         }:
             continue
         transfer_quantity = transfer_in["quantity"]
+        if destination_stock.reserved:
+            continue
         if destination_stock.quantity < transfer_quantity:
             continue
 

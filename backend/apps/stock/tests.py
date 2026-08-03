@@ -1494,6 +1494,132 @@ class SourceDocumentBackfillMigrationTests(TestCase):
         self.assertEqual(transfer_out.source_document_number, 'SALDO-SDM-MIX-SRC')
         self.assertEqual(transfer_in.source_document_number, 'SALDO-SDM-MIX-SRC')
 
+    def test_backfill_keeps_reserved_mixed_transfer_destination_unsplit(self):
+        stock_migration = importlib.import_module(
+            'apps.stock.migrations.0009_stock_source_document_number'
+        )
+        transaction_migration = importlib.import_module(
+            'apps.stock.migrations.0010_transaction_source_document_number'
+        )
+        destination = Location.objects.create(
+            code='SDM-RSV-DST',
+            name='Reserved Transfer Destination',
+        )
+        destination_receiving = Receiving.objects.create(
+            document_number='RCV-SDM-RSV-DST',
+            receiving_date=date(2026, 1, 12),
+            receiving_type=Receiving.ReceivingType.GRANT,
+            sumber_dana=self.funding,
+            created_by=self.user,
+        )
+        opening_balance = OpeningBalanceImport.objects.create(
+            document_number='SALDO-SDM-RSV-SRC',
+            effective_date=date(2026, 1, 1),
+            created_by=self.user,
+        )
+        source_stock = Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot='SDM-RSV',
+            expiry_date=date(2030, 1, 1),
+            quantity=Decimal('5'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            source_document_number='',
+        )
+        destination_stock = Stock.objects.create(
+            item=self.item,
+            location=destination,
+            batch_lot='SDM-RSV',
+            expiry_date=date(2031, 1, 1),
+            quantity=Decimal('12'),
+            reserved=Decimal('8'),
+            unit_price=Decimal('2000'),
+            sumber_dana=self.funding,
+            receiving_ref=destination_receiving,
+            source_document_number='',
+        )
+        opening_tx = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot='SDM-RSV',
+            quantity=Decimal('10'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.INITIAL_IMPORT,
+            reference_id=opening_balance.pk,
+            user=self.user,
+        )
+        destination_receiving_tx = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=destination,
+            batch_lot='SDM-RSV',
+            quantity=Decimal('7'),
+            unit_price=Decimal('2000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=destination_receiving.pk,
+            user=self.user,
+        )
+        transfer_out = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.OUT,
+            item=self.item,
+            location=self.location,
+            batch_lot='SDM-RSV',
+            quantity=Decimal('5'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.TRANSFER,
+            reference_id=804,
+            user=self.user,
+        )
+        transfer_in = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=destination,
+            batch_lot='SDM-RSV',
+            quantity=Decimal('5'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.TRANSFER,
+            reference_id=804,
+            user=self.user,
+        )
+
+        stock_migration.backfill_source_document_number(self.MigrationApps(), None)
+
+        source_stock.refresh_from_db()
+        destination_stock.refresh_from_db()
+        self.assertEqual(source_stock.source_document_number, 'SALDO-SDM-RSV-SRC')
+        self.assertEqual(destination_stock.source_document_number, 'RCV-SDM-RSV-DST')
+        self.assertEqual(destination_stock.quantity, Decimal('12'))
+        self.assertEqual(destination_stock.reserved, Decimal('8'))
+        self.assertFalse(
+            Stock.objects.filter(
+                item=self.item,
+                location=destination,
+                batch_lot='SDM-RSV',
+                sumber_dana=self.funding,
+                source_document_number='SALDO-SDM-RSV-SRC',
+            ).exists()
+        )
+
+        transaction_migration.backfill_transaction_source_document_number(
+            self.MigrationApps(),
+            None,
+        )
+        opening_tx.refresh_from_db()
+        destination_receiving_tx.refresh_from_db()
+        transfer_out.refresh_from_db()
+        transfer_in.refresh_from_db()
+        self.assertEqual(opening_tx.source_document_number, 'SALDO-SDM-RSV-SRC')
+        self.assertEqual(destination_receiving_tx.source_document_number, 'RCV-SDM-RSV-DST')
+        self.assertEqual(transfer_out.source_document_number, 'SALDO-SDM-RSV-SRC')
+        self.assertEqual(transfer_in.source_document_number, 'SALDO-SDM-RSV-SRC')
+
     def test_backfills_disambiguate_cross_type_document_number_collision(self):
         stock_migration = importlib.import_module(
             'apps.stock.migrations.0009_stock_source_document_number'

@@ -29,6 +29,39 @@ def backfill_transaction_source_document_number(apps, schema_editor):
     )
     collision_documents = receiving_document_numbers & opening_document_numbers
 
+    def transfer_source_document_number(tx):
+        source_tx = tx
+        if tx.transaction_type == "IN":
+            source_tx = (
+                Transaction.objects.filter(
+                    reference_type="TRANSFER",
+                    transaction_type="OUT",
+                    reference_id=tx.reference_id,
+                    item_id=tx.item_id,
+                    batch_lot=tx.batch_lot,
+                    sumber_dana_id=tx.sumber_dana_id,
+                )
+                .exclude(location_id=tx.location_id)
+                .order_by("pk")
+                .first()
+            )
+            if not source_tx:
+                return ""
+
+        return (
+            Stock.objects.filter(
+                item_id=source_tx.item_id,
+                location_id=source_tx.location_id,
+                batch_lot=source_tx.batch_lot,
+                sumber_dana_id=source_tx.sumber_dana_id,
+            )
+            .exclude(source_document_number="")
+            .order_by("pk")
+            .values_list("source_document_number", flat=True)
+            .first()
+            or ""
+        )
+
     for tx in Transaction.objects.iterator():
         source_document_number = ""
         matching_stock_source_numbers = list(
@@ -78,8 +111,12 @@ def backfill_transaction_source_document_number(apps, schema_editor):
                     receiving.document_number,
                     collision_documents,
                 )
+        elif tx.reference_type == "TRANSFER":
+            source_document_number = transfer_source_document_number(tx)
 
-        if len(matching_stock_source_numbers) == 1:
+        if tx.reference_type == "TRANSFER" and source_document_number:
+            pass
+        elif len(matching_stock_source_numbers) == 1:
             source_document_number = matching_stock_source_numbers[0]
         elif len(matching_price_stock_source_numbers) == 1:
             source_document_number = matching_price_stock_source_numbers[0]

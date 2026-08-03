@@ -184,7 +184,7 @@ def resolve_receiving_source_document_number(receiving):
     if not receiving.pk:
         return receiving.document_number
 
-    from apps.stock.models import Stock
+    from apps.stock.models import Stock, Transaction
 
     existing_sources = list(
         Stock.objects.filter(receiving_ref=receiving)
@@ -202,6 +202,26 @@ def resolve_receiving_source_document_number(receiving):
         return non_header_sources[0]
     if len(existing_sources) == 1:
         return existing_sources[0]
+
+    transaction_sources = list(
+        Transaction.objects.filter(
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=receiving.pk,
+        )
+        .exclude(source_document_number="")
+        .values_list("source_document_number", flat=True)
+        .distinct()
+        .order_by("source_document_number")
+    )
+    non_header_transaction_sources = [
+        source
+        for source in transaction_sources
+        if source != receiving.document_number
+    ]
+    if len(non_header_transaction_sources) == 1:
+        return non_header_transaction_sources[0]
+    if len(transaction_sources) == 1:
+        return transaction_sources[0]
     return receiving.document_number
 
 

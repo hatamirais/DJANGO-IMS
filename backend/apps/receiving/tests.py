@@ -33,6 +33,7 @@ from apps.receiving.models import (
     ReceivingItem,
     ReceivingOrderItem,
     ReceivingTypeOption,
+    resolve_receiving_source_document_number,
 )
 from apps.stock.models import OpeningBalanceImport, SourceDocumentNumberClaim, Stock, Transaction
 from apps.users.access import ensure_default_module_access
@@ -261,6 +262,34 @@ class ReceivingModelDocumentNumberCollisionTests(TestCase):
         )
 
         self.assertEqual(receiving.document_number, f"RCV-{year}-00002")
+
+    def test_resolver_uses_existing_transaction_source_when_stock_reference_is_absent(self):
+        receiving = Receiving.objects.create(
+            document_number="RCV-RESOLVE-TX",
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            status=Receiving.Status.PARTIAL,
+            created_by=self.user,
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot="RCV-RESOLVE-TX-BATCH",
+            source_document_number="LEGACY-AGGREGATE-RCV",
+            quantity=Decimal("5"),
+            unit_price=Decimal("1000"),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=receiving.pk,
+            user=self.user,
+        )
+
+        self.assertEqual(
+            resolve_receiving_source_document_number(receiving),
+            "LEGACY-AGGREGATE-RCV",
+        )
 
     def test_full_clean_rejects_document_number_change_after_ledger_transaction(self):
         receiving = Receiving.objects.create(
