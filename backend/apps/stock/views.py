@@ -1165,21 +1165,6 @@ def _build_stock_card_data(item, location_id=None, sumber_dana_id=None,
             }
         sd_groups[card_key]["transactions"].append(tx)
 
-    grouped_sumber_dana_ids = [
-        group["sumber_dana"].id
-        for group in sd_groups.values()
-        if group["sumber_dana"] is not None
-    ]
-    grouped_source_keys = [
-        group["source_document_number"]
-        for group in sd_groups.values()
-    ]
-    grouped_source_numbers = [
-        group["source_document_number"]
-        for group in sd_groups.values()
-        if group["source_document_number"]
-    ]
-
     opening_balances = {}
     if date_from_at:
         past_qs = Transaction.objects.filter(item=item, created_at__lt=date_from_at)
@@ -1217,6 +1202,42 @@ def _build_stock_card_data(item, location_id=None, sumber_dana_id=None,
                 )
             )
         }
+        opening_funding_ids = {
+            funding_key
+            for funding_key, _source_key, _location_key, _batch_key
+            in opening_balances
+            if funding_key
+        }
+        opening_funding_by_id = {
+            funding.pk: funding
+            for funding in FundingSource.objects.filter(pk__in=opening_funding_ids)
+        }
+        for card_key, opening_balance in opening_balances.items():
+            if not opening_balance or card_key in sd_groups:
+                continue
+            sd_key, source_document_number, stock_location_id, batch_lot = card_key
+            sd_groups[card_key] = {
+                "sumber_dana": opening_funding_by_id.get(sd_key),
+                "source_document_number": source_document_number,
+                "location_id": stock_location_id,
+                "batch_lot": batch_lot,
+                "transactions": [],
+            }
+
+    grouped_sumber_dana_ids = [
+        group["sumber_dana"].id
+        for group in sd_groups.values()
+        if group["sumber_dana"] is not None
+    ]
+    grouped_source_keys = [
+        group["source_document_number"]
+        for group in sd_groups.values()
+    ]
+    grouped_source_numbers = [
+        group["source_document_number"]
+        for group in sd_groups.values()
+        if group["source_document_number"]
+    ]
 
     latest_receiving_prices = {}
     if grouped_sumber_dana_ids and grouped_source_numbers:

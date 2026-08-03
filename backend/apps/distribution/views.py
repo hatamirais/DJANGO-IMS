@@ -332,7 +332,7 @@ def _locked_lplpo_formset_has_only_availability_errors(formset):
     return has_availability_error
 
 
-def _rebuild_generated_lplpo_item_rows(distribution, post_data, prefix="items"):
+def _rebuild_generated_lplpo_item_rows(distribution, formset, post_data, prefix="items"):
     existing_items = list(
         distribution.items.select_related("item").order_by("item_id", "pk")
     )
@@ -341,8 +341,32 @@ def _rebuild_generated_lplpo_item_rows(distribution, post_data, prefix="items"):
         existing.pk: post_data.get(f"{prefix}-{index}-notes", existing.notes)
         for index, existing in enumerate(ordered_existing_items)
     }
+    failing_item_ids = {
+        form.instance.item_id
+        for form in formset.forms
+        if form.errors and form.instance.item_id
+    }
+
+    replacement_items = []
+    for form in formset.forms:
+        if form.errors or form.instance.item_id in failing_item_ids:
+            continue
+        cleaned_data = form.cleaned_data
+        replacement_items.append(
+            DistributionItem(
+                distribution=distribution,
+                item=cleaned_data["item"],
+                quantity_requested=cleaned_data["quantity_requested"],
+                quantity_approved=cleaned_data["quantity_approved"],
+                stock=cleaned_data.get("stock"),
+                notes=cleaned_data.get("notes", ""),
+            )
+        )
+
     grouped = {}
     for existing in existing_items:
+        if existing.item_id not in failing_item_ids:
+            continue
         group = grouped.setdefault(
             existing.item_id,
             {
@@ -358,7 +382,6 @@ def _rebuild_generated_lplpo_item_rows(distribution, post_data, prefix="items"):
         if submitted_note and submitted_note not in group["notes"]:
             group["notes"].append(submitted_note)
 
-    replacement_items = []
     for group in grouped.values():
         allocations = _allocate_current_stock_layers(
             group["item"],
@@ -725,6 +748,7 @@ def distribution_edit(request, pk):
                     if should_rebuild_generated_lplpo_rows:
                         _rebuild_generated_lplpo_item_rows(
                             dist,
+                            formset,
                             request.POST,
                             formset_kwargs["prefix"],
                         )

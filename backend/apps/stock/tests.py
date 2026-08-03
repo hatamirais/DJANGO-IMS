@@ -3633,6 +3633,100 @@ class StockCardTest(TestCase):
         self.assertContains(response, 'Dokumen Sumber: RCV-PRICE-A')
         self.assertContains(response, 'Dokumen Sumber: RCV-PRICE-B')
 
+    def test_stock_card_filter_includes_quiet_opening_balance_layers(self):
+        old_timestamp = timezone.make_aware(datetime(2026, 1, 1, 9, 0))
+        active_timestamp = timezone.make_aware(datetime(2026, 1, 2, 9, 0))
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot='QUIET-LAYER-A',
+            source_document_number='OBI-ACTIVE-LAYER',
+            expiry_date=date(2031, 5, 1),
+            quantity=Decimal('8'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+        )
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot='QUIET-LAYER-B',
+            source_document_number='OBI-QUIET-LAYER',
+            expiry_date=date(2031, 5, 1),
+            quantity=Decimal('7'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('2000'),
+            sumber_dana=self.funding,
+        )
+        active_opening_tx = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot='QUIET-LAYER-A',
+            source_document_number='OBI-ACTIVE-LAYER',
+            quantity=Decimal('10'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.INITIAL_IMPORT,
+            reference_id=801,
+            user=self.user,
+        )
+        quiet_opening_tx = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot='QUIET-LAYER-B',
+            source_document_number='OBI-QUIET-LAYER',
+            quantity=Decimal('7'),
+            unit_price=Decimal('2000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.INITIAL_IMPORT,
+            reference_id=802,
+            user=self.user,
+        )
+        active_out_tx = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.OUT,
+            item=self.item,
+            location=self.location,
+            batch_lot='QUIET-LAYER-A',
+            source_document_number='OBI-ACTIVE-LAYER',
+            quantity=Decimal('2'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.DISTRIBUTION,
+            reference_id=803,
+            user=self.user,
+        )
+        active_opening_tx.created_at = old_timestamp
+        active_opening_tx.save(update_fields=['created_at'])
+        quiet_opening_tx.created_at = old_timestamp
+        quiet_opening_tx.save(update_fields=['created_at'])
+        active_out_tx.created_at = active_timestamp
+        active_out_tx.save(update_fields=['created_at'])
+
+        response = self.client.get(
+            reverse('stock:stock_card_detail', args=[self.item.id]),
+            {'date_from': '2026-01-02'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        cards_by_source = {
+            card['source_document_number']: card
+            for card in response.context['funding_source_cards']
+            if card['source_document_number'] in {
+                'OBI-ACTIVE-LAYER',
+                'OBI-QUIET-LAYER',
+            }
+        }
+        self.assertEqual(set(cards_by_source), {'OBI-ACTIVE-LAYER', 'OBI-QUIET-LAYER'})
+        self.assertEqual(cards_by_source['OBI-ACTIVE-LAYER']['opening_balance'], Decimal('10'))
+        self.assertEqual(cards_by_source['OBI-ACTIVE-LAYER']['closing_balance'], Decimal('8'))
+        self.assertEqual(cards_by_source['OBI-ACTIVE-LAYER']['transactions'], [active_out_tx])
+        self.assertEqual(cards_by_source['OBI-QUIET-LAYER']['opening_balance'], Decimal('7'))
+        self.assertEqual(cards_by_source['OBI-QUIET-LAYER']['closing_balance'], Decimal('7'))
+        self.assertEqual(cards_by_source['OBI-QUIET-LAYER']['transactions'], [])
+        self.assertEqual(cards_by_source['OBI-QUIET-LAYER']['unit_price'], Decimal('2000'))
+
     def test_stock_card_preserves_batch_prices_within_one_receiving_document(self):
         receiving = Receiving.objects.create(
             receiving_type=Receiving.ReceivingType.PROCUREMENT,
