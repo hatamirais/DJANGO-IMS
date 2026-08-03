@@ -1779,7 +1779,7 @@ class SourceDocumentBackfillMigrationTests(TestCase):
         self.assertEqual(opening_tx.source_document_number, 'SALDO-SDM-RSV-SRC')
         self.assertEqual(destination_receiving_tx.source_document_number, 'RCV-SDM-RSV-DST')
         self.assertEqual(transfer_out.source_document_number, 'SALDO-SDM-RSV-SRC')
-        self.assertEqual(transfer_in.source_document_number, 'RCV-SDM-RSV-DST')
+        self.assertEqual(transfer_in.source_document_number, 'SALDO-SDM-RSV-SRC')
 
     def test_backfill_keeps_draft_transfer_destination_unsplit(self):
         stock_migration = importlib.import_module(
@@ -1915,7 +1915,7 @@ class SourceDocumentBackfillMigrationTests(TestCase):
         self.assertEqual(opening_tx.source_document_number, 'SALDO-SDM-DRF-SRC')
         self.assertEqual(destination_receiving_tx.source_document_number, 'RCV-SDM-DRF-DST')
         self.assertEqual(transfer_out.source_document_number, 'SALDO-SDM-DRF-SRC')
-        self.assertEqual(transfer_in.source_document_number, 'RCV-SDM-DRF-DST')
+        self.assertEqual(transfer_in.source_document_number, 'SALDO-SDM-DRF-SRC')
 
     def test_backfill_keeps_equal_price_destination_with_later_outbound_unsplit(self):
         stock_migration = importlib.import_module(
@@ -2053,7 +2053,7 @@ class SourceDocumentBackfillMigrationTests(TestCase):
         self.assertEqual(opening_tx.source_document_number, 'SALDO-SDM-EQP-SRC')
         self.assertEqual(destination_receiving_tx.source_document_number, 'RCV-SDM-EQP-DST')
         self.assertEqual(transfer_out.source_document_number, 'SALDO-SDM-EQP-SRC')
-        self.assertEqual(transfer_in.source_document_number, 'RCV-SDM-EQP-DST')
+        self.assertEqual(transfer_in.source_document_number, 'SALDO-SDM-EQP-SRC')
         self.assertEqual(later_outbound.source_document_number, 'RCV-SDM-EQP-DST')
 
     def test_backfills_disambiguate_cross_type_document_number_collision(self):

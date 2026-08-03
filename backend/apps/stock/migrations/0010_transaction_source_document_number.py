@@ -70,28 +70,7 @@ def backfill_transaction_source_document_number(apps, schema_editor):
                 or ""
             )
 
-        if tx.transaction_type != "IN" or not resolved_source_document_number:
-            return resolved_source_document_number
-
-        destination_stocks = Stock.objects.filter(
-            item_id=tx.item_id,
-            location_id=tx.location_id,
-            batch_lot=tx.batch_lot,
-            sumber_dana_id=tx.sumber_dana_id,
-        ).exclude(source_document_number="")
-        if destination_stocks.filter(
-            source_document_number=resolved_source_document_number
-        ).exists():
-            return resolved_source_document_number
-
-        destination_source_numbers = list(
-            destination_stocks.order_by("source_document_number")
-            .values_list("source_document_number", flat=True)
-            .distinct()
-        )
-        if len(destination_source_numbers) == 1:
-            return destination_source_numbers[0]
-        return ""
+        return resolved_source_document_number
 
     for tx in Transaction.objects.iterator():
         source_document_number = ""
