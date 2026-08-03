@@ -33,6 +33,17 @@ def _transfer_source_stock(Stock, transfer_out):
     return source_stocks.order_by("pk").first()
 
 
+def _has_direct_inbound_source_transactions(Transaction, stock):
+    return Transaction.objects.filter(
+        item_id=stock.item_id,
+        location_id=stock.location_id,
+        batch_lot=stock.batch_lot,
+        sumber_dana_id=stock.sumber_dana_id,
+        transaction_type="IN",
+        reference_type__in=["RECEIVING", "INITIAL_IMPORT"],
+    ).exists()
+
+
 def backfill_source_document_number(apps, schema_editor):
     Stock = apps.get_model("stock", "Stock")
     Transaction = apps.get_model("stock", "Transaction")
@@ -149,6 +160,8 @@ def backfill_source_document_number(apps, schema_editor):
                 == f"LEGACY-{destination_stock.pk}"
                 or destination_stock.source_document_number == "LEGACY"
             ):
+                continue
+            if _has_direct_inbound_source_transactions(Transaction, destination_stock):
                 continue
 
             transfer_out = (

@@ -1297,6 +1297,153 @@ class SourceDocumentBackfillMigrationTests(TestCase):
         self.assertEqual(transfer_out.source_document_number, 'SALDO-SDM-TRANSFER')
         self.assertEqual(transfer_in.source_document_number, 'SALDO-SDM-TRANSFER')
 
+    def test_backfill_preserves_ambiguous_destination_receipts_during_transfer(self):
+        stock_migration = importlib.import_module(
+            'apps.stock.migrations.0009_stock_source_document_number'
+        )
+        transaction_migration = importlib.import_module(
+            'apps.stock.migrations.0010_transaction_source_document_number'
+        )
+        destination = Location.objects.create(
+            code='SDM-AMB-DST',
+            name='Ambiguous Transfer Destination',
+        )
+        first_receiving = Receiving.objects.create(
+            document_number='RCV-SDM-AMB-001',
+            receiving_date=date(2026, 1, 12),
+            receiving_type=Receiving.ReceivingType.GRANT,
+            sumber_dana=self.funding,
+            created_by=self.user,
+        )
+        second_receiving = Receiving.objects.create(
+            document_number='RCV-SDM-AMB-002',
+            receiving_date=date(2026, 1, 13),
+            receiving_type=Receiving.ReceivingType.GRANT,
+            sumber_dana=self.funding,
+            created_by=self.user,
+        )
+        opening_balance = OpeningBalanceImport.objects.create(
+            document_number='SALDO-SDM-AMB-SRC',
+            effective_date=date(2026, 1, 1),
+            created_by=self.user,
+        )
+        source_stock = Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot='SDM-AMB',
+            expiry_date=date(2030, 1, 1),
+            quantity=Decimal('5'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            source_document_number='',
+        )
+        destination_stock = Stock.objects.create(
+            item=self.item,
+            location=destination,
+            batch_lot='SDM-AMB',
+            expiry_date=date(2031, 1, 1),
+            quantity=Decimal('17'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('2000'),
+            sumber_dana=self.funding,
+            receiving_ref=first_receiving,
+            source_document_number='',
+        )
+        opening_tx = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot='SDM-AMB',
+            quantity=Decimal('5'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.INITIAL_IMPORT,
+            reference_id=opening_balance.pk,
+            user=self.user,
+        )
+        first_receiving_tx = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=destination,
+            batch_lot='SDM-AMB',
+            quantity=Decimal('7'),
+            unit_price=Decimal('2000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=first_receiving.pk,
+            user=self.user,
+        )
+        second_receiving_tx = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=destination,
+            batch_lot='SDM-AMB',
+            quantity=Decimal('5'),
+            unit_price=Decimal('3000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=second_receiving.pk,
+            user=self.user,
+        )
+        transfer_out = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.OUT,
+            item=self.item,
+            location=self.location,
+            batch_lot='SDM-AMB',
+            quantity=Decimal('5'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.TRANSFER,
+            reference_id=880,
+            user=self.user,
+        )
+        transfer_in = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=destination,
+            batch_lot='SDM-AMB',
+            quantity=Decimal('5'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.TRANSFER,
+            reference_id=880,
+            user=self.user,
+        )
+
+        stock_migration.backfill_source_document_number(self.MigrationApps(), None)
+
+        source_stock.refresh_from_db()
+        destination_stock.refresh_from_db()
+        destination_legacy_layer = f'LEGACY-{destination_stock.pk}'
+        self.assertEqual(source_stock.source_document_number, 'SALDO-SDM-AMB-SRC')
+        self.assertEqual(destination_stock.source_document_number, destination_legacy_layer)
+        self.assertEqual(destination_stock.quantity, Decimal('17'))
+        self.assertFalse(
+            Stock.objects.filter(
+                item=self.item,
+                location=destination,
+                batch_lot='SDM-AMB',
+                sumber_dana=self.funding,
+                source_document_number='SALDO-SDM-AMB-SRC',
+            ).exists()
+        )
+
+        transaction_migration.backfill_transaction_source_document_number(
+            self.MigrationApps(),
+            None,
+        )
+        opening_tx.refresh_from_db()
+        first_receiving_tx.refresh_from_db()
+        second_receiving_tx.refresh_from_db()
+        transfer_out.refresh_from_db()
+        transfer_in.refresh_from_db()
+        self.assertEqual(opening_tx.source_document_number, 'SALDO-SDM-AMB-SRC')
+        self.assertEqual(first_receiving_tx.source_document_number, destination_legacy_layer)
+        self.assertEqual(second_receiving_tx.source_document_number, destination_legacy_layer)
+        self.assertEqual(transfer_out.source_document_number, 'SALDO-SDM-AMB-SRC')
+        self.assertEqual(transfer_in.source_document_number, 'SALDO-SDM-AMB-SRC')
+
     def test_stock_backfill_resolves_transfer_source_chains(self):
         stock_migration = importlib.import_module(
             'apps.stock.migrations.0009_stock_source_document_number'
