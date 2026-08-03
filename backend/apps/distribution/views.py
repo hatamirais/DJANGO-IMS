@@ -321,8 +321,12 @@ def _locked_lplpo_formset_has_only_availability_errors(formset):
         form_error_fields = set(form.errors)
         if not form_error_fields:
             continue
-        if form_error_fields != {"quantity_approved"}:
+        if not form_error_fields.issubset({"quantity_approved", "stock"}):
             return False
+        if "stock" in form_error_fields:
+            stock_errors = form.errors.as_data().get("stock", [])
+            if any(error.code != "invalid_choice" for error in stock_errors):
+                return False
         has_availability_error = True
 
     return has_availability_error

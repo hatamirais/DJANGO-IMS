@@ -1523,7 +1523,7 @@ class DistributionWorkflowTest(SecureClientDefaultsMixin, TestCase):
             location=self.location,
             batch_lot="BATCH-STALE-A",
             expiry_date=date(2099, 1, 1),
-            quantity=Decimal("3.00"),
+            quantity=Decimal("0.00"),
             reserved=Decimal("0.00"),
             unit_price=Decimal("5000"),
             sumber_dana=self.funding_source,
@@ -1612,11 +1612,10 @@ class DistributionWorkflowTest(SecureClientDefaultsMixin, TestCase):
         )
 
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(len(distribution_items), 4)
+        self.assertEqual(len(distribution_items), 3)
         self.assertEqual(
             {item.stock for item in distribution_items},
             {
-                stale_stock,
                 replacement_stock,
                 another_replacement_stock,
                 remaining_stock,

@@ -2296,6 +2296,26 @@ class LPLPOWorkflowTests(LPLPOTestCase):
 			unit_price=Decimal("1000.00"),
 			sumber_dana=self.funding_source,
 		)
+		Stock.objects.create(
+			item=self.item_a,
+			location=self.location,
+			batch_lot="BATCH-EXPIRED",
+			expiry_date=date(2020, 1, 1),
+			quantity=Decimal("9.00"),
+			reserved=Decimal("0.00"),
+			unit_price=Decimal("1000.00"),
+			sumber_dana=self.funding_source,
+		)
+		Stock.objects.create(
+			item=self.item_a,
+			location=self.location,
+			batch_lot="BATCH-EXPIRES-TODAY",
+			expiry_date=timezone.localdate(),
+			quantity=Decimal("5.00"),
+			reserved=Decimal("0.00"),
+			unit_price=Decimal("1000.00"),
+			sumber_dana=self.funding_source,
+		)
 
 		self.client.force_login(self.staff_user)
 		response = self.client.get(reverse("lplpo:lplpo_review", args=[lplpo.pk]))

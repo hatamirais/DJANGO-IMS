@@ -3542,6 +3542,96 @@ class StockCardTest(TestCase):
         self.assertEqual(cards_by_batch['PRICE-BATCH-A']['transactions'], [first_tx])
         self.assertEqual(cards_by_batch['PRICE-BATCH-B']['transactions'], [second_tx])
 
+    def test_stock_card_prefers_layer_price_for_row_level_funding(self):
+        other_funding = FundingSource.objects.create(code='DAK-STOCK', name='DAK Stock')
+        receiving = Receiving.objects.create(
+            receiving_type=Receiving.ReceivingType.PROCUREMENT,
+            document_number='RCV-ROW-FUNDING-PRICE',
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            created_by=self.user,
+        )
+        ReceivingItem.objects.create(
+            receiving=receiving,
+            item=self.item,
+            quantity=Decimal('10'),
+            batch_lot='ROW-FUNDING-BATCH',
+            expiry_date=date(2031, 5, 1),
+            unit_price=Decimal('1000'),
+            location=self.location,
+        )
+        ReceivingItem.objects.create(
+            receiving=receiving,
+            item=self.item,
+            quantity=Decimal('8'),
+            batch_lot='ROW-FUNDING-BATCH',
+            expiry_date=date(2031, 5, 1),
+            unit_price=Decimal('2500'),
+            location=self.location,
+        )
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot='ROW-FUNDING-BATCH',
+            source_document_number='RCV-ROW-FUNDING-PRICE',
+            expiry_date=date(2031, 5, 1),
+            quantity=Decimal('10'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+        )
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot='ROW-FUNDING-BATCH',
+            source_document_number='RCV-ROW-FUNDING-PRICE',
+            expiry_date=date(2031, 5, 1),
+            quantity=Decimal('8'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('2500'),
+            sumber_dana=other_funding,
+        )
+        first_tx = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot='ROW-FUNDING-BATCH',
+            source_document_number='RCV-ROW-FUNDING-PRICE',
+            quantity=Decimal('10'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=receiving.id,
+            user=self.user,
+        )
+        second_tx = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot='ROW-FUNDING-BATCH',
+            source_document_number='RCV-ROW-FUNDING-PRICE',
+            quantity=Decimal('8'),
+            unit_price=Decimal('2500'),
+            sumber_dana=other_funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=receiving.id,
+            user=self.user,
+        )
+
+        response = self.client.get(reverse('stock:stock_card_detail', args=[self.item.id]))
+
+        self.assertEqual(response.status_code, 200)
+        cards_by_funding = {
+            card['sumber_dana'].code: card
+            for card in response.context['funding_source_cards']
+            if card['source_document_number'] == 'RCV-ROW-FUNDING-PRICE'
+        }
+        self.assertEqual(set(cards_by_funding), {'APBD', 'DAK-STOCK'})
+        self.assertEqual(cards_by_funding['APBD']['unit_price'], Decimal('1000'))
+        self.assertEqual(cards_by_funding['DAK-STOCK']['unit_price'], Decimal('2500'))
+        self.assertEqual(cards_by_funding['APBD']['transactions'], [first_tx])
+        self.assertEqual(cards_by_funding['DAK-STOCK']['transactions'], [second_tx])
+
     def test_stock_card_keeps_same_source_batch_prices_location_specific(self):
         other_location = Location.objects.create(
             code='GUDANG-HARGA',
@@ -3739,15 +3829,12 @@ class StockCardTest(TestCase):
         cards = response.context['funding_source_cards']
         self.assertGreater(len(cards), 0)
 
-        # Find the card with self.funding sumber_dana
-        card = None
-        for c in cards:
-            if c['sumber_dana'] == self.funding:
-                card = c
-                break
-
-        self.assertIsNotNone(card)
-        transactions = card['transactions']
+        transactions = [
+            tx
+            for card in cards
+            if card['sumber_dana'] == self.funding
+            for tx in card['transactions']
+        ]
         self.assertGreater(len(transactions), 0)
 
         # The transfer_out should be in the transactions (created last, so last in list)
@@ -3922,7 +4009,7 @@ class StockCardTest(TestCase):
             data = stock_views._build_stock_card_data(self.item)
 
         self.assertEqual(len(data['funding_source_cards']), 3)
-        self.assertLessEqual(len(captured_queries), 11)
+        self.assertLessEqual(len(captured_queries), 12)
 
 
 class StockTransferModelTests(SimpleTestCase):

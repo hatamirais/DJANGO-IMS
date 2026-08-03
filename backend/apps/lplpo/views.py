@@ -1392,6 +1392,7 @@ def lplpo_review(request, pk):
     warehouse_stock = {}
     stock_entries = (
         Stock.objects.filter(item__in=[li.item for li in items_qs])
+        .filter(Q(expiry_date__isnull=True) | Q(expiry_date__gt=timezone.localdate()))
         .annotate(
             available_quantity=ExpressionWrapper(
                 F("quantity") - F("reserved"),

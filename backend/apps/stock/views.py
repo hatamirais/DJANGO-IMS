@@ -1440,20 +1440,19 @@ def _build_stock_card_data(item, location_id=None, sumber_dana_id=None,
 
         opening_balance = opening_balances.get(card_key, Decimal("0"))
 
-        # Unit price from Receiving module for this item + stock-card scope.
+        # Unit price from the exact stock-card source layer.
         # Fallback chain:
-        #   1. ReceivingItem matching funding source + source document + location + batch
-        #   2. Stock.unit_price matching funding source + source document + location + batch
-        #   3. Latest Transaction.unit_price matching that same scope
+        #   1. Stock.unit_price matching funding source + source document + location + batch
+        #   2. Latest Transaction.unit_price matching that same scope
+        #   3. ReceivingItem matching funding source + source document + location + batch
         unit_price = Decimal("0")
-        if sd_key:
-            unit_price = latest_receiving_prices.get(card_key, Decimal("0"))
-
-        if not unit_price:
-            unit_price = latest_stock_prices.get(card_key, Decimal("0"))
+        unit_price = latest_stock_prices.get(card_key, Decimal("0"))
 
         if not unit_price:
             unit_price = latest_transaction_prices.get(card_key, Decimal("0"))
+
+        if not unit_price and sd_key:
+            unit_price = latest_receiving_prices.get(card_key, Decimal("0"))
 
         # Running balance and totals
         current_balance = opening_balance
