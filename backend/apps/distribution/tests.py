@@ -302,6 +302,20 @@ class DistributionWorkflowTest(SecureClientDefaultsMixin, TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn("quantity_approved", form.errors)
 
+    def test_distribution_item_form_rejects_non_positive_requested_quantity(self):
+        form = DistributionItemForm(
+            data={
+                "item": self.item.pk,
+                "quantity_requested": "0",
+                "quantity_approved": "10",
+                "stock": self.stock.pk,
+                "notes": "",
+            }
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("quantity_requested", form.errors)
+
     def test_distribution_item_form_allows_approved_quantity_above_requested(self):
         form = DistributionItemForm(
             data={
@@ -1457,6 +1471,44 @@ class DistributionWorkflowTest(SecureClientDefaultsMixin, TestCase):
         self.assertEqual(item_line.stock_id, self.stock.pk)
         self.assertEqual(item_line.notes, "Pilih batch utama")
         self.assertEqual(dist.notes, "Batch dipilih")
+
+    def test_generated_lplpo_edit_allows_zero_requested_split(self):
+        dist = self._create_distribution(status=Distribution.Status.DRAFT)
+        self._link_lplpo_source(dist)
+        item_line = dist.items.get()
+        item_line.quantity_requested = Decimal("0.00")
+        item_line.save(update_fields=["quantity_requested"])
+
+        response = self.client.post(
+            reverse("distribution:distribution_edit", args=[dist.pk]),
+            {
+                "document_number": dist.document_number,
+                "request_date": "2026-03-10",
+                "facility": self.facility.pk,
+                "notes": "Batch zero split",
+                "assigned_staff": [self.user.pk],
+                "items-TOTAL_FORMS": "1",
+                "items-INITIAL_FORMS": "1",
+                "items-MIN_NUM_FORMS": "0",
+                "items-MAX_NUM_FORMS": "1000",
+                "items-0-id": item_line.pk,
+                "items-0-item": self.item.pk,
+                "items-0-quantity_requested": "0",
+                "items-0-quantity_approved": "40",
+                "items-0-stock": self.stock.pk,
+                "items-0-notes": "Pilih batch untuk split kecil",
+            },
+            secure=True,
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 302)
+        item_line.refresh_from_db()
+        dist.refresh_from_db()
+        self.assertEqual(item_line.quantity_requested, Decimal("0.00"))
+        self.assertEqual(item_line.quantity_approved, Decimal("40.00"))
+        self.assertEqual(item_line.notes, "Pilih batch untuk split kecil")
+        self.assertEqual(dist.notes, "Batch zero split")
 
     def test_generated_lplpo_edit_rejects_added_rows(self):
         dist = self._create_distribution(status=Distribution.Status.DRAFT)

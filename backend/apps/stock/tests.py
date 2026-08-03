@@ -2811,11 +2811,19 @@ class SourceDocumentBackfillMigrationTests(TestCase):
             'apps.stock.migrations.0011_sourcedocumentnumberclaim'
         )
         receiving = self._create_receiving('RCV-SDM-CLAIM')
+        header_only_receiving = self._create_receiving('RCV-SDM-HEADER-CLAIM')
         opening_balance = OpeningBalanceImport.objects.create(
             document_number='SALDO-SDM-CLAIM',
             effective_date=date(2026, 1, 1),
             created_by=self.user,
         )
+        SourceDocumentNumberClaim.objects.filter(
+            document_number__in=[
+                'RCV-SDM-CLAIM',
+                'RCV-SDM-HEADER-CLAIM',
+                'SALDO-SDM-CLAIM',
+            ]
+        ).delete()
         Stock.objects.create(
             item=self.item,
             location=self.location,
@@ -2850,6 +2858,12 @@ class SourceDocumentBackfillMigrationTests(TestCase):
         receiving_claim = SourceDocumentNumberClaim.objects.get(
             document_number='RCV-SDM-CLAIM'
         )
+        header_only_receiving_claim = SourceDocumentNumberClaim.objects.get(
+            document_number='RCV-SDM-HEADER-CLAIM'
+        )
+        opening_balance_claim = SourceDocumentNumberClaim.objects.get(
+            document_number='SALDO-SDM-CLAIM'
+        )
         legacy_claim = SourceDocumentNumberClaim.objects.get(
             document_number='LEGACY-SDM-CLAIM'
         )
@@ -2858,6 +2872,16 @@ class SourceDocumentBackfillMigrationTests(TestCase):
             SourceDocumentNumberClaim.SourceType.RECEIVING,
         )
         self.assertEqual(receiving_claim.source_id, receiving.pk)
+        self.assertEqual(
+            header_only_receiving_claim.source_type,
+            SourceDocumentNumberClaim.SourceType.RECEIVING,
+        )
+        self.assertEqual(header_only_receiving_claim.source_id, header_only_receiving.pk)
+        self.assertEqual(
+            opening_balance_claim.source_type,
+            SourceDocumentNumberClaim.SourceType.OPENING_BALANCE,
+        )
+        self.assertEqual(opening_balance_claim.source_id, opening_balance.pk)
         self.assertEqual(
             legacy_claim.source_type,
             SourceDocumentNumberClaim.SourceType.OPENING_BALANCE,

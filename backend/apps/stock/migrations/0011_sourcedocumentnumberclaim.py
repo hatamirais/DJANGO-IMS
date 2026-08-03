@@ -37,6 +37,8 @@ def backfill_source_document_number_claims(apps, schema_editor):
         Transaction.objects.exclude(source_document_number="")
         .values_list("source_document_number", flat=True)
     )
+    document_numbers.update(receiving_ids)
+    document_numbers.update(opening_balance_ids)
 
     claims = []
     for document_number in sorted(document_numbers):

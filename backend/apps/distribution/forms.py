@@ -285,7 +285,11 @@ class DistributionItemForm(forms.ModelForm):
                 "stock", "Batch stok harus sesuai dengan barang yang dipilih."
             )
 
-        if quantity_requested is not None and quantity_requested <= 0:
+        if (
+            quantity_requested is not None
+            and quantity_requested <= 0
+            and not (self.lock_quantity_fields and quantity_requested == 0)
+        ):
             self.add_error("quantity_requested", "Jumlah harus lebih dari 0.")
 
         if quantity_approved is not None and quantity_approved <= 0:
