@@ -42,6 +42,8 @@ def backfill_source_document_number(apps, schema_editor):
     RecallItem = apps.get_model("recall", "RecallItem")
     ExpiredItem = apps.get_model("expired", "ExpiredItem")
     StockOpnameItem = apps.get_model("stock_opname", "StockOpnameItem")
+    DistributionItem = apps.get_model("distribution", "DistributionItem")
+    AllocationItem = apps.get_model("allocation", "AllocationItem")
 
     receiving_document_numbers = set(
         Receiving.objects.values_list("document_number", flat=True)
@@ -276,6 +278,16 @@ def backfill_source_document_number(apps, schema_editor):
             stock_opname__status="IN_PROGRESS",
         ).exists():
             continue
+        if DistributionItem.objects.filter(
+            stock_id=destination_stock.pk,
+            distribution__status__in=["DRAFT", "PREPARED", "SUBMITTED"],
+        ).exists():
+            continue
+        if AllocationItem.objects.filter(
+            stock_id=destination_stock.pk,
+            allocation__status__in=["DRAFT", "SUBMITTED"],
+        ).exists():
+            continue
         if (
             destination_stock.unit_price == source_stock.unit_price
             and Transaction.objects.filter(
@@ -334,6 +346,8 @@ class Migration(migrations.Migration):
     dependencies = [
         ("expired", "0003_alter_expired_status"),
         ("recall", "0002_add_completed_by_completed_at"),
+        ("allocation", "0003_allocation_title"),
+        ("distribution", "0011_alter_distributionitem_reserved_quantity"),
         ("stock", "0008_opening_balance_import"),
         ("stock_opname", "0009_merge_stock_opname_legacy_branches"),
     ]
