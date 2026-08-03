@@ -1144,12 +1144,13 @@ def _build_stock_card_data(item, location_id=None, sumber_dana_id=None,
             )
         }
 
-    # ── Group by funding source, source document, and batch ──────────
+    # ── Group by funding source, source document, location, and batch ─
     sd_groups = OrderedDict()
     for tx in transactions:
         card_key = (
             _stock_card_funding_key(tx.sumber_dana_id),
             _stock_card_source_key(tx.source_document_number),
+            tx.location_id or 0,
             _stock_card_batch_key(tx.batch_lot),
         )
         if card_key not in sd_groups:
@@ -1158,6 +1159,7 @@ def _build_stock_card_data(item, location_id=None, sumber_dana_id=None,
                 "source_document_number": _stock_card_source_key(
                     tx.source_document_number
                 ),
+                "location_id": tx.location_id or 0,
                 "batch_lot": _stock_card_batch_key(tx.batch_lot),
                 "transactions": [],
             }
@@ -1189,11 +1191,13 @@ def _build_stock_card_data(item, location_id=None, sumber_dana_id=None,
             (
                 _stock_card_funding_key(row["sumber_dana_id"]),
                 _stock_card_source_key(row["source_document_number"]),
+                row["location_id"] or 0,
                 _stock_card_batch_key(row["batch_lot"]),
             ): row["balance"]
             for row in past_qs.values(
                 "sumber_dana_id",
                 "source_document_number",
+                "location_id",
                 "batch_lot",
             ).annotate(
                 balance=Coalesce(
@@ -1220,9 +1224,16 @@ def _build_stock_card_data(item, location_id=None, sumber_dana_id=None,
             (
                 _stock_card_funding_key(sumber_dana_id),
                 _stock_card_source_key(document_number),
+                receiving_location_id or 0,
                 _stock_card_batch_key(batch_lot),
             ): unit_price
-            for sumber_dana_id, document_number, batch_lot, unit_price in (
+            for (
+                sumber_dana_id,
+                document_number,
+                receiving_location_id,
+                batch_lot,
+                unit_price,
+            ) in (
                 ReceivingItem.objects.filter(
                     item=item,
                     receiving__sumber_dana_id__in=grouped_sumber_dana_ids,
@@ -1232,6 +1243,7 @@ def _build_stock_card_data(item, location_id=None, sumber_dana_id=None,
                 .order_by(
                     "receiving__sumber_dana_id",
                     "receiving__document_number",
+                    "location_id",
                     "batch_lot",
                     "-receiving__receiving_date",
                     "-pk",
@@ -1239,11 +1251,13 @@ def _build_stock_card_data(item, location_id=None, sumber_dana_id=None,
                 .distinct(
                     "receiving__sumber_dana_id",
                     "receiving__document_number",
+                    "location_id",
                     "batch_lot",
                 )
                 .values_list(
                     "receiving__sumber_dana_id",
                     "receiving__document_number",
+                    "location_id",
                     "batch_lot",
                     "unit_price",
                 )
@@ -1262,19 +1276,38 @@ def _build_stock_card_data(item, location_id=None, sumber_dana_id=None,
             (
                 _stock_card_funding_key(sumber_dana_id),
                 _stock_card_source_key(source_document_number),
+                stock_location_id or 0,
                 _stock_card_batch_key(batch_lot),
             ): unit_price
-            for sumber_dana_id, source_document_number, batch_lot, unit_price in (
+            for (
+                sumber_dana_id,
+                source_document_number,
+                stock_location_id,
+                batch_lot,
+                unit_price,
+            ) in (
                 Stock.objects.filter(
                     item=item,
                 )
                 .filter(stock_price_filter)
                 .exclude(unit_price=0)
-                .order_by("sumber_dana_id", "source_document_number", "batch_lot", "-pk")
-                .distinct("sumber_dana_id", "source_document_number", "batch_lot")
+                .order_by(
+                    "sumber_dana_id",
+                    "source_document_number",
+                    "location_id",
+                    "batch_lot",
+                    "-pk",
+                )
+                .distinct(
+                    "sumber_dana_id",
+                    "source_document_number",
+                    "location_id",
+                    "batch_lot",
+                )
                 .values_list(
                     "sumber_dana_id",
                     "source_document_number",
+                    "location_id",
                     "batch_lot",
                     "unit_price",
                 )
@@ -1285,6 +1318,7 @@ def _build_stock_card_data(item, location_id=None, sumber_dana_id=None,
         (
             _stock_card_funding_key(tx.sumber_dana_id),
             _stock_card_source_key(tx.source_document_number),
+            tx.location_id or 0,
             _stock_card_batch_key(tx.batch_lot),
         )
         for tx in transactions
@@ -1294,7 +1328,10 @@ def _build_stock_card_data(item, location_id=None, sumber_dana_id=None,
     if grouped_sumber_dana_ids:
         tx_price_filter |= Q(sumber_dana_id__in=grouped_sumber_dana_ids)
         has_tx_price_filter = True
-    if any(funding_key == 0 for funding_key, _source_key, _batch_key in tx_price_keys):
+    if any(
+        funding_key == 0
+        for funding_key, _source_key, _location_key, _batch_key in tx_price_keys
+    ):
         tx_price_filter |= Q(sumber_dana__isnull=True)
         has_tx_price_filter = True
     tx_price_filter &= Q(source_document_number__in=grouped_source_keys)
@@ -1304,9 +1341,16 @@ def _build_stock_card_data(item, location_id=None, sumber_dana_id=None,
             (
                 _stock_card_funding_key(sumber_dana_id),
                 _stock_card_source_key(source_document_number),
+                tx_location_id or 0,
                 _stock_card_batch_key(batch_lot),
             ): unit_price
-            for sumber_dana_id, source_document_number, batch_lot, unit_price in (
+            for (
+                sumber_dana_id,
+                source_document_number,
+                tx_location_id,
+                batch_lot,
+                unit_price,
+            ) in (
                 Transaction.objects.filter(item=item)
                 .filter(tx_price_filter)
                 .exclude(unit_price__isnull=True)
@@ -1314,14 +1358,21 @@ def _build_stock_card_data(item, location_id=None, sumber_dana_id=None,
                 .order_by(
                     "sumber_dana_id",
                     "source_document_number",
+                    "location_id",
                     "batch_lot",
                     "-created_at",
                     "-id",
                 )
-                .distinct("sumber_dana_id", "source_document_number", "batch_lot")
+                .distinct(
+                    "sumber_dana_id",
+                    "source_document_number",
+                    "location_id",
+                    "batch_lot",
+                )
                 .values_list(
                     "sumber_dana_id",
                     "source_document_number",
+                    "location_id",
                     "batch_lot",
                     "unit_price",
                 )
@@ -1350,7 +1401,7 @@ def _build_stock_card_data(item, location_id=None, sumber_dana_id=None,
     # ── Compute opening balances, running balances, and unit prices ───
     funding_source_cards = []
     for card_key, group in sd_groups.items():
-        sd_key, source_document_number, batch_lot = card_key
+        sd_key, source_document_number, stock_location_id, batch_lot = card_key
         sd_txs = group["transactions"]
         sd_obj = group["sumber_dana"]
 
@@ -1358,8 +1409,8 @@ def _build_stock_card_data(item, location_id=None, sumber_dana_id=None,
 
         # Unit price from Receiving module for this item + stock-card scope.
         # Fallback chain:
-        #   1. ReceivingItem matching funding source + source document + batch
-        #   2. Stock.unit_price matching funding source + source document + batch
+        #   1. ReceivingItem matching funding source + source document + location + batch
+        #   2. Stock.unit_price matching funding source + source document + location + batch
         #   3. Latest Transaction.unit_price matching that same scope
         unit_price = Decimal("0")
         if sd_key:
@@ -1441,6 +1492,7 @@ def _build_stock_card_data(item, location_id=None, sumber_dana_id=None,
         funding_source_cards.append({
             "sumber_dana": sd_obj,
             "source_document_number": source_document_number,
+            "location_id": stock_location_id,
             "batch_lot": batch_lot,
             "unit_price": unit_price,
             "opening_balance": opening_balance,

@@ -16,6 +16,23 @@ def _source_document_number(document_type, document_number, collision_documents)
     return f"{prefix}-{digest}-{document_number[:suffix_length]}"
 
 
+def _transfer_source_stock(Stock, transfer_out):
+    source_stocks = Stock.objects.filter(
+        item_id=transfer_out.item_id,
+        location_id=transfer_out.location_id,
+        batch_lot=transfer_out.batch_lot,
+        sumber_dana_id=transfer_out.sumber_dana_id,
+    ).exclude(source_document_number="")
+    priced_source_stock = (
+        source_stocks.filter(unit_price=transfer_out.unit_price)
+        .order_by("pk")
+        .first()
+    )
+    if priced_source_stock:
+        return priced_source_stock
+    return source_stocks.order_by("pk").first()
+
+
 def backfill_source_document_number(apps, schema_editor):
     Stock = apps.get_model("stock", "Stock")
     Transaction = apps.get_model("stock", "Transaction")
@@ -144,17 +161,7 @@ def backfill_source_document_number(apps, schema_editor):
             if not transfer_out:
                 continue
 
-            source_stock = (
-                Stock.objects.filter(
-                    item_id=transfer_out.item_id,
-                    location_id=transfer_out.location_id,
-                    batch_lot=transfer_out.batch_lot,
-                    sumber_dana_id=transfer_out.sumber_dana_id,
-                )
-                .exclude(source_document_number="")
-                .order_by("pk")
-                .first()
-            )
+            source_stock = _transfer_source_stock(Stock, transfer_out)
             if not source_stock or not source_stock.source_document_number:
                 continue
             if source_stock.source_document_number in {
@@ -199,17 +206,7 @@ def backfill_source_document_number(apps, schema_editor):
         if not transfer_out:
             continue
 
-        source_stock = (
-            Stock.objects.filter(
-                item_id=transfer_out.item_id,
-                location_id=transfer_out.location_id,
-                batch_lot=transfer_out.batch_lot,
-                sumber_dana_id=transfer_out.sumber_dana_id,
-            )
-            .exclude(source_document_number="")
-            .order_by("pk")
-            .first()
-        )
+        source_stock = _transfer_source_stock(Stock, transfer_out)
         if not source_stock or not source_stock.source_document_number:
             continue
         if source_stock.source_document_number in {
@@ -253,7 +250,19 @@ def backfill_source_document_number(apps, schema_editor):
         if destination_stock.quantity < transfer_quantity:
             continue
 
-        if destination_source_stock:
+        reattributed_destination = False
+        if (
+            destination_stock.quantity == transfer_quantity
+            and destination_stock.receiving_ref_id is None
+        ):
+            Stock.objects.filter(pk=destination_stock.pk).update(
+                expiry_date=source_stock.expiry_date,
+                unit_price=source_stock.unit_price,
+                receiving_ref_id=source_stock.receiving_ref_id,
+                source_document_number=source_stock.source_document_number,
+            )
+            reattributed_destination = True
+        elif destination_source_stock:
             Stock.objects.filter(pk=destination_source_stock.pk).update(
                 quantity=destination_source_stock.quantity + transfer_quantity
             )
@@ -270,9 +279,10 @@ def backfill_source_document_number(apps, schema_editor):
                 receiving_ref_id=source_stock.receiving_ref_id,
                 source_document_number=source_stock.source_document_number,
             )
-        Stock.objects.filter(pk=destination_stock.pk).update(
-            quantity=destination_stock.quantity - transfer_quantity
-        )
+        if not reattributed_destination:
+            Stock.objects.filter(pk=destination_stock.pk).update(
+                quantity=destination_stock.quantity - transfer_quantity
+            )
 
 
 class Migration(migrations.Migration):

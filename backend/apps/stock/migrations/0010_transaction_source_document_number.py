@@ -48,15 +48,22 @@ def backfill_transaction_source_document_number(apps, schema_editor):
             if not source_tx:
                 return ""
 
-        return (
-            Stock.objects.filter(
-                item_id=source_tx.item_id,
-                location_id=source_tx.location_id,
-                batch_lot=source_tx.batch_lot,
-                sumber_dana_id=source_tx.sumber_dana_id,
-            )
-            .exclude(source_document_number="")
+        source_stocks = Stock.objects.filter(
+            item_id=source_tx.item_id,
+            location_id=source_tx.location_id,
+            batch_lot=source_tx.batch_lot,
+            sumber_dana_id=source_tx.sumber_dana_id,
+        ).exclude(source_document_number="")
+        source_document_number = (
+            source_stocks.filter(unit_price=source_tx.unit_price)
             .order_by("pk")
+            .values_list("source_document_number", flat=True)
+            .first()
+        )
+        if source_document_number:
+            return source_document_number
+        return (
+            source_stocks.order_by("pk")
             .values_list("source_document_number", flat=True)
             .first()
             or ""
