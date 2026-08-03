@@ -193,6 +193,66 @@ class ReceivingModelDocumentNumberCollisionTests(TestCase):
         )
         self.assertEqual(claim.source_id, receiving.pk)
 
+    def test_queryset_delete_releases_unposted_receiving_document_number_claim(self):
+        receiving = Receiving.objects.create(
+            document_number="RCV-DELETE-UNPOSTED",
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            status=Receiving.Status.DRAFT,
+            created_by=self.user,
+        )
+        self.assertTrue(
+            SourceDocumentNumberClaim.objects.filter(
+                document_number="RCV-DELETE-UNPOSTED",
+                source_type=SourceDocumentNumberClaim.SourceType.RECEIVING,
+                source_id=receiving.pk,
+            ).exists()
+        )
+
+        Receiving.objects.filter(pk=receiving.pk).delete()
+
+        self.assertFalse(
+            SourceDocumentNumberClaim.objects.filter(
+                document_number="RCV-DELETE-UNPOSTED",
+                source_type=SourceDocumentNumberClaim.SourceType.RECEIVING,
+                source_id=receiving.pk,
+            ).exists()
+        )
+
+    def test_delete_retains_posted_receiving_document_number_claim(self):
+        receiving = Receiving.objects.create(
+            document_number="RCV-DELETE-POSTED",
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            status=Receiving.Status.VERIFIED,
+            created_by=self.user,
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot="RCV-DELETE-POSTED-BATCH",
+            quantity=Decimal("5"),
+            unit_price=Decimal("1000"),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=receiving.pk,
+            user=self.user,
+        )
+        receiving_id = receiving.pk
+
+        receiving.delete()
+
+        self.assertTrue(
+            SourceDocumentNumberClaim.objects.filter(
+                document_number="RCV-DELETE-POSTED",
+                source_type=SourceDocumentNumberClaim.SourceType.RECEIVING,
+                source_id=receiving_id,
+            ).exists()
+        )
+
     def test_save_rejects_preclaimed_source_document_number(self):
         SourceDocumentNumberClaim.objects.create(
             document_number="RCV-PRECLAIMED-001",

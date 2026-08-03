@@ -1,6 +1,8 @@
 import unicodedata
 
 from django.db import IntegrityError, models, transaction
+from django.db.models.signals import pre_delete
+from django.dispatch import receiver
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db.models import F
@@ -559,6 +561,20 @@ class Receiving(TimeStampedModel):
                 claim.source_id = self.pk
                 claim.save(update_fields=["source_id", "updated_at"])
             self._release_old_document_number_claim(old_document_number)
+
+
+@receiver(pre_delete, sender=Receiving)
+def release_unposted_receiving_document_number_claim(sender, instance, **kwargs):
+    if instance.has_posted_stock_movements():
+        return
+
+    from apps.stock.models import SourceDocumentNumberClaim
+
+    SourceDocumentNumberClaim.objects.filter(
+        document_number=instance.document_number,
+        source_type=SourceDocumentNumberClaim.SourceType.RECEIVING,
+        source_id=instance.pk,
+    ).delete()
 
 
 class ReceivingItem(models.Model):
