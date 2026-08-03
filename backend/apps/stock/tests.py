@@ -1778,7 +1778,7 @@ class SourceDocumentBackfillMigrationTests(TestCase):
         self.assertEqual(opening_tx.source_document_number, 'SALDO-SDM-RSV-SRC')
         self.assertEqual(destination_receiving_tx.source_document_number, 'RCV-SDM-RSV-DST')
         self.assertEqual(transfer_out.source_document_number, 'SALDO-SDM-RSV-SRC')
-        self.assertEqual(transfer_in.source_document_number, 'SALDO-SDM-RSV-SRC')
+        self.assertEqual(transfer_in.source_document_number, 'RCV-SDM-RSV-DST')
 
     def test_backfills_disambiguate_cross_type_document_number_collision(self):
         stock_migration = importlib.import_module(
