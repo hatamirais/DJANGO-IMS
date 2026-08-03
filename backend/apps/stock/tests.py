@@ -2340,7 +2340,7 @@ class SourceDocumentBackfillMigrationTests(TestCase):
         self.assertEqual(transfer_out.source_document_number, 'SALDO-SDM-OPN-SRC')
         self.assertEqual(transfer_in.source_document_number, 'SALDO-SDM-OPN-SRC')
 
-    def test_backfill_keeps_pending_distribution_destination_unsplit(self):
+    def test_backfill_keeps_rejected_distribution_destination_unsplit(self):
         stock_migration = importlib.import_module(
             'apps.stock.migrations.0009_stock_source_document_number'
         )
@@ -2392,7 +2392,7 @@ class SourceDocumentBackfillMigrationTests(TestCase):
             distribution_type=Distribution.DistributionType.SPECIAL_REQUEST,
             request_date=date(2026, 1, 20),
             facility=facility,
-            status=Distribution.Status.SUBMITTED,
+            status=Distribution.Status.REJECTED,
             created_by=self.user,
         )
         DistributionItem.objects.create(
@@ -2466,7 +2466,7 @@ class SourceDocumentBackfillMigrationTests(TestCase):
             ).exists()
         )
 
-    def test_backfill_keeps_pending_allocation_destination_unsplit(self):
+    def test_backfill_keeps_rejected_allocation_destination_unsplit(self):
         stock_migration = importlib.import_module(
             'apps.stock.migrations.0009_stock_source_document_number'
         )
@@ -2511,7 +2511,7 @@ class SourceDocumentBackfillMigrationTests(TestCase):
         )
         allocation = Allocation.objects.create(
             allocation_date=date(2026, 1, 20),
-            status=Allocation.Status.SUBMITTED,
+            status=Allocation.Status.REJECTED,
             created_by=self.user,
         )
         AllocationItem.objects.create(

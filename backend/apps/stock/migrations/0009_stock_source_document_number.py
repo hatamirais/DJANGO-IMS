@@ -280,12 +280,12 @@ def backfill_source_document_number(apps, schema_editor):
             continue
         if DistributionItem.objects.filter(
             stock_id=destination_stock.pk,
-            distribution__status__in=["DRAFT", "PREPARED", "SUBMITTED"],
+            distribution__status__in=["DRAFT", "PREPARED", "SUBMITTED", "REJECTED"],
         ).exists():
             continue
         if AllocationItem.objects.filter(
             stock_id=destination_stock.pk,
-            allocation__status__in=["DRAFT", "SUBMITTED"],
+            allocation__status__in=["DRAFT", "SUBMITTED", "REJECTED"],
         ).exists():
             continue
         if (
