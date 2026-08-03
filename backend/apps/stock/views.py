@@ -1238,6 +1238,20 @@ def _build_stock_card_data(item, location_id=None, sumber_dana_id=None,
         for group in sd_groups.values()
         if group["source_document_number"]
     ]
+    grouped_location_ids = [
+        group["location_id"]
+        for group in sd_groups.values()
+        if group["location_id"]
+    ]
+    location_rows = list(
+        Location.objects.filter(
+            Q(is_active=True) | Q(pk__in=grouped_location_ids)
+        ).order_by("name")
+    )
+    location_names_by_id = {
+        location.pk: location.name
+        for location in location_rows
+    }
 
     latest_receiving_prices = {}
     if grouped_sumber_dana_ids and grouped_source_numbers:
@@ -1546,6 +1560,7 @@ def _build_stock_card_data(item, location_id=None, sumber_dana_id=None,
             "sumber_dana": sd_obj,
             "source_document_number": source_document_number,
             "location_id": stock_location_id,
+            "location_name": location_names_by_id.get(stock_location_id, ""),
             "batch_lot": batch_lot,
             "unit_price": unit_price,
             "opening_balance": opening_balance,
@@ -1559,7 +1574,9 @@ def _build_stock_card_data(item, location_id=None, sumber_dana_id=None,
 
     # ── Filter dropdown data ─────────────────────────────────────────
     locations_list = []
-    for loc in Location.objects.filter(is_active=True):
+    for loc in location_rows:
+        if not loc.is_active:
+            continue
         locations_list.append({
             "id": loc.id,
             "name": loc.name,

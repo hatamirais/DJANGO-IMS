@@ -3726,6 +3726,10 @@ class StockCardTest(TestCase):
         self.assertEqual(cards_by_source['OBI-QUIET-LAYER']['closing_balance'], Decimal('7'))
         self.assertEqual(cards_by_source['OBI-QUIET-LAYER']['transactions'], [])
         self.assertEqual(cards_by_source['OBI-QUIET-LAYER']['unit_price'], Decimal('2000'))
+        self.assertEqual(cards_by_source['OBI-QUIET-LAYER']['location_name'], self.location.name)
+        self.assertEqual(cards_by_source['OBI-QUIET-LAYER']['batch_lot'], 'QUIET-LAYER-B')
+        self.assertContains(response, f'Lokasi: {self.location.name}')
+        self.assertContains(response, 'Batch: QUIET-LAYER-B')
 
     def test_stock_card_preserves_batch_prices_within_one_receiving_document(self):
         receiving = Receiving.objects.create(
