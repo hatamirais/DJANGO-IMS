@@ -38,6 +38,7 @@ def backfill_source_document_number(apps, schema_editor):
     Transaction = apps.get_model("stock", "Transaction")
     OpeningBalanceImport = apps.get_model("stock", "OpeningBalanceImport")
     Receiving = apps.get_model("receiving", "Receiving")
+    StockTransferItem = apps.get_model("stock", "StockTransferItem")
 
     receiving_document_numbers = set(
         Receiving.objects.values_list("document_number", flat=True)
@@ -187,6 +188,13 @@ def backfill_source_document_number(apps, schema_editor):
             "batch_lot",
             "sumber_dana_id",
         )
+        .order_by(
+            "reference_id",
+            "item_id",
+            "location_id",
+            "batch_lot",
+            "sumber_dana_id",
+        )
         .annotate(quantity=Sum("quantity"))
     )
     for transfer_in in transfer_in_rows:
@@ -245,6 +253,11 @@ def backfill_source_document_number(apps, schema_editor):
         }:
             continue
         transfer_quantity = transfer_in["quantity"]
+        if StockTransferItem.objects.filter(
+            stock_id=destination_stock.pk,
+            transfer__status="DRAFT",
+        ).exists():
+            continue
         if destination_stock.reserved:
             continue
         if destination_stock.quantity < transfer_quantity:
