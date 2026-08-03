@@ -318,7 +318,7 @@ def _allocate_lplpo_stock_layers(lplpo_item):
         Stock.objects.select_related("item", "sumber_dana")
         .filter(item=lplpo_item.item, quantity__gt=F("reserved"))
         .filter(
-            Q(expiry_date__isnull=True) | Q(expiry_date__gte=timezone.localdate())
+            Q(expiry_date__isnull=True) | Q(expiry_date__gt=timezone.localdate())
         )
         .order_by(
             F("expiry_date").asc(nulls_last=True),

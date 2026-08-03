@@ -1510,6 +1510,134 @@ class DistributionWorkflowTest(SecureClientDefaultsMixin, TestCase):
         self.assertEqual(item_line.notes, "Pilih batch untuk split kecil")
         self.assertEqual(dist.notes, "Batch zero split")
 
+    def test_generated_lplpo_edit_reallocates_stale_source_layer_splits(self):
+        dist = self._create_distribution(
+            status=Distribution.Status.DRAFT,
+            with_items=False,
+        )
+        self._link_lplpo_source(dist)
+        self.stock.quantity = Decimal("0.00")
+        self.stock.save(update_fields=["quantity", "updated_at"])
+        stale_stock = Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot="BATCH-STALE-A",
+            expiry_date=date(2099, 1, 1),
+            quantity=Decimal("3.00"),
+            reserved=Decimal("0.00"),
+            unit_price=Decimal("5000"),
+            sumber_dana=self.funding_source,
+            source_document_number="RCV-STALE-A",
+        )
+        replacement_stock = Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot="BATCH-STALE-B",
+            expiry_date=date(2099, 1, 1),
+            quantity=Decimal("3.00"),
+            reserved=Decimal("0.00"),
+            unit_price=Decimal("5000"),
+            sumber_dana=self.funding_source,
+            source_document_number="RCV-STALE-B",
+        )
+        another_replacement_stock = Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot="BATCH-STALE-C",
+            expiry_date=date(2099, 1, 1),
+            quantity=Decimal("3.00"),
+            reserved=Decimal("0.00"),
+            unit_price=Decimal("5000"),
+            sumber_dana=self.funding_source,
+            source_document_number="RCV-STALE-C",
+        )
+        remaining_stock = Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot="BATCH-STALE-D",
+            expiry_date=date(2099, 1, 1),
+            quantity=Decimal("4.00"),
+            reserved=Decimal("0.00"),
+            unit_price=Decimal("5000"),
+            sumber_dana=self.funding_source,
+            source_document_number="RCV-STALE-D",
+        )
+        first_line = DistributionItem.objects.create(
+            distribution=dist,
+            item=self.item,
+            quantity_requested=Decimal("6.00"),
+            quantity_approved=Decimal("6.00"),
+            stock=stale_stock,
+        )
+        second_line = DistributionItem.objects.create(
+            distribution=dist,
+            item=self.item,
+            quantity_requested=Decimal("4.00"),
+            quantity_approved=Decimal("4.00"),
+            stock=remaining_stock,
+        )
+
+        response = self.client.post(
+            reverse("distribution:distribution_edit", args=[dist.pk]),
+            {
+                "document_number": dist.document_number,
+                "request_date": "2026-03-10",
+                "facility": self.facility.pk,
+                "notes": "Batch disesuaikan ulang",
+                "assigned_staff": [self.user.pk],
+                "items-TOTAL_FORMS": "2",
+                "items-INITIAL_FORMS": "2",
+                "items-MIN_NUM_FORMS": "0",
+                "items-MAX_NUM_FORMS": "1000",
+                "items-0-id": first_line.pk,
+                "items-0-item": self.item.pk,
+                "items-0-quantity_requested": "6",
+                "items-0-quantity_approved": "6",
+                "items-0-stock": stale_stock.pk,
+                "items-0-notes": "Rebuild split",
+                "items-1-id": second_line.pk,
+                "items-1-item": self.item.pk,
+                "items-1-quantity_requested": "4",
+                "items-1-quantity_approved": "4",
+                "items-1-stock": remaining_stock.pk,
+                "items-1-notes": "",
+            },
+            secure=True,
+            HTTP_HOST="localhost",
+        )
+
+        dist.refresh_from_db()
+        distribution_items = list(
+            dist.items.select_related("stock").order_by("stock__batch_lot")
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(len(distribution_items), 4)
+        self.assertEqual(
+            {item.stock for item in distribution_items},
+            {
+                stale_stock,
+                replacement_stock,
+                another_replacement_stock,
+                remaining_stock,
+            },
+        )
+        self.assertEqual(
+            sum(item.quantity_requested for item in distribution_items),
+            Decimal("10.00"),
+        )
+        self.assertEqual(
+            sum(item.quantity_approved for item in distribution_items),
+            Decimal("10.00"),
+        )
+        self.assertTrue(
+            all(
+                item.quantity_approved <= item.stock.available_quantity
+                for item in distribution_items
+            )
+        )
+        self.assertEqual(dist.notes, "Batch disesuaikan ulang")
+
     def test_generated_lplpo_edit_rejects_added_rows(self):
         dist = self._create_distribution(status=Distribution.Status.DRAFT)
         self._link_lplpo_source(dist)

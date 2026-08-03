@@ -19,6 +19,7 @@ from django.db.models import (
 )
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 
 from apps.core.decorators import module_scope_required, perm_required
 from apps.lplpo.forms import RejectLPLPOForm
@@ -218,6 +219,167 @@ def _build_distribution_stock_catalog():
         }
         for stock in available_stocks
     ]
+
+
+def _split_requested_quantities(requested_quantity, approved_splits):
+    requested_quantity = Decimal(requested_quantity or 0)
+    approved_total = sum(approved_splits, Decimal("0"))
+    if requested_quantity == approved_total:
+        return approved_splits
+    if approved_total <= 0:
+        return [Decimal("0") for _split in approved_splits]
+
+    requested_splits = []
+    remaining_requested = requested_quantity
+    remaining_approved = approved_total
+    for approved_quantity in approved_splits[:-1]:
+        if remaining_requested <= 0 or remaining_approved <= 0:
+            requested_split = Decimal("0")
+        else:
+            requested_split = (
+                remaining_requested * approved_quantity / remaining_approved
+            ).quantize(Decimal("0.01"))
+            requested_split = min(requested_split, remaining_requested)
+        requested_split = requested_split if requested_split > 0 else Decimal("0")
+        requested_splits.append(requested_split)
+        remaining_requested -= requested_split
+        remaining_approved -= approved_quantity
+    requested_splits.append(
+        remaining_requested if remaining_requested > 0 else Decimal("0")
+    )
+    return requested_splits
+
+
+def _allocate_current_stock_layers(item, approved_quantity):
+    remaining_quantity = Decimal(approved_quantity or 0)
+    allocations = []
+    if remaining_quantity <= 0:
+        return allocations
+
+    stock_layers = (
+        Stock.objects.select_related("item", "sumber_dana")
+        .filter(item=item, quantity__gt=F("reserved"))
+        .filter(
+            Q(expiry_date__isnull=True) | Q(expiry_date__gt=timezone.localdate())
+        )
+        .order_by(
+            F("expiry_date").asc(nulls_last=True),
+            "item__nama_barang",
+            "batch_lot",
+            "source_document_number",
+            "pk",
+        )
+    )
+    for stock in stock_layers:
+        available_quantity = stock.available_quantity
+        if available_quantity <= 0:
+            continue
+        allocated_quantity = min(remaining_quantity, available_quantity)
+        allocations.append((stock, allocated_quantity))
+        remaining_quantity -= allocated_quantity
+        if remaining_quantity <= 0:
+            break
+
+    if remaining_quantity > 0:
+        raise ValueError(
+            f"Stok gudang tidak cukup untuk {item.nama_barang}. "
+            f"Dibutuhkan {approved_quantity}, kurang {remaining_quantity}."
+        )
+
+    return allocations
+
+
+def _locked_lplpo_formset_structure_matches_post(distribution, post_data, prefix):
+    existing_ids = set(distribution.items.values_list("pk", flat=True))
+    try:
+        total_forms = int(post_data.get(f"{prefix}-TOTAL_FORMS", ""))
+        initial_forms = int(post_data.get(f"{prefix}-INITIAL_FORMS", ""))
+    except ValueError:
+        return False
+
+    if total_forms != initial_forms or total_forms != len(existing_ids):
+        return False
+
+    submitted_ids = set()
+    for index in range(total_forms):
+        if post_data.get(f"{prefix}-{index}-DELETE"):
+            return False
+        try:
+            submitted_ids.add(int(post_data.get(f"{prefix}-{index}-id", "")))
+        except ValueError:
+            return False
+
+    return submitted_ids == existing_ids
+
+
+def _locked_lplpo_formset_has_only_availability_errors(formset):
+    if formset.non_form_errors():
+        return False
+
+    has_availability_error = False
+    for form in formset.forms:
+        form_error_fields = set(form.errors)
+        if not form_error_fields:
+            continue
+        if form_error_fields != {"quantity_approved"}:
+            return False
+        has_availability_error = True
+
+    return has_availability_error
+
+
+def _rebuild_generated_lplpo_item_rows(distribution, post_data, prefix="items"):
+    existing_items = list(
+        distribution.items.select_related("item").order_by("item_id", "pk")
+    )
+    ordered_existing_items = list(distribution.items.order_by("pk"))
+    notes_by_existing_id = {
+        existing.pk: post_data.get(f"{prefix}-{index}-notes", existing.notes)
+        for index, existing in enumerate(ordered_existing_items)
+    }
+    grouped = {}
+    for existing in existing_items:
+        group = grouped.setdefault(
+            existing.item_id,
+            {
+                "item": existing.item,
+                "quantity_requested": Decimal("0"),
+                "quantity_approved": Decimal("0"),
+                "notes": "",
+            },
+        )
+        group["quantity_requested"] += Decimal(existing.quantity_requested or 0)
+        group["quantity_approved"] += Decimal(existing.quantity_approved or 0)
+        if not group["notes"]:
+            group["notes"] = notes_by_existing_id.get(existing.pk, existing.notes)
+
+    replacement_items = []
+    for group in grouped.values():
+        allocations = _allocate_current_stock_layers(
+            group["item"],
+            group["quantity_approved"],
+        )
+        requested_splits = _split_requested_quantities(
+            group["quantity_requested"],
+            [allocated_quantity for _stock, allocated_quantity in allocations],
+        )
+        for (stock, allocated_quantity), requested_quantity in zip(
+            allocations,
+            requested_splits,
+        ):
+            replacement_items.append(
+                DistributionItem(
+                    distribution=distribution,
+                    item=group["item"],
+                    quantity_requested=requested_quantity,
+                    quantity_approved=allocated_quantity,
+                    stock=stock,
+                    notes=group["notes"],
+                )
+            )
+
+    distribution.items.all().delete()
+    DistributionItem.objects.bulk_create(replacement_items)
 
 
 def _build_distribution_item_rows(formset):
@@ -533,26 +695,48 @@ def distribution_edit(request, pk):
             forced_distribution_type=forced_distribution_type,
         )
         formset = formset_class(request.POST, instance=dist, **formset_kwargs)
-
-        if form.is_valid() and formset.is_valid():
-            with transaction.atomic():
-                dist = form.save(commit=False)
-                if forced_distribution_type:
-                    dist.distribution_type = forced_distribution_type
-                dist.save()
-                sync_distribution_staff_assignments(
-                    dist, form.cleaned_data.get("assigned_staff", [])
-                )
-                formset.save()
-            messages.success(
-                request,
-                (
-                    f"Permintaan khusus {dist.document_number} berhasil diperbarui."
-                    if is_special_request
-                    else f"Distribusi {dist.document_number} berhasil diperbarui."
-                ),
+        formset_is_valid = formset.is_valid()
+        should_rebuild_generated_lplpo_rows = (
+            is_generated_lplpo_distribution
+            and not formset_is_valid
+            and _locked_lplpo_formset_structure_matches_post(
+                dist,
+                request.POST,
+                formset_kwargs["prefix"],
             )
-            return redirect("distribution:distribution_detail", pk=dist.pk)
+            and _locked_lplpo_formset_has_only_availability_errors(formset)
+        )
+
+        if form.is_valid() and (formset_is_valid or should_rebuild_generated_lplpo_rows):
+            try:
+                with transaction.atomic():
+                    dist = form.save(commit=False)
+                    if forced_distribution_type:
+                        dist.distribution_type = forced_distribution_type
+                    dist.save()
+                    sync_distribution_staff_assignments(
+                        dist, form.cleaned_data.get("assigned_staff", [])
+                    )
+                    if should_rebuild_generated_lplpo_rows:
+                        _rebuild_generated_lplpo_item_rows(
+                            dist,
+                            request.POST,
+                            formset_kwargs["prefix"],
+                        )
+                    else:
+                        formset.save()
+            except ValueError as exc:
+                messages.error(request, str(exc))
+            else:
+                messages.success(
+                    request,
+                    (
+                        f"Permintaan khusus {dist.document_number} berhasil diperbarui."
+                        if is_special_request
+                        else f"Distribusi {dist.document_number} berhasil diperbarui."
+                    ),
+                )
+                return redirect("distribution:distribution_detail", pk=dist.pk)
     else:
         form = DistributionForm(
             instance=dist,

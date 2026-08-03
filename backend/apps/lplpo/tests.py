@@ -935,6 +935,17 @@ class LPLPOWorkflowTests(LPLPOTestCase):
 			sumber_dana=self.funding_source,
 			source_document_number="RCV-EXPIRED",
 		)
+		expires_today_stock = Stock.objects.create(
+			item=self.item_a,
+			location=self.location,
+			batch_lot="BATCH-EXPIRES-TODAY",
+			expiry_date=timezone.localdate(),
+			quantity=Decimal("10.00"),
+			reserved=Decimal("0.00"),
+			unit_price=Decimal("1000.00"),
+			sumber_dana=self.funding_source,
+			source_document_number="RCV-EXPIRES-TODAY",
+		)
 		usable_stock = Stock.objects.create(
 			item=self.item_a,
 			location=self.location,
@@ -961,6 +972,7 @@ class LPLPOWorkflowTests(LPLPOTestCase):
 
 		self.assertEqual(response.status_code, 302)
 		self.assertNotEqual(distribution_item.stock, expired_stock)
+		self.assertNotEqual(distribution_item.stock, expires_today_stock)
 		self.assertEqual(distribution_item.stock, usable_stock)
 		self.assertEqual(distribution_item.quantity_requested, Decimal("5.00"))
 		self.assertEqual(distribution_item.quantity_approved, Decimal("5.00"))
