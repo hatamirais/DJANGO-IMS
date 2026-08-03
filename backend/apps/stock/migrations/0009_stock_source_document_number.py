@@ -1,7 +1,7 @@
 import hashlib
 
 from django.db import migrations, models
-from django.db.models import Sum
+from django.db.models import Max, Sum
 
 
 def _source_document_number(document_type, document_number, collision_documents):
@@ -195,7 +195,7 @@ def backfill_source_document_number(apps, schema_editor):
             "batch_lot",
             "sumber_dana_id",
         )
-        .annotate(quantity=Sum("quantity"))
+        .annotate(quantity=Sum("quantity"), last_transfer_in_pk=Max("pk"))
     )
     for transfer_in in transfer_in_rows:
         transfer_out = (
@@ -257,6 +257,19 @@ def backfill_source_document_number(apps, schema_editor):
             stock_id=destination_stock.pk,
             transfer__status="DRAFT",
         ).exists():
+            continue
+        if (
+            destination_stock.unit_price == source_stock.unit_price
+            and Transaction.objects.filter(
+                item_id=transfer_in["item_id"],
+                location_id=transfer_in["location_id"],
+                batch_lot=transfer_in["batch_lot"],
+                sumber_dana_id=transfer_in["sumber_dana_id"],
+                transaction_type="OUT",
+                unit_price=source_stock.unit_price,
+                pk__gt=transfer_in["last_transfer_in_pk"],
+            ).exists()
+        ):
             continue
         if destination_stock.reserved:
             continue
