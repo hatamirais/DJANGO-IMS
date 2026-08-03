@@ -814,6 +814,17 @@ class LPLPOWorkflowTests(LPLPOTestCase):
 			item=self.item_a,
 			permintaan_jumlah=Decimal("12.00"),
 		)
+		Stock.objects.create(
+			item=self.item_a,
+			location=self.location,
+			batch_lot="BATCH-REVIEW",
+			expiry_date=date(2027, 1, 1),
+			quantity=Decimal("10.00"),
+			reserved=Decimal("0.00"),
+			unit_price=Decimal("1000.00"),
+			sumber_dana=self.funding_source,
+			source_document_number="RCV-REVIEW",
+		)
 
 		self.client.force_login(self.gudang_user)
 		response = self.client.post(
@@ -842,6 +853,69 @@ class LPLPOWorkflowTests(LPLPOTestCase):
 		self.assertEqual(dist_line.item, self.item_a)
 		self.assertEqual(dist_line.quantity_requested, Decimal("12.00"))
 		self.assertEqual(dist_line.quantity_approved, Decimal("9.00"))
+
+	def test_review_creates_distribution_across_source_layers(self):
+		lplpo = self.create_lplpo(status=LPLPO.Status.PIC_VERIFIED, created_by=self.puskesmas_user)
+		line = LPLPOItem.objects.create(
+			lplpo=lplpo,
+			item=self.item_a,
+			permintaan_jumlah=Decimal("12.00"),
+		)
+		first_stock = Stock.objects.create(
+			item=self.item_a,
+			location=self.location,
+			batch_lot="BATCH-SPLIT",
+			expiry_date=date(2027, 1, 1),
+			quantity=Decimal("6.00"),
+			reserved=Decimal("0.00"),
+			unit_price=Decimal("1000.00"),
+			sumber_dana=self.funding_source,
+			source_document_number="RCV-LAYER-A",
+		)
+		second_stock = Stock.objects.create(
+			item=self.item_a,
+			location=self.location,
+			batch_lot="BATCH-SPLIT",
+			expiry_date=date(2027, 1, 1),
+			quantity=Decimal("6.00"),
+			reserved=Decimal("0.00"),
+			unit_price=Decimal("1000.00"),
+			sumber_dana=self.funding_source,
+			source_document_number="RCV-LAYER-B",
+		)
+
+		self.client.force_login(self.gudang_user)
+		response = self.client.post(
+			reverse("lplpo:lplpo_review", args=[lplpo.pk]),
+			{
+				f"review_{line.pk}-pemberian_jumlah": "10",
+				f"review_{line.pk}-pemberian_alasan": "Dipenuhi dari dua sumber dokumen.",
+			},
+		)
+
+		lplpo.refresh_from_db()
+		distribution = lplpo.distribution
+		distribution_items = list(
+			distribution.items.select_related("stock").order_by("stock__source_document_number")
+		)
+
+		self.assertEqual(response.status_code, 302)
+		self.assertEqual(lplpo.status, LPLPO.Status.APPROVED)
+		self.assertEqual(distribution.items.count(), 2)
+		self.assertEqual(
+			sum(item.quantity_requested for item in distribution_items),
+			Decimal("12.00"),
+		)
+		self.assertEqual(
+			sum(item.quantity_approved for item in distribution_items),
+			Decimal("10.00"),
+		)
+		self.assertEqual(distribution_items[0].stock, first_stock)
+		self.assertEqual(distribution_items[0].quantity_requested, Decimal("7.20"))
+		self.assertEqual(distribution_items[0].quantity_approved, Decimal("6.00"))
+		self.assertEqual(distribution_items[1].stock, second_stock)
+		self.assertEqual(distribution_items[1].quantity_requested, Decimal("4.80"))
+		self.assertEqual(distribution_items[1].quantity_approved, Decimal("4.00"))
 
 	def test_review_integrity_error_shows_generic_message(self):
 		lplpo = self.create_lplpo(status=LPLPO.Status.PIC_VERIFIED, created_by=self.puskesmas_user)
@@ -1767,6 +1841,17 @@ class LPLPOWorkflowTests(LPLPOTestCase):
 			permintaan_jumlah=Decimal("8.00"),
 			pemberian_jumlah=Decimal("0.00"),
 		)
+		stock = Stock.objects.create(
+			item=self.item_a,
+			location=self.location,
+			batch_lot="BATCH-FINALIZE",
+			expiry_date=date(2027, 1, 1),
+			quantity=Decimal("10.00"),
+			reserved=Decimal("0.00"),
+			unit_price=Decimal("1000.00"),
+			sumber_dana=self.funding_source,
+			source_document_number="RCV-FINALIZE",
+		)
 
 		self.client.force_login(self.superuser)
 		response = self.client.post(reverse("lplpo:lplpo_finalize", args=[lplpo.pk]))
@@ -1788,6 +1873,7 @@ class LPLPOWorkflowTests(LPLPOTestCase):
 
 		line = distribution.items.get()
 		self.assertEqual(line.item, self.item_a)
+		self.assertEqual(line.stock, stock)
 		self.assertEqual(line.quantity_requested, Decimal("12.00"))
 		self.assertEqual(line.quantity_approved, Decimal("9.00"))
 
