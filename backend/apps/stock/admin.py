@@ -517,12 +517,14 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                 }
             )
 
-        for row_num, row in rows[1:]:
-            if row.get(None):
+        normalized_rows = []
+        stock_lookup_keys = set()
+        for row_num, raw_row in rows[1:]:
+            if raw_row.get(None):
                 add_error(
                     row_num,
                     "row",
-                    ", ".join(row.get(None) or []),
+                    ", ".join(raw_row.get(None) or []),
                     "Jumlah kolom melebihi header CSV. Pastikan nilai yang mengandung delimiter diapit tanda kutip.",
                 )
 
@@ -532,9 +534,62 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                     row_num=row_num,
                     field_name=(key or "kolom"),
                 )
-                for key, value in row.items()
+                for key, value in raw_row.items()
                 if key is not None
             }
+            normalized_rows.append((row_num, row))
+            item = item_cache.get(row.get("item_code", ""))
+            funding = funding_cache.get(row.get("sumber_dana_code", ""))
+            location = location_cache.get(row.get("location_code", ""))
+            doc_number = row.get("document_number", "")
+            batch_lot = row.get("batch_lot", "").strip() or self._generate_opening_balance_batch_lot(
+                doc_number or "SALDO-AWAL",
+                row_num,
+            )
+            if item and funding and location and doc_number:
+                stock_lookup_keys.add(
+                    (
+                        item.pk,
+                        location.pk,
+                        batch_lot,
+                        funding.pk,
+                        doc_number,
+                    )
+                )
+
+        existing_stock_by_key = {}
+        if stock_lookup_keys:
+            item_ids = {key[0] for key in stock_lookup_keys}
+            location_ids = {key[1] for key in stock_lookup_keys}
+            batch_lots = {key[2] for key in stock_lookup_keys}
+            funding_ids = {key[3] for key in stock_lookup_keys}
+            source_document_numbers = {key[4] for key in stock_lookup_keys}
+            existing_stock_by_key = {
+                (
+                    stock["item_id"],
+                    stock["location_id"],
+                    stock["batch_lot"],
+                    stock["sumber_dana_id"],
+                    stock["source_document_number"],
+                ): stock
+                for stock in Stock.objects.filter(
+                    item_id__in=item_ids,
+                    location_id__in=location_ids,
+                    batch_lot__in=batch_lots,
+                    sumber_dana_id__in=funding_ids,
+                    source_document_number__in=source_document_numbers,
+                ).values(
+                    "item_id",
+                    "location_id",
+                    "batch_lot",
+                    "sumber_dana_id",
+                    "source_document_number",
+                    "expiry_date",
+                    "unit_price",
+                )
+            }
+
+        for row_num, row in normalized_rows:
 
             for field_name in ("receiving_type", "supplier_code"):
                 value = row.get(field_name, "")
@@ -720,13 +775,7 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                         row.get("unit_price", ""),
                         "Batch stok yang sama dalam dokumen sumber yang sama tidak boleh memiliki harga satuan berbeda. Gunakan document_number berbeda untuk memisahkan lapisan harga.",
                     )
-                existing_stock = Stock.objects.filter(
-                    item=item,
-                    location=location,
-                    batch_lot=batch_lot,
-                    sumber_dana=funding,
-                    source_document_number=doc_number,
-                ).values("expiry_date", "unit_price").first()
+                existing_stock = existing_stock_by_key.get(stock_key)
                 if existing_stock and existing_stock["expiry_date"] != expiry_date:
                     add_error(
                         row_num,

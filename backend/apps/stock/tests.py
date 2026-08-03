@@ -754,6 +754,39 @@ class OpeningBalanceImportAdminTests(TestCase):
         self.assertContains(response, "harga satuan berbeda")
         self.assertFalse(OpeningBalanceImport.objects.exists())
 
+    def test_opening_balance_preflight_preloads_existing_stock_layers(self):
+        row_count = 25
+        for index in range(row_count):
+            Stock.objects.create(
+                item=self.item,
+                location=self.location,
+                batch_lot=f"BATCH-QRY-{index:03d}",
+                expiry_date=date(2028, 1, 1),
+                quantity=Decimal("5"),
+                unit_price=Decimal("100"),
+                sumber_dana=self.funding,
+                source_document_number="SALDO-AWAL-2026",
+            )
+        csv_rows = [
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price"
+        ]
+        csv_rows.extend(
+            (
+                f"SALDO-AWAL-2026,01/01/2026,{self.funding.code},"
+                f"{self.location.code},{self.item.kode_barang},1,"
+                f"BATCH-QRY-{index:03d},01/01/2028,100"
+            )
+            for index in range(row_count)
+        )
+        stock_admin = StockAdmin(Stock, AdminSite())
+
+        with CaptureQueriesContext(connection) as captured_queries:
+            report = stock_admin._preflight_opening_balance_csv("\n".join(csv_rows))
+
+        self.assertEqual(report["errors"], [])
+        self.assertLessEqual(len(captured_queries), 8)
+
     def test_opening_balance_preview_rejects_duplicate_stock_key_unit_price_mismatch(self):
         self.client.force_login(self.admin_user)
         csv_content = (
