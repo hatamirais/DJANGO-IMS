@@ -288,14 +288,23 @@ def _split_requested_quantities(requested_quantity, approved_splits):
         return [Decimal("0") for _split in approved_splits]
 
     requested_splits = []
-    allocated_requested = Decimal("0")
+    remaining_requested = requested_quantity
+    remaining_approved = approved_total
     for approved_quantity in approved_splits[:-1]:
-        requested_split = (
-            requested_quantity * approved_quantity / approved_total
-        ).quantize(Decimal("0.01"))
+        if remaining_requested <= 0 or remaining_approved <= 0:
+            requested_split = Decimal("0")
+        else:
+            requested_split = (
+                remaining_requested * approved_quantity / remaining_approved
+            ).quantize(Decimal("0.01"))
+            requested_split = min(requested_split, remaining_requested)
+        requested_split = requested_split if requested_split > 0 else Decimal("0")
         requested_splits.append(requested_split)
-        allocated_requested += requested_split
-    requested_splits.append(requested_quantity - allocated_requested)
+        remaining_requested -= requested_split
+        remaining_approved -= approved_quantity
+    requested_splits.append(
+        remaining_requested if remaining_requested > 0 else Decimal("0")
+    )
     return requested_splits
 
 
@@ -308,6 +317,9 @@ def _allocate_lplpo_stock_layers(lplpo_item):
     stock_layers = (
         Stock.objects.select_related("item", "sumber_dana")
         .filter(item=lplpo_item.item, quantity__gt=F("reserved"))
+        .filter(
+            Q(expiry_date__isnull=True) | Q(expiry_date__gte=timezone.localdate())
+        )
         .order_by(
             F("expiry_date").asc(nulls_last=True),
             "item__nama_barang",
