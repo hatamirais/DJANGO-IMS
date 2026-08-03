@@ -180,14 +180,30 @@ def increment_receiving_stock(
         raise
 
 
-def resolve_receiving_source_document_number(receiving):
+def resolve_receiving_source_document_number(
+    receiving,
+    item=None,
+    location=None,
+    batch_lot=None,
+    sumber_dana=None,
+):
     if not receiving.pk:
         return receiving.document_number
 
     from apps.stock.models import Stock, Transaction
 
+    stock_filters = {"receiving_ref": receiving}
+    if item is not None:
+        stock_filters["item"] = item
+    if location is not None:
+        stock_filters["location"] = location
+    if batch_lot is not None:
+        stock_filters["batch_lot"] = batch_lot
+    if sumber_dana is not None:
+        stock_filters["sumber_dana"] = sumber_dana
+
     existing_sources = list(
-        Stock.objects.filter(receiving_ref=receiving)
+        Stock.objects.filter(**stock_filters)
         .exclude(source_document_number="")
         .values_list("source_document_number", flat=True)
         .distinct()
@@ -203,11 +219,21 @@ def resolve_receiving_source_document_number(receiving):
     if len(existing_sources) == 1:
         return existing_sources[0]
 
+    transaction_filters = {
+        "reference_type": Transaction.ReferenceType.RECEIVING,
+        "reference_id": receiving.pk,
+    }
+    if item is not None:
+        transaction_filters["item"] = item
+    if location is not None:
+        transaction_filters["location"] = location
+    if batch_lot is not None:
+        transaction_filters["batch_lot"] = batch_lot
+    if sumber_dana is not None:
+        transaction_filters["sumber_dana"] = sumber_dana
+
     transaction_sources = list(
-        Transaction.objects.filter(
-            reference_type=Transaction.ReferenceType.RECEIVING,
-            reference_id=receiving.pk,
-        )
+        Transaction.objects.filter(**transaction_filters)
         .exclude(source_document_number="")
         .values_list("source_document_number", flat=True)
         .distinct()

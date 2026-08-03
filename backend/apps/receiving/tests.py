@@ -291,6 +291,62 @@ class ReceivingModelDocumentNumberCollisionTests(TestCase):
             "LEGACY-AGGREGATE-RCV",
         )
 
+    def test_resolver_uses_stock_tuple_when_receiving_has_mixed_sources(self):
+        receiving = Receiving.objects.create(
+            document_number="RCV-RESOLVE-MIXED",
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            status=Receiving.Status.PARTIAL,
+            created_by=self.user,
+        )
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot="RCV-RESOLVE-HEADER",
+            source_document_number="RCV-RESOLVE-MIXED",
+            expiry_date=date(2030, 1, 1),
+            quantity=Decimal("4"),
+            reserved=Decimal("0"),
+            unit_price=Decimal("1000"),
+            sumber_dana=self.funding,
+            receiving_ref=receiving,
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot="RCV-RESOLVE-LEGACY",
+            source_document_number="LEGACY-MIXED-RCV",
+            quantity=Decimal("5"),
+            unit_price=Decimal("1000"),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=receiving.pk,
+            user=self.user,
+        )
+
+        self.assertEqual(
+            resolve_receiving_source_document_number(
+                receiving,
+                item=self.item,
+                location=self.location,
+                batch_lot="RCV-RESOLVE-HEADER",
+                sumber_dana=self.funding,
+            ),
+            "RCV-RESOLVE-MIXED",
+        )
+        self.assertEqual(
+            resolve_receiving_source_document_number(
+                receiving,
+                item=self.item,
+                location=self.location,
+                batch_lot="RCV-RESOLVE-LEGACY",
+                sumber_dana=self.funding,
+            ),
+            "LEGACY-MIXED-RCV",
+        )
+
     def test_full_clean_rejects_document_number_change_after_ledger_transaction(self):
         receiving = Receiving.objects.create(
             document_number="RCV-LOCKED-001",

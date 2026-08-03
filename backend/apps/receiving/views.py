@@ -104,13 +104,19 @@ def _create_verified_receiving(request, form, formset):
         if not receipt_items:
             raise ValueError("Tambahkan minimal 1 item penerimaan.")
 
-        source_document_number = resolve_receiving_source_document_number(receiving)
         pending_transactions = []
         for item in receipt_items:
             item.receiving = receiving
             item.received_by = request.user
             item.received_at = timezone.now()
             item.save()
+            source_document_number = resolve_receiving_source_document_number(
+                receiving,
+                item=item.item,
+                location=item.location,
+                batch_lot=item.batch_lot,
+                sumber_dana=receiving.sumber_dana,
+            )
 
             increment_receiving_stock(
                 item=item.item,
@@ -669,9 +675,6 @@ def receiving_plan_receive(request, pk):
                         )
 
                 pending_transactions = []
-                source_document_number = resolve_receiving_source_document_number(
-                    receiving
-                )
                 for form in receipt_forms:
                     item = form.save(commit=False)
                     order_item = locked_order_items[item.order_item_id]
@@ -685,6 +688,13 @@ def receiving_plan_receive(request, pk):
                         order_item.received_quantity + item.quantity
                     )
                     order_item.save(update_fields=["received_quantity", "updated_at"])
+                    source_document_number = resolve_receiving_source_document_number(
+                        receiving,
+                        item=item.item,
+                        location=item.location,
+                        batch_lot=item.batch_lot,
+                        sumber_dana=receiving.sumber_dana,
+                    )
 
                     increment_receiving_stock(
                         item=item.item,

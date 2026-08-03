@@ -476,9 +476,6 @@ class ReceivingAdmin(admin.ModelAdmin):
                 raise ValueError(f"Baris {first_row_num}: {detail}") from exc
             receiving.save()
             counts["receivings"] += 1
-            source_document_number = resolve_receiving_source_document_number(
-                receiving
-            )
 
             # Create ReceivingItem + Stock + Transaction for each row
             for row_num, row in rows:
@@ -579,6 +576,13 @@ class ReceivingAdmin(admin.ModelAdmin):
                     received_at=timezone.now(),
                 )
                 counts["items"] += 1
+                source_document_number = resolve_receiving_source_document_number(
+                    receiving,
+                    item=item,
+                    location=row_location,
+                    batch_lot=batch_lot,
+                    sumber_dana=row_sumber_dana,
+                )
 
                 # Stock — update or create
                 increment_receiving_stock(

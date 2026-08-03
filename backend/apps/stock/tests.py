@@ -2668,6 +2668,51 @@ class StockCardTest(TestCase):
         self.assertEqual(cards_by_location[self.location.id]['transactions'], [first_tx])
         self.assertEqual(cards_by_location[other_location.id]['transactions'], [second_tx])
 
+    def test_stock_card_derives_budget_year_from_aliased_receiving_transactions(self):
+        receiving = Receiving.objects.create(
+            receiving_type=Receiving.ReceivingType.PROCUREMENT,
+            document_number='SRC-COLLIDE-BUDGET',
+            receiving_date=date(2024, 12, 15),
+            sumber_dana=self.funding,
+            created_by=self.user,
+        )
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot='ALIAS-BUDGET-BATCH',
+            source_document_number='RCV-HASHED-SRC-COLLIDE-BUDGET',
+            expiry_date=date(2031, 5, 1),
+            quantity=Decimal('10'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            receiving_ref=receiving,
+        )
+        tx = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot='ALIAS-BUDGET-BATCH',
+            source_document_number='RCV-HASHED-SRC-COLLIDE-BUDGET',
+            quantity=Decimal('10'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=receiving.id,
+            user=self.user,
+        )
+
+        response = self.client.get(reverse('stock:stock_card_detail', args=[self.item.id]))
+
+        self.assertEqual(response.status_code, 200)
+        card = next(
+            card
+            for card in response.context['funding_source_cards']
+            if card['source_document_number'] == 'RCV-HASHED-SRC-COLLIDE-BUDGET'
+        )
+        self.assertEqual(card['tahun_anggaran'], 2024)
+        self.assertEqual(card['transactions'], [tx])
+
     def test_stock_card_transfer_transactions_display_computed_fields(self):
         """Verify transfer transactions have computed display fields for UI rendering."""
         destination = Location.objects.create(code='PKM2', name='Puskesmas Pembantu')

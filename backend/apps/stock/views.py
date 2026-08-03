@@ -1397,6 +1397,39 @@ def _build_stock_card_data(item, location_id=None, sumber_dana_id=None,
             )
             if row["first_date"] is not None
         }
+        receiving_transaction_refs = list(
+            Transaction.objects.filter(
+                item=item,
+                reference_type=Transaction.ReferenceType.RECEIVING,
+                sumber_dana_id__in=grouped_sumber_dana_ids,
+                source_document_number__in=grouped_source_numbers,
+            )
+            .exclude(reference_id__isnull=True)
+            .values_list("sumber_dana_id", "source_document_number", "reference_id")
+            .distinct()
+        )
+        receiving_dates = {
+            receiving_id: receiving_date
+            for receiving_id, receiving_date in Receiving.objects.filter(
+                pk__in={
+                    reference_id
+                    for _sumber_dana_id, _source_document_number, reference_id
+                    in receiving_transaction_refs
+                }
+            ).values_list("pk", "receiving_date")
+        }
+        for sumber_dana_id, source_document_number, reference_id in receiving_transaction_refs:
+            receiving_date = receiving_dates.get(reference_id)
+            if receiving_date is None:
+                continue
+            key = (
+                _stock_card_funding_key(sumber_dana_id),
+                _stock_card_source_key(source_document_number),
+            )
+            year = receiving_date.year
+            existing_year = earliest_receiving_years.get(key)
+            if existing_year is None or year < existing_year:
+                earliest_receiving_years[key] = year
 
     # ── Compute opening balances, running balances, and unit prices ───
     funding_source_cards = []
