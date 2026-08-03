@@ -349,13 +349,14 @@ def _rebuild_generated_lplpo_item_rows(distribution, post_data, prefix="items"):
                 "item": existing.item,
                 "quantity_requested": Decimal("0"),
                 "quantity_approved": Decimal("0"),
-                "notes": "",
+                "notes": [],
             },
         )
         group["quantity_requested"] += Decimal(existing.quantity_requested or 0)
         group["quantity_approved"] += Decimal(existing.quantity_approved or 0)
-        if not group["notes"]:
-            group["notes"] = notes_by_existing_id.get(existing.pk, existing.notes)
+        submitted_note = notes_by_existing_id.get(existing.pk, existing.notes)
+        if submitted_note and submitted_note not in group["notes"]:
+            group["notes"].append(submitted_note)
 
     replacement_items = []
     for group in grouped.values():
@@ -378,7 +379,7 @@ def _rebuild_generated_lplpo_item_rows(distribution, post_data, prefix="items"):
                     quantity_requested=requested_quantity,
                     quantity_approved=allocated_quantity,
                     stock=stock,
-                    notes=group["notes"],
+                    notes="\n".join(group["notes"]),
                 )
             )
 

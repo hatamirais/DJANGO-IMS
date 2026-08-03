@@ -1594,13 +1594,13 @@ class DistributionWorkflowTest(SecureClientDefaultsMixin, TestCase):
                 "items-0-quantity_requested": "6",
                 "items-0-quantity_approved": "6",
                 "items-0-stock": stale_stock.pk,
-                "items-0-notes": "Rebuild split",
+                "items-0-notes": "Rebuild split A",
                 "items-1-id": second_line.pk,
                 "items-1-item": self.item.pk,
                 "items-1-quantity_requested": "4",
                 "items-1-quantity_approved": "4",
                 "items-1-stock": remaining_stock.pk,
-                "items-1-notes": "",
+                "items-1-notes": "Rebuild split B",
             },
             secure=True,
             HTTP_HOST="localhost",
@@ -1632,6 +1632,12 @@ class DistributionWorkflowTest(SecureClientDefaultsMixin, TestCase):
         self.assertTrue(
             all(
                 item.quantity_approved <= item.stock.available_quantity
+                for item in distribution_items
+            )
+        )
+        self.assertTrue(
+            all(
+                item.notes == "Rebuild split A\nRebuild split B"
                 for item in distribution_items
             )
         )
