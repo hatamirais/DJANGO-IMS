@@ -36,6 +36,8 @@ from apps.stock.models import (
     StockTransferItem,
     Transaction,
 )
+from apps.expired.models import Expired, ExpiredItem
+from apps.recall.models import Recall, RecallItem
 from apps.core.models import SystemSettings
 from apps.distribution.models import Distribution, DistributionItem
 from apps.puskesmas.models import PuskesmasReceiptConfirmation, PuskesmasReceiptConfirmationItem
@@ -1081,6 +1083,8 @@ class SourceDocumentBackfillMigrationTests(TestCase):
                 ('stock', 'Stock'): Stock,
                 ('stock', 'StockTransferItem'): StockTransferItem,
                 ('stock', 'Transaction'): Transaction,
+                ('expired', 'ExpiredItem'): ExpiredItem,
+                ('recall', 'RecallItem'): RecallItem,
             }
             return mapping[(app_label, model_name)]
 
@@ -1916,6 +1920,278 @@ class SourceDocumentBackfillMigrationTests(TestCase):
         self.assertEqual(destination_receiving_tx.source_document_number, 'RCV-SDM-DRF-DST')
         self.assertEqual(transfer_out.source_document_number, 'SALDO-SDM-DRF-SRC')
         self.assertEqual(transfer_in.source_document_number, 'SALDO-SDM-DRF-SRC')
+
+    def test_backfill_keeps_pending_recall_destination_unsplit(self):
+        stock_migration = importlib.import_module(
+            'apps.stock.migrations.0009_stock_source_document_number'
+        )
+        transaction_migration = importlib.import_module(
+            'apps.stock.migrations.0010_transaction_source_document_number'
+        )
+        destination = Location.objects.create(
+            code='SDM-RCL-DST',
+            name='Recall Transfer Destination',
+        )
+        destination_receiving = Receiving.objects.create(
+            document_number='RCV-SDM-RCL-DST',
+            receiving_date=date(2026, 1, 12),
+            receiving_type=Receiving.ReceivingType.GRANT,
+            sumber_dana=self.funding,
+            created_by=self.user,
+        )
+        opening_balance = OpeningBalanceImport.objects.create(
+            document_number='SALDO-SDM-RCL-SRC',
+            effective_date=date(2026, 1, 1),
+            created_by=self.user,
+        )
+        source_stock = Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot='SDM-RCL',
+            expiry_date=date(2030, 1, 1),
+            quantity=Decimal('5'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            source_document_number='',
+        )
+        destination_stock = Stock.objects.create(
+            item=self.item,
+            location=destination,
+            batch_lot='SDM-RCL',
+            expiry_date=date(2031, 1, 1),
+            quantity=Decimal('12'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('2000'),
+            sumber_dana=self.funding,
+            receiving_ref=destination_receiving,
+            source_document_number='',
+        )
+        supplier = Supplier.objects.create(code='SDM-RCL-SUP', name='Recall Supplier')
+        recall = Recall.objects.create(
+            supplier=supplier,
+            status=Recall.Status.SUBMITTED,
+            created_by=self.user,
+        )
+        RecallItem.objects.create(
+            recall=recall,
+            item=self.item,
+            stock=destination_stock,
+            quantity=Decimal('8'),
+        )
+        opening_tx = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot='SDM-RCL',
+            quantity=Decimal('10'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.INITIAL_IMPORT,
+            reference_id=opening_balance.pk,
+            user=self.user,
+        )
+        destination_receiving_tx = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=destination,
+            batch_lot='SDM-RCL',
+            quantity=Decimal('7'),
+            unit_price=Decimal('2000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=destination_receiving.pk,
+            user=self.user,
+        )
+        transfer_out = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.OUT,
+            item=self.item,
+            location=self.location,
+            batch_lot='SDM-RCL',
+            quantity=Decimal('5'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.TRANSFER,
+            reference_id=808,
+            user=self.user,
+        )
+        transfer_in = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=destination,
+            batch_lot='SDM-RCL',
+            quantity=Decimal('5'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.TRANSFER,
+            reference_id=808,
+            user=self.user,
+        )
+
+        stock_migration.backfill_source_document_number(self.MigrationApps(), None)
+
+        source_stock.refresh_from_db()
+        destination_stock.refresh_from_db()
+        self.assertEqual(source_stock.source_document_number, 'SALDO-SDM-RCL-SRC')
+        self.assertEqual(destination_stock.source_document_number, 'RCV-SDM-RCL-DST')
+        self.assertEqual(destination_stock.quantity, Decimal('12'))
+        self.assertFalse(
+            Stock.objects.filter(
+                item=self.item,
+                location=destination,
+                batch_lot='SDM-RCL',
+                sumber_dana=self.funding,
+                source_document_number='SALDO-SDM-RCL-SRC',
+            ).exists()
+        )
+
+        transaction_migration.backfill_transaction_source_document_number(
+            self.MigrationApps(),
+            None,
+        )
+        opening_tx.refresh_from_db()
+        destination_receiving_tx.refresh_from_db()
+        transfer_out.refresh_from_db()
+        transfer_in.refresh_from_db()
+        self.assertEqual(opening_tx.source_document_number, 'SALDO-SDM-RCL-SRC')
+        self.assertEqual(destination_receiving_tx.source_document_number, 'RCV-SDM-RCL-DST')
+        self.assertEqual(transfer_out.source_document_number, 'SALDO-SDM-RCL-SRC')
+        self.assertEqual(transfer_in.source_document_number, 'SALDO-SDM-RCL-SRC')
+
+    def test_backfill_keeps_pending_expired_destination_unsplit(self):
+        stock_migration = importlib.import_module(
+            'apps.stock.migrations.0009_stock_source_document_number'
+        )
+        transaction_migration = importlib.import_module(
+            'apps.stock.migrations.0010_transaction_source_document_number'
+        )
+        destination = Location.objects.create(
+            code='SDM-EXP-DST',
+            name='Expired Transfer Destination',
+        )
+        destination_receiving = Receiving.objects.create(
+            document_number='RCV-SDM-EXP-DST',
+            receiving_date=date(2026, 1, 12),
+            receiving_type=Receiving.ReceivingType.GRANT,
+            sumber_dana=self.funding,
+            created_by=self.user,
+        )
+        opening_balance = OpeningBalanceImport.objects.create(
+            document_number='SALDO-SDM-EXP-SRC',
+            effective_date=date(2026, 1, 1),
+            created_by=self.user,
+        )
+        source_stock = Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot='SDM-EXP',
+            expiry_date=date(2030, 1, 1),
+            quantity=Decimal('5'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            source_document_number='',
+        )
+        destination_stock = Stock.objects.create(
+            item=self.item,
+            location=destination,
+            batch_lot='SDM-EXP',
+            expiry_date=date(2031, 1, 1),
+            quantity=Decimal('12'),
+            reserved=Decimal('0'),
+            unit_price=Decimal('2000'),
+            sumber_dana=self.funding,
+            receiving_ref=destination_receiving,
+            source_document_number='',
+        )
+        expired_doc = Expired.objects.create(
+            status=Expired.Status.SUBMITTED,
+            created_by=self.user,
+        )
+        ExpiredItem.objects.create(
+            expired=expired_doc,
+            item=self.item,
+            stock=destination_stock,
+            quantity=Decimal('8'),
+        )
+        opening_tx = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot='SDM-EXP',
+            quantity=Decimal('10'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.INITIAL_IMPORT,
+            reference_id=opening_balance.pk,
+            user=self.user,
+        )
+        destination_receiving_tx = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=destination,
+            batch_lot='SDM-EXP',
+            quantity=Decimal('7'),
+            unit_price=Decimal('2000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=destination_receiving.pk,
+            user=self.user,
+        )
+        transfer_out = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.OUT,
+            item=self.item,
+            location=self.location,
+            batch_lot='SDM-EXP',
+            quantity=Decimal('5'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.TRANSFER,
+            reference_id=809,
+            user=self.user,
+        )
+        transfer_in = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=destination,
+            batch_lot='SDM-EXP',
+            quantity=Decimal('5'),
+            unit_price=Decimal('1000'),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.TRANSFER,
+            reference_id=809,
+            user=self.user,
+        )
+
+        stock_migration.backfill_source_document_number(self.MigrationApps(), None)
+
+        source_stock.refresh_from_db()
+        destination_stock.refresh_from_db()
+        self.assertEqual(source_stock.source_document_number, 'SALDO-SDM-EXP-SRC')
+        self.assertEqual(destination_stock.source_document_number, 'RCV-SDM-EXP-DST')
+        self.assertEqual(destination_stock.quantity, Decimal('12'))
+        self.assertFalse(
+            Stock.objects.filter(
+                item=self.item,
+                location=destination,
+                batch_lot='SDM-EXP',
+                sumber_dana=self.funding,
+                source_document_number='SALDO-SDM-EXP-SRC',
+            ).exists()
+        )
+
+        transaction_migration.backfill_transaction_source_document_number(
+            self.MigrationApps(),
+            None,
+        )
+        opening_tx.refresh_from_db()
+        destination_receiving_tx.refresh_from_db()
+        transfer_out.refresh_from_db()
+        transfer_in.refresh_from_db()
+        self.assertEqual(opening_tx.source_document_number, 'SALDO-SDM-EXP-SRC')
+        self.assertEqual(destination_receiving_tx.source_document_number, 'RCV-SDM-EXP-DST')
+        self.assertEqual(transfer_out.source_document_number, 'SALDO-SDM-EXP-SRC')
+        self.assertEqual(transfer_in.source_document_number, 'SALDO-SDM-EXP-SRC')
 
     def test_backfill_keeps_equal_price_destination_with_later_outbound_unsplit(self):
         stock_migration = importlib.import_module(
