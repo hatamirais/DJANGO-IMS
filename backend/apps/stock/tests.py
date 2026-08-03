@@ -4235,6 +4235,51 @@ class StockTransferCreateValidationTests(TestCase):
         self.assertEqual(transfer.items.count(), 1)
         self.assertEqual(transfer.items.get().quantity, Decimal('2'))
 
+    def test_location_stock_search_exposes_source_document_layer(self):
+        self.stock.source_document_number = 'RCV-TRF-CREATE-001'
+        self.stock.save(update_fields=['source_document_number', 'updated_at'])
+
+        response = self.client.get(
+            reverse('stock:api_location_stock_search'),
+            {'location': self.source_location.pk},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        stock_row = next(
+            row
+            for row in response.json()['results']
+            if row['stock_id'] == self.stock.pk
+        )
+        self.assertEqual(
+            stock_row['source_document_number'],
+            'RCV-TRF-CREATE-001',
+        )
+        self.assertIn('Dokumen: RCV-TRF-CREATE-001', stock_row['label'])
+
+    def test_transfer_detail_displays_selected_source_document_layer(self):
+        self.stock.source_document_number = 'RCV-TRF-CREATE-DETAIL'
+        self.stock.save(update_fields=['source_document_number', 'updated_at'])
+        transfer = StockTransfer.objects.create(
+            source_location=self.source_location,
+            destination_location=self.destination_location,
+            created_by=self.user,
+            status=StockTransfer.Status.DRAFT,
+        )
+        StockTransferItem.objects.create(
+            transfer=transfer,
+            stock=self.stock,
+            item=self.item,
+            quantity=Decimal('2'),
+        )
+
+        response = self.client.get(
+            reverse('stock:transfer_detail', args=[transfer.pk])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Dokumen Sumber')
+        self.assertContains(response, 'RCV-TRF-CREATE-DETAIL')
+
 @override_settings(SECURE_SSL_REDIRECT=False, ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
 class StockListViewTests(TestCase):
     def setUp(self):

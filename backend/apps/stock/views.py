@@ -2021,6 +2021,7 @@ def api_location_stock_search(request):
             | Q(item__nama_barang__icontains=q)
             | Q(item__kategori__name__icontains=q)
             | Q(batch_lot__icontains=q)
+            | Q(source_document_number__icontains=q)
         )
 
     results = []
@@ -2039,6 +2040,8 @@ def api_location_stock_search(request):
                 "available": str(stock.available_quantity),
                 "funding": stock.sumber_dana.name,
                 "unit_price": str(stock.unit_price),
+                "source_document_number": stock.source_document_number,
+                "label": stock.picker_label,
             }
         )
 

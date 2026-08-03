@@ -879,7 +879,7 @@ function initStockTransferTable() {
         tableBody.innerHTML = '';
         if (!rows || rows.length === 0) {
             const tr = document.createElement('tr');
-            tr.innerHTML = '<td colspan="8" class="text-center text-muted py-3">Tidak ada stok yang cocok.</td>';
+            tr.innerHTML = '<td colspan="9" class="text-center text-muted py-3">Tidak ada stok yang cocok.</td>';
             tableBody.appendChild(tr);
             return;
         }
@@ -899,6 +899,7 @@ function initStockTransferTable() {
                 <td><span class="badge bg-light text-dark border">${row.kategori || '-'}</span></td>
                 <td>${row.batch}</td>
                 <td>${row.expiry}</td>
+                <td><code>${escapeHtml(row.source_document_number || '-')}</code></td>
                 <td class="text-end fw-semibold">${formatDecimal(row.available)}</td>
                 <td><span class="badge bg-light text-dark border">${row.funding}</span></td>
                 <td>
@@ -932,7 +933,7 @@ function initStockTransferTable() {
         const query = searchInput.value.trim();
 
         if (!location) {
-            tableBody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">Pilih lokasi asal untuk menampilkan stok.</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-3">Pilih lokasi asal untuk menampilkan stok.</td></tr>';
             return;
         }
 
@@ -941,7 +942,7 @@ function initStockTransferTable() {
             .then((res) => res.json())
             .then((data) => renderRows(data.results || []))
             .catch(() => {
-                tableBody.innerHTML = '<tr><td colspan="8" class="text-center text-danger py-3">Gagal memuat data stok.</td></tr>';
+                tableBody.innerHTML = '<tr><td colspan="9" class="text-center text-danger py-3">Gagal memuat data stok.</td></tr>';
             });
     };
 
