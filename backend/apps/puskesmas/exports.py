@@ -20,11 +20,29 @@ THIN_BORDER = Border(
     bottom=Side(style="thin"),
 )
 IDR_FORMAT = "#,##0.00"
+TEXT_FORMAT = "@"
 NUMBER_FORMAT = "#,##0"
 
 
 def _cell_value(value):
     return escape_xlsx_formula(value)
+
+
+def _decimal_text(value, *, decimal_places):
+    decimal_value = Decimal(str(value or 0))
+    label = format(decimal_value, "f")
+    if "." in label:
+        whole, fractional = label.split(".", 1)
+        fractional = fractional[:decimal_places].rstrip("0")
+        return f"{whole}.{fractional}" if fractional else whole
+    return label
+
+
+def _set_decimal_text(cell, value, *, decimal_places):
+    cell.value = _cell_value(_decimal_text(value, decimal_places=decimal_places))
+    cell.number_format = TEXT_FORMAT
+    cell.alignment = Alignment(horizontal="right")
+    return cell
 
 
 def _apply_header_row(ws, row_num, values, col_widths=None):
@@ -127,13 +145,13 @@ def export_puskesmas_penerimaan_excel(report_data, start_date, end_date, facilit
             row.get("distribution_document_number", ""),
             row.get("nama_barang", ""),
             row.get("satuan", ""),
-            float(qty),
-            float(unit_price),
+            qty,
+            unit_price,
             row.get("batch_lot", "") or "-",
             row.get("expiry_date").strftime("%d/%m/%Y")
             if row.get("expiry_date")
             else "-",
-            float(total_price),
+            total_price,
             row.get("notes", "") or "-",
         ]
         for col_idx, val in enumerate(values, 1):
@@ -145,8 +163,9 @@ def export_puskesmas_penerimaan_excel(report_data, start_date, end_date, facilit
                 cell.number_format = NUMBER_FORMAT
                 cell.alignment = Alignment(horizontal="right")
             elif col_idx == 8:
-                cell.number_format = IDR_FORMAT
-                cell.alignment = Alignment(horizontal="right")
+                _set_decimal_text(cell, val, decimal_places=10)
+            elif col_idx == 11:
+                _set_decimal_text(cell, val, decimal_places=12)
 
         total_qty += qty
         total_value += total_price
@@ -159,13 +178,12 @@ def export_puskesmas_penerimaan_excel(report_data, start_date, end_date, facilit
         cell.fill = TOTAL_FILL
         cell.border = THIN_BORDER
     ws.cell(row=row_num, column=3, value=_cell_value("TOTAL")).font = Font(bold=True)
-    qty_cell = ws.cell(row=row_num, column=7, value=float(total_qty))
+    qty_cell = ws.cell(row=row_num, column=7, value=total_qty)
     qty_cell.number_format = NUMBER_FORMAT
     qty_cell.alignment = Alignment(horizontal="right")
     qty_cell.font = Font(bold=True)
-    val_cell = ws.cell(row=row_num, column=11, value=float(total_value))
-    val_cell.number_format = IDR_FORMAT
-    val_cell.alignment = Alignment(horizontal="right")
+    val_cell = ws.cell(row=row_num, column=11, value=total_value)
+    _set_decimal_text(val_cell, total_value, decimal_places=12)
     val_cell.font = Font(bold=True)
 
     filename = f"Riwayat_Penerimaan_{facility_name}_{start_date}_{end_date}.xlsx"
@@ -376,10 +394,10 @@ def export_puskesmas_rekap_persediaan_excel(rekap_data, totals, year, period_lab
         values = [
             idx,
             row.get("kategori", "Lainnya"),
-            float(Decimal(str(row.get("saldo_awal", 0) or 0))),
-            float(Decimal(str(row.get("nilai_terima", 0) or 0))),
-            float(Decimal(str(row.get("nilai_keluar", 0) or 0))),
-            float(Decimal(str(row.get("saldo_akhir", 0) or 0))),
+            Decimal(str(row.get("saldo_awal", 0) or 0)),
+            Decimal(str(row.get("nilai_terima", 0) or 0)),
+            Decimal(str(row.get("nilai_keluar", 0) or 0)),
+            Decimal(str(row.get("saldo_akhir", 0) or 0)),
         ]
         for col_idx, val in enumerate(values, 1):
             cell = ws.cell(row=row_num, column=col_idx, value=_cell_value(val))
@@ -387,8 +405,7 @@ def export_puskesmas_rekap_persediaan_excel(rekap_data, totals, year, period_lab
             if col_idx == 1:
                 cell.alignment = Alignment(horizontal="center")
             elif col_idx >= 3:
-                cell.number_format = IDR_FORMAT
-                cell.alignment = Alignment(horizontal="right")
+                _set_decimal_text(cell, val, decimal_places=12)
         row_num += 1
 
     # Totals row
@@ -399,15 +416,14 @@ def export_puskesmas_rekap_persediaan_excel(rekap_data, totals, year, period_lab
         cell.border = THIN_BORDER
     ws.cell(row=row_num, column=2, value=_cell_value("TOTAL")).font = Font(bold=True)
     total_columns = [
-        (3, "saldo_awal", IDR_FORMAT, float),
-        (4, "nilai_terima", IDR_FORMAT, float),
-        (5, "nilai_keluar", IDR_FORMAT, float),
-        (6, "saldo_akhir", IDR_FORMAT, float),
+        (3, "saldo_awal"),
+        (4, "nilai_terima"),
+        (5, "nilai_keluar"),
+        (6, "saldo_akhir"),
     ]
-    for col_idx, key, fmt, caster in total_columns:
-        c = ws.cell(row=row_num, column=col_idx, value=caster(totals.get(key, 0)))
-        c.number_format = fmt
-        c.alignment = Alignment(horizontal="right")
+    for col_idx, key in total_columns:
+        c = ws.cell(row=row_num, column=col_idx)
+        _set_decimal_text(c, totals.get(key, 0), decimal_places=12)
         c.font = Font(bold=True)
 
     filename = f"Rekap_Persediaan_{facility_name}_{year}_{period_label}.xlsx"

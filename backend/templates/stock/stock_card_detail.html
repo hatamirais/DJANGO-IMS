@@ -192,7 +192,7 @@
                     <span class="badge bg-secondary-subtle text-secondary ms-2">{{ card.transactions|length }} transaksi</span>
                 </h6>
                 <div class="text-end">
-                    <div class="sd-price">Harga Satuan: Rp {{ card.unit_price|id_decimal:0 }}</div>
+                    <div class="sd-price">Harga Satuan: Rp {{ card.unit_price|id_decimal:2 }}</div>
                     <small class="text-muted d-block">Dokumen Sumber: {{ card.source_document_number|default:"-" }}</small>
                     <small class="text-muted d-block">Lokasi: {{ card.location_name|default:"-" }}</small>
                     <small class="text-muted d-block">Batch: {{ card.batch_lot|default:"-" }}</small>

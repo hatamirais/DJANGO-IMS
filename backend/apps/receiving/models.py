@@ -8,6 +8,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db.models import F
 from django.utils import timezone
+from apps.core.decimal_validation import PRICE_DECIMAL_PLACES, PRICE_MAX_DIGITS
 from apps.core.models import TimeStampedModel
 from .storage import ReceivingDocumentStorage
 
@@ -647,7 +648,10 @@ class ReceivingItem(models.Model):
     quantity = models.DecimalField(max_digits=12, decimal_places=2)
     batch_lot = models.CharField(max_length=100)
     expiry_date = models.DateField(null=True, blank=True)
-    unit_price = models.DecimalField(max_digits=15, decimal_places=2)
+    unit_price = models.DecimalField(
+        max_digits=PRICE_MAX_DIGITS,
+        decimal_places=PRICE_DECIMAL_PLACES,
+    )
     location = models.ForeignKey(
         "items.Location",
         on_delete=models.PROTECT,
@@ -734,7 +738,11 @@ class ReceivingOrderItem(TimeStampedModel):
     )
     planned_quantity = models.DecimalField(max_digits=12, decimal_places=2)
     received_quantity = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    unit_price = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    unit_price = models.DecimalField(
+        max_digits=PRICE_MAX_DIGITS,
+        decimal_places=PRICE_DECIMAL_PLACES,
+        default=0,
+    )
     notes = models.TextField(blank=True)
     is_cancelled = models.BooleanField(default=False)
     cancel_reason = models.TextField(blank=True)

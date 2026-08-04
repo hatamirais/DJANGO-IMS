@@ -277,7 +277,7 @@ class LPLPOItemPuskesmasForm(forms.ModelForm):
         )
         if decimal_value < 0:
             raise ValidationError("Harga satuan tidak boleh negatif.")
-        return decimal_value.quantize(Decimal("0.01"))
+        return decimal_value
 
     def clean_permintaan_alasan(self):
         return _normalize_text_value(
@@ -301,7 +301,7 @@ class LPLPOItemPuskesmasForm(forms.ModelForm):
         widgets = {
             "stock_awal": forms.NumberInput(attrs={"class": "form-control form-control-sm text-end", "step": "1"}),
             "penerimaan": forms.NumberInput(attrs={"class": "form-control form-control-sm text-end", "step": "1", "min": "0"}),
-            "harga_satuan": forms.NumberInput(attrs={"class": "form-control form-control-sm text-end", "step": "0.01", "min": "0"}),
+            "harga_satuan": forms.NumberInput(attrs={"class": "form-control form-control-sm text-end", "step": "any", "min": "0"}),
             "pemakaian": forms.NumberInput(attrs={"class": "form-control form-control-sm text-end", "step": "1", "min": "0"}),
             "stock_gudang_puskesmas": forms.NumberInput(attrs={"class": "form-control form-control-sm text-end", "step": "1", "min": "0"}),
             "waktu_kosong": forms.NumberInput(attrs={"class": "form-control form-control-sm text-end", "step": "1", "min": "0"}),

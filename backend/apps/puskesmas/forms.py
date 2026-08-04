@@ -355,7 +355,7 @@ class PuskesmasReceiptConfirmationItemForm(forms.ModelForm):
                 attrs={"class": "form-control form-control-sm", "min": "1", "step": "1"}
             ),
             "unit_price": forms.NumberInput(
-                attrs={"class": "form-control form-control-sm", "min": "0", "step": "0.01"}
+                attrs={"class": "form-control form-control-sm", "min": "0", "step": "any"}
             ),
             "batch_lot": forms.TextInput(
                 attrs={

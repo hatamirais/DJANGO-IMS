@@ -7,7 +7,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from apps.core.decimal_validation import validate_finite_decimal
+from apps.core.decimal_validation import PRICE_QUANT, validate_finite_decimal
 from apps.core.xlsx_exports import escape_xlsx_formula
 from apps.lplpo.models import get_previous_lplpo, is_january_bootstrap_period
 
@@ -54,7 +54,7 @@ THIN_BORDER = Border(
     bottom=Side(style="thin"),
 )
 NUMBER_FORMAT = "#,##0"
-DECIMAL_FORMAT = "#,##0.00"
+DECIMAL_FORMAT = "#,##0.##########"
 
 
 def _cell_value(value):
@@ -333,7 +333,7 @@ def apply_lplpo_workbook_import(*, uploaded_file, lplpo_obj):
         if harga_satuan < 0:
             workbook.close()
             raise ValidationError(f"Baris {row_num}: harga_satuan tidak boleh negatif.")
-        line.harga_satuan = harga_satuan.quantize(Decimal("0.01"))
+        line.harga_satuan = harga_satuan.quantize(PRICE_QUANT)
         line.stock_gudang_puskesmas = _parse_integer_from_cell(
             row_cells[12].value,
             field_label=f"Baris {row_num} stock_gudang_puskesmas",

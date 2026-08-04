@@ -179,7 +179,7 @@
                                             <div class="text-muted small">{{ row.distribution_item.item.kode_barang }}</div>
                                         </td>
                                         <td class="text-end">{{ row.source_quantity|id_decimal:2 }}</td>
-                                        <td class="text-end">{{ row.distribution_item.issued_unit_price|default:0|idr }}</td>
+                                        <td class="text-end">Rp {{ row.distribution_item.issued_unit_price|default:0|id_decimal:2 }}</td>
                                         <td>{{ row.distribution_item.issued_batch_lot|default:"-" }}</td>
                                         <td>{{ row.distribution_item.issued_expiry_date|date:"d/m/Y"|default:"-" }}</td>
                                     </tr>
@@ -337,7 +337,7 @@
                                     </select>
                                 </td>
                                 <td><input type="number" name="items-__prefix__-quantity" min="1" step="1" class="form-control form-control-sm" id="id_items-__prefix__-quantity"></td>
-                                <td><input type="number" name="items-__prefix__-unit_price" min="0" step="0.01" class="form-control form-control-sm" id="id_items-__prefix__-unit_price"></td>
+                                <td><input type="number" name="items-__prefix__-unit_price" min="0" step="any" class="form-control form-control-sm" id="id_items-__prefix__-unit_price"></td>
                                 <td><input type="text" name="items-__prefix__-batch_lot" class="form-control form-control-sm" id="id_items-__prefix__-batch_lot"></td>
                                 <td><input type="date" name="items-__prefix__-expiry_date" class="form-control form-control-sm" id="id_items-__prefix__-expiry_date"></td>
                                 <td><input type="text" name="items-__prefix__-notes" class="form-control form-control-sm" id="id_items-__prefix__-notes"></td>

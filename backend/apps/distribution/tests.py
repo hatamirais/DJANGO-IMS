@@ -770,6 +770,9 @@ class DistributionWorkflowTest(SecureClientDefaultsMixin, TestCase):
     # --- Distribute workflow (stock deduction + transaction) ---
 
     def test_distribute_deducts_stock_and_creates_transaction(self):
+        precise_price = Decimal("5000.1234567890")
+        self.stock.unit_price = precise_price
+        self.stock.save(update_fields=["unit_price", "updated_at"])
         dist = self._create_distribution(status=Distribution.Status.VERIFIED)
         response = self.client.post(
             reverse("distribution:distribution_distribute", args=[dist.pk])
@@ -793,12 +796,13 @@ class DistributionWorkflowTest(SecureClientDefaultsMixin, TestCase):
         self.assertEqual(txn.transaction_type, Transaction.TransactionType.OUT)
         self.assertEqual(txn.quantity, Decimal("40"))
         self.assertEqual(txn.item, self.item)
+        self.assertEqual(txn.unit_price, precise_price)
 
         distribution_item = dist.items.get()
         self.assertEqual(distribution_item.reserved_quantity, Decimal("0"))
         self.assertEqual(distribution_item.issued_batch_lot, "BATCH-D01")
         self.assertEqual(distribution_item.issued_expiry_date.isoformat(), "2027-12-31")
-        self.assertEqual(distribution_item.issued_unit_price, Decimal("5000"))
+        self.assertEqual(distribution_item.issued_unit_price, precise_price)
         self.assertEqual(distribution_item.issued_sumber_dana, self.funding_source)
 
     def test_assigned_gudang_can_distribute_verified_distribution(self):

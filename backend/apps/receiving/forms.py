@@ -305,7 +305,7 @@ class ReceivingItemForm(forms.ModelForm):
                 attrs={
                     "class": "form-control form-control-sm",
                     "min": "0",
-                    "step": "0.01",
+                    "step": "any",
                 }
             ),
             "location": forms.Select(attrs={"class": "form-select form-select-sm"}),
@@ -323,6 +323,13 @@ class ReceivingItemForm(forms.ModelForm):
         if quantity is not None and quantity <= 0:
             raise forms.ValidationError("Jumlah harus lebih dari 0.")
         return quantity
+
+    def clean_unit_price(self):
+        unit_price = self.cleaned_data.get("unit_price")
+        unit_price = validate_finite_decimal(unit_price, field_label="Harga satuan")
+        if unit_price is not None and unit_price < 0:
+            raise forms.ValidationError("Harga satuan tidak boleh negatif.")
+        return unit_price
 
     def clean(self):
         cleaned = super().clean()
@@ -356,7 +363,7 @@ class ReceivingOrderItemForm(forms.ModelForm):
                 attrs={
                     "class": "form-control form-control-sm",
                     "min": "0",
-                    "step": "0.01",
+                    "step": "any",
                 }
             ),
             "notes": forms.TextInput(attrs={"class": "form-control form-control-sm"}),
@@ -435,7 +442,7 @@ class ReceivingReceiptItemForm(forms.ModelForm):
                 attrs={
                     "class": "form-control form-control-sm",
                     "min": "0",
-                    "step": "0.01",
+                    "step": "any",
                 }
             ),
             "location": forms.Select(attrs={"class": "form-select form-select-sm"}),
@@ -509,6 +516,8 @@ class ReceivingReceiptItemForm(forms.ModelForm):
                     unit_price,
                     field_label="Harga satuan",
                 )
+                if cleaned["unit_price"] < 0:
+                    self.add_error("unit_price", "Harga satuan tidak boleh negatif.")
             except forms.ValidationError as exc:
                 self.add_error("unit_price", exc)
                 cleaned["unit_price"] = None

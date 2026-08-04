@@ -168,7 +168,8 @@ class ProcurementWorkflowTests(TestCase):
         self.assertTrue(form.is_valid(), form.errors)
 
     def test_contract_approval_creates_linked_planned_receiving(self):
-        contract, line = self._approve_contract(quantity="12", unit_price="7500")
+        precise_price = Decimal("7500.1234567890")
+        contract, line = self._approve_contract(quantity="12", unit_price=str(precise_price))
 
         receiving = Receiving.objects.get(contract=contract)
         order_item = ReceivingOrderItem.objects.get(receiving=receiving)
@@ -182,7 +183,7 @@ class ProcurementWorkflowTests(TestCase):
         self.assertEqual(order_item.contract_line, line)
         self.assertEqual(order_item.item, self.item)
         self.assertEqual(order_item.planned_quantity, Decimal("12"))
-        self.assertEqual(order_item.unit_price, Decimal("7500"))
+        self.assertEqual(order_item.unit_price, precise_price)
 
     def test_contract_approval_uses_plan_creation_date_not_contract_date(self):
         contract, _line = self._create_contract(quantity="12", unit_price="7500")
@@ -202,6 +203,7 @@ class ProcurementWorkflowTests(TestCase):
 
     def test_amendment_approval_resyncs_open_receiving_plan(self):
         contract, line = self._approve_contract(quantity="10", unit_price="5000")
+        precise_price = Decimal("6500.1234567890")
         amendment = ProcurementAmendment.objects.create(
             contract=contract,
             amendment_date=date(2026, 7, 3),
@@ -214,7 +216,7 @@ class ProcurementWorkflowTests(TestCase):
             amendment=amendment,
             contract_line=line,
             revised_quantity=Decimal("15"),
-            revised_unit_price=Decimal("6500"),
+            revised_unit_price=precise_price,
             notes="Naik qty",
         )
 
@@ -231,7 +233,7 @@ class ProcurementWorkflowTests(TestCase):
         self.assertEqual(amendment.status, ProcurementAmendment.Status.APPROVED)
         self.assertEqual(receiving.receiving_date, original_receiving_date)
         self.assertEqual(order_item.planned_quantity, Decimal("15"))
-        self.assertEqual(order_item.unit_price, Decimal("6500"))
+        self.assertEqual(order_item.unit_price, precise_price)
 
     def test_amendment_below_already_received_quantity_is_rejected(self):
         contract, _line = self._approve_contract(quantity="10", unit_price="5000")

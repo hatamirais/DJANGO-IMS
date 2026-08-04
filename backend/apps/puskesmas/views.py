@@ -2460,8 +2460,8 @@ def puskesmas_report_rekap_persediaan(request):
             facilities_to_query = facilities_to_query.filter(pk=facility.pk)
 
         category_map = {}
-        money_field = DecimalField(max_digits=20, decimal_places=2)
-        zero_money = Value(Decimal("0.00"), output_field=money_field)
+        money_field = DecimalField(max_digits=38, decimal_places=12)
+        zero_money = Value(Decimal("0"), output_field=money_field)
         stock_awal_value = ExpressionWrapper(
             F("stock_awal") * F("harga_satuan"),
             output_field=money_field,

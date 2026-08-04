@@ -18,7 +18,12 @@ import io
 from collections import defaultdict
 from datetime import datetime
 
-from apps.core.decimal_validation import parse_decimal_input
+from apps.core.decimal_validation import (
+    PRICE_DECIMAL_PLACES,
+    PRICE_MAX_DIGITS,
+    parse_decimal_input,
+    validate_decimal_precision,
+)
 from .models import (
     Receiving,
     ReceivingItem,
@@ -501,6 +506,9 @@ class ReceivingAdmin(admin.ModelAdmin):
                     row.get("unit_price", "0"),
                     row_num=row_num,
                     field_name="unit_price",
+                    must_be_non_negative=True,
+                    max_digits=PRICE_MAX_DIGITS,
+                    decimal_places=PRICE_DECIMAL_PLACES,
                 )
                 batch_lot = row.get("batch_lot", "").strip()
                 expiry_date_str = row.get("expiry_date", "").strip()
@@ -694,6 +702,9 @@ class ReceivingAdmin(admin.ModelAdmin):
         *,
         required=False,
         must_be_positive=False,
+        must_be_non_negative=False,
+        max_digits=None,
+        decimal_places=None,
     ):
         """Parse decimal value, handling comma as decimal separator."""
         raw_value = (value or "").strip()
@@ -714,6 +725,24 @@ class ReceivingAdmin(admin.ModelAdmin):
             if row_num is not None:
                 raise ValueError(f"Baris {row_num}: {message}")
             raise ValueError(message)
+        if must_be_non_negative and decimal_value < 0:
+            message = f"{field_name} tidak boleh negatif"
+            if row_num is not None:
+                raise ValueError(f"Baris {row_num}: {message}")
+            raise ValueError(message)
+
+        if max_digits is not None and decimal_places is not None:
+            try:
+                decimal_value = validate_decimal_precision(
+                    decimal_value,
+                    max_digits=max_digits,
+                    decimal_places=decimal_places,
+                    field_label=field_name,
+                )
+            except forms.ValidationError as exc:
+                if row_num is not None:
+                    raise ValueError(f"Baris {row_num}: {exc.messages[0]}") from exc
+                raise ValueError(exc.messages[0]) from exc
 
         return decimal_value
 

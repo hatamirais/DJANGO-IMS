@@ -422,6 +422,7 @@ def reports_rekap(request):
         base_qs = Transaction.objects.all()
         if selected_sd_ids:
             base_qs = base_qs.filter(sumber_dana_id__in=selected_sd_ids)
+        money_field = models.DecimalField(max_digits=38, decimal_places=12)
 
         # Aggregate by sumber_dana + kategori
         qs = base_qs.annotate(
@@ -486,10 +487,10 @@ def reports_rekap(request):
                         When(created_at__date__lt=start_date, transaction_type='OUT',
                              then=-F('quantity') * F('unit_price')),
                         default=0,
-                        output_field=models.DecimalField()
+                        output_field=money_field
                     )
                 ),
-                0, output_field=models.DecimalField()
+                0, output_field=money_field
             ),
             nilai_terima=Coalesce(
                 Sum(
@@ -505,10 +506,10 @@ def reports_rekap(request):
                             then=F('quantity') * F('unit_price')
                         ),
                         default=0,
-                        output_field=models.DecimalField()
+                        output_field=money_field
                     )
                 ),
-                0, output_field=models.DecimalField()
+                0, output_field=money_field
             ),
             nilai_distribusi=Coalesce(
                 Sum(
@@ -520,10 +521,10 @@ def reports_rekap(request):
                             then=F('quantity') * F('unit_price')
                         ),
                         default=0,
-                        output_field=models.DecimalField()
+                        output_field=money_field
                     )
                 ),
-                0, output_field=models.DecimalField()
+                0, output_field=money_field
             ),
             nilai_ed=Coalesce(
                 Sum(
@@ -535,10 +536,10 @@ def reports_rekap(request):
                             then=F('quantity') * F('unit_price')
                         ),
                         default=0,
-                        output_field=models.DecimalField()
+                        output_field=money_field
                     )
                 ),
-                0, output_field=models.DecimalField()
+                0, output_field=money_field
             ),
         ).order_by('sumber_dana__name', 'item__kategori__sort_order', 'item__kategori__name')
 

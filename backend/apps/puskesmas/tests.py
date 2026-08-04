@@ -16,7 +16,10 @@ from openpyxl import load_workbook
 from apps.core.tests.mixins import SecureClientDefaultsMixin
 from apps.distribution.models import Distribution, DistributionItem
 from apps.items.models import Category, Facility, Item, Unit
-from apps.puskesmas.exports import export_puskesmas_penerimaan_excel
+from apps.puskesmas.exports import (
+	export_puskesmas_penerimaan_excel,
+	export_puskesmas_rekap_persediaan_excel,
+)
 from apps.puskesmas.forms import (
 	PuskesmasConsumptionMatrixForm,
 	PuskesmasRequestForm,
@@ -1082,6 +1085,8 @@ class PuskesmasSBBKViewTests(SecureClientDefaultsMixin, TestCase):
 	def test_operator_can_create_and_list_own_facility_sbbk(self):
 		self.client.force_login(self.operator)
 		distribution, distribution_item = self._create_distribution()
+		distribution_item.issued_unit_price = Decimal("1000.1234567890")
+		distribution_item.save(update_fields=["issued_unit_price"])
 		create_response = self.client.post(
 			reverse("puskesmas:receiving_create"),
 			self._create_payload(
@@ -1095,6 +1100,10 @@ class PuskesmasSBBKViewTests(SecureClientDefaultsMixin, TestCase):
 		sbbk = PuskesmasSBBK.objects.get()
 		self.assertEqual(sbbk.facility, self.facility)
 		self.assertEqual(sbbk.created_by, self.operator)
+		self.assertEqual(
+			PuskesmasSBBKItem.objects.get().unit_price,
+			Decimal("1000.1234567890"),
+		)
 
 		list_response = self.client.get(reverse("puskesmas:receiving_list"))
 		self.assertEqual(list_response.status_code, 200)
@@ -3338,8 +3347,6 @@ class PuskesmasReportViewTests(SecureClientDefaultsMixin, TestCase):
 		)
 
 	def test_rekap_persediaan_excel_export_uses_category_summary_headers(self):
-		from apps.puskesmas.exports import export_puskesmas_rekap_persediaan_excel
-
 		response = export_puskesmas_rekap_persediaan_excel(
 			rekap_data=[
 				{
@@ -3391,8 +3398,8 @@ class PuskesmasReportViewTests(SecureClientDefaultsMixin, TestCase):
 					"distribution_document_number": "@DIST-SOURCE",
 					"nama_barang": "@Amoxicillin 500 mg",
 					"satuan": "-Tablet",
-					"quantity": Decimal("5"),
-					"unit_price": Decimal("2500"),
+					"quantity": Decimal("1.01"),
+					"unit_price": Decimal("9999999999999.1234567891"),
 					"batch_lot": "+BATCH-LOT",
 					"expiry_date": None,
 					"notes": "=BATCH-01",
@@ -3417,10 +3424,40 @@ class PuskesmasReportViewTests(SecureClientDefaultsMixin, TestCase):
 		self.assertEqual(sheet["I5"].value, "'+BATCH-LOT")
 		self.assertEqual(sheet["L5"].value, "'=BATCH-01")
 		self.assertEqual(sheet["A2"].data_type, "s")
-		self.assertEqual(sheet["G5"].value, 5)
-		self.assertEqual(sheet["H5"].value, 2500)
-		self.assertEqual(sheet["K5"].value, 12500)
+		self.assertEqual(sheet["G5"].value, 1.01)
+		self.assertEqual(sheet["H5"].value, "9999999999999.1234567891")
+		self.assertEqual(sheet["K5"].value, "10099999999999.114691356991")
 		self.assertEqual(sheet["G5"].data_type, "n")
-		self.assertEqual(sheet["H5"].data_type, "n")
-		self.assertEqual(sheet["K5"].data_type, "n")
+		self.assertEqual(sheet["H5"].data_type, "s")
+		self.assertEqual(sheet["K5"].data_type, "s")
+		self.assertEqual(sheet["K6"].value, "10099999999999.114691356991")
+
+	def test_rekap_persediaan_excel_exports_values_as_precise_text(self):
+		response = export_puskesmas_rekap_persediaan_excel(
+			[
+				{
+					"kategori": self.category.name,
+					"saldo_awal": Decimal("0.124691356991"),
+					"nilai_terima": Decimal("10099999999999.114691356991"),
+					"nilai_keluar": Decimal("0"),
+					"saldo_akhir": Decimal("10099999999999.239382713982"),
+				}
+			],
+			{
+				"saldo_awal": Decimal("0.124691356991"),
+				"nilai_terima": Decimal("10099999999999.114691356991"),
+				"nilai_keluar": Decimal("0"),
+				"saldo_akhir": Decimal("10099999999999.239382713982"),
+			},
+			year=2026,
+			period_label="Triwulan I",
+			facility_name=self.facility.name,
+		)
+
+		workbook = load_workbook(BytesIO(response.content))
+		sheet = workbook.active
+		self.assertEqual(sheet["C5"].value, "0.124691356991")
+		self.assertEqual(sheet["D5"].value, "10099999999999.114691356991")
+		self.assertEqual(sheet["F6"].value, "10099999999999.239382713982")
+		self.assertEqual(sheet["C5"].data_type, "s")
 

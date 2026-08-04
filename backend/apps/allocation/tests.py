@@ -454,38 +454,42 @@ class AllocationRouteTest(TestCase):
         self.client.force_login(self.fixtures["admin"])
 
     def test_list_page_loads(self):
-        response = self.client.get(reverse("allocation:allocation_list"))
+        response = self.client.get(reverse("allocation:allocation_list"), secure=True)
         self.assertEqual(response.status_code, 200)
 
     def test_create_page_loads(self):
-        response = self.client.get(reverse("allocation:allocation_create"))
+        response = self.client.get(reverse("allocation:allocation_create"), secure=True)
         self.assertEqual(response.status_code, 200)
 
     def test_detail_page_loads(self):
         allocation = _create_allocation(self.fixtures)
         response = self.client.get(
-            reverse("allocation:allocation_detail", args=[allocation.pk])
+            reverse("allocation:allocation_detail", args=[allocation.pk]),
+            secure=True,
         )
         self.assertEqual(response.status_code, 200)
 
     def test_edit_page_loads(self):
         allocation = _create_allocation(self.fixtures)
         response = self.client.get(
-            reverse("allocation:allocation_edit", args=[allocation.pk])
+            reverse("allocation:allocation_edit", args=[allocation.pk]),
+            secure=True,
         )
         self.assertEqual(response.status_code, 200)
 
     def test_edit_non_draft_redirects(self):
         allocation = _create_allocation(self.fixtures, status=Allocation.Status.SUBMITTED)
         response = self.client.get(
-            reverse("allocation:allocation_edit", args=[allocation.pk])
+            reverse("allocation:allocation_edit", args=[allocation.pk]),
+            secure=True,
         )
         self.assertEqual(response.status_code, 302)
 
     def test_delete_draft(self):
         allocation = _create_allocation(self.fixtures)
         response = self.client.post(
-            reverse("allocation:allocation_delete", args=[allocation.pk])
+            reverse("allocation:allocation_delete", args=[allocation.pk]),
+            secure=True,
         )
         self.assertEqual(response.status_code, 302)
         self.assertFalse(Allocation.objects.filter(pk=allocation.pk).exists())
@@ -493,7 +497,8 @@ class AllocationRouteTest(TestCase):
     def test_delete_approved_fails(self):
         allocation = _create_allocation(self.fixtures, status=Allocation.Status.APPROVED)
         response = self.client.post(
-            reverse("allocation:allocation_delete", args=[allocation.pk])
+            reverse("allocation:allocation_delete", args=[allocation.pk]),
+            secure=True,
         )
         self.assertEqual(response.status_code, 302)
         self.assertTrue(Allocation.objects.filter(pk=allocation.pk).exists())
@@ -504,7 +509,8 @@ class AllocationRouteTest(TestCase):
         execute_allocation_approval(allocation, self.fixtures["admin"])
 
         response = self.client.post(
-            reverse("allocation:allocation_step_back", args=[allocation.pk])
+            reverse("allocation:allocation_step_back", args=[allocation.pk]),
+            secure=True,
         )
 
         self.assertEqual(response.status_code, 302)

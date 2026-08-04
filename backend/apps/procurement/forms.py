@@ -98,7 +98,7 @@ class ProcurementContractLineForm(forms.ModelForm):
         widgets = {
             "item": forms.Select(attrs={"class": "form-select form-select-sm js-typeahead-select"}),
             "original_quantity": forms.NumberInput(attrs={"class": "form-control form-control-sm", "step": "0.01", "min": "0.01"}),
-            "original_unit_price": forms.NumberInput(attrs={"class": "form-control form-control-sm", "step": "0.01", "min": "0.01"}),
+            "original_unit_price": forms.NumberInput(attrs={"class": "form-control form-control-sm", "step": "any", "min": "0.0000000001"}),
             "notes": forms.TextInput(attrs={"class": "form-control form-control-sm"}),
         }
 
@@ -174,7 +174,7 @@ class ProcurementAmendmentLineForm(forms.ModelForm):
         widgets = {
             "contract_line": forms.Select(attrs={"class": "form-select form-select-sm"}),
             "revised_quantity": forms.NumberInput(attrs={"class": "form-control form-control-sm", "step": "0.01", "min": "0.01"}),
-            "revised_unit_price": forms.NumberInput(attrs={"class": "form-control form-control-sm", "step": "0.01", "min": "0.01"}),
+            "revised_unit_price": forms.NumberInput(attrs={"class": "form-control form-control-sm", "step": "any", "min": "0.0000000001"}),
             "notes": forms.TextInput(attrs={"class": "form-control form-control-sm"}),
         }
 

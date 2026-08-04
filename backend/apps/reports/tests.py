@@ -71,7 +71,7 @@ class NumberingHistoryReportTests(TestCase):
 		lplpo_dist = self._create_distribution(Distribution.DistributionType.LPLPO)
 		special_dist = self._create_distribution(Distribution.DistributionType.SPECIAL_REQUEST)
 
-		response = self.client.get(reverse('reports:numbering_history'))
+		response = self.client.get(reverse('reports:numbering_history'), secure=True)
 
 		self.assertEqual(response.status_code, 200)
 		self.assertContains(response, lplpo_dist.document_number)
@@ -86,6 +86,7 @@ class NumberingHistoryReportTests(TestCase):
 		response = self.client.get(
 			reverse('reports:numbering_history'),
 			{'distribution_type': Distribution.DistributionType.LPLPO, 'year': 2026},
+			secure=True,
 		)
 
 		self.assertEqual(response.status_code, 200)
@@ -95,7 +96,7 @@ class NumberingHistoryReportTests(TestCase):
 	def test_numbering_history_page_shows_print_and_export_actions(self):
 		self._create_distribution(Distribution.DistributionType.LPLPO)
 
-		response = self.client.get(reverse('reports:numbering_history'))
+		response = self.client.get(reverse('reports:numbering_history'), secure=True)
 
 		self.assertContains(response, 'Cetak Laporan')
 		self.assertContains(response, 'Export Excel')
@@ -106,6 +107,7 @@ class NumberingHistoryReportTests(TestCase):
 		response = self.client.get(
 			reverse('reports:numbering_history'),
 			{'year': 2026, 'format': 'excel'},
+			secure=True,
 		)
 
 		self.assertEqual(response.status_code, 200)
@@ -832,6 +834,7 @@ class PengeluaranReportTests(TestCase):
 				'end_date': '2026-04-30',
 				'distribution_type': Distribution.DistributionType.ALLOCATION,
 			},
+			secure=True,
 		)
 
 		self.assertEqual(response.status_code, 200)
@@ -854,6 +857,7 @@ class PengeluaranReportTests(TestCase):
 				'start_date': '2026-04-01',
 				'end_date': '2026-04-30',
 			},
+			secure=True,
 		)
 
 		self.assertEqual(response.status_code, 200)
@@ -889,6 +893,7 @@ class PengeluaranReportTests(TestCase):
 				'facility': self.facility.pk,
 				'distribution_type': Distribution.DistributionType.SPECIAL_REQUEST,
 			},
+			secure=True,
 		)
 
 		self.assertEqual(response.status_code, 200)
@@ -909,6 +914,7 @@ class PengeluaranReportTests(TestCase):
 				'end_date': '2026-04-30',
 				'distribution_type': 'NOT_A_REAL_TYPE',
 			},
+			secure=True,
 		)
 
 		self.assertEqual(response.status_code, 200)
@@ -930,6 +936,7 @@ class PengeluaranReportTests(TestCase):
 				'distribution_type': Distribution.DistributionType.ALLOCATION,
 				'format': 'excel',
 			},
+			secure=True,
 		)
 
 		self.assertEqual(response.status_code, 200)
@@ -949,6 +956,7 @@ class PengeluaranReportTests(TestCase):
 				'start_date': '2026-04-01',
 				'end_date': '2026-04-30',
 			},
+			secure=True,
 		)
 
 		self.assertEqual(response.status_code, 200)
@@ -974,9 +982,9 @@ class PengeluaranReportTests(TestCase):
 					"batch_lot": "=BATCH-01",
 					"expiry_date": None,
 					"sumber_dana": "=DAU",
-					"unit_price": 2500,
-					"quantity": 5,
-					"total_price": 12500,
+					"unit_price": Decimal("9999999999999.1234567891"),
+					"quantity": Decimal("1.01"),
+					"total_price": Decimal("10099999999999.114691356991"),
 				}
 			],
 			"2026-04-01",
@@ -999,12 +1007,13 @@ class PengeluaranReportTests(TestCase):
 		self.assertEqual(sheet["F5"].value, "'=BATCH-01")
 		self.assertEqual(sheet["H5"].value, "'=DAU")
 		self.assertEqual(sheet["A2"].data_type, "s")
-		self.assertEqual(sheet["I5"].value, 2500)
-		self.assertEqual(sheet["J5"].value, 5)
-		self.assertEqual(sheet["K5"].value, 12500)
-		self.assertEqual(sheet["I5"].data_type, "n")
+		self.assertEqual(sheet["I5"].value, "9999999999999.1234567891")
+		self.assertEqual(sheet["J5"].value, 1.01)
+		self.assertEqual(sheet["K5"].value, "10099999999999.114691356991")
+		self.assertEqual(sheet["I5"].data_type, "s")
 		self.assertEqual(sheet["J5"].data_type, "n")
-		self.assertEqual(sheet["K5"].data_type, "n")
+		self.assertEqual(sheet["K5"].data_type, "s")
+		self.assertEqual(sheet["K6"].value, "10099999999999.114691356991")
 
 
 class ProcurementReportTests(TestCase):

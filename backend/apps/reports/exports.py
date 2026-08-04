@@ -21,10 +21,29 @@ THIN_BORDER = Border(
     bottom=Side(style="thin"),
 )
 IDR_FORMAT = '#,##0.00'
+PRECISE_DECIMAL_FORMAT = '#,##0.##########'
+TEXT_FORMAT = '@'
 
 
 def _cell_value(value):
     return escape_xlsx_formula(value)
+
+
+def _decimal_text(value, *, decimal_places):
+    decimal_value = Decimal(str(value or 0))
+    label = format(decimal_value, "f")
+    if "." in label:
+        whole, fractional = label.split(".", 1)
+        fractional = fractional[:decimal_places].rstrip("0")
+        return f"{whole}.{fractional}" if fractional else whole
+    return label
+
+
+def _set_decimal_text(cell, value, *, decimal_places):
+    cell.value = _cell_value(_decimal_text(value, decimal_places=decimal_places))
+    cell.number_format = TEXT_FORMAT
+    cell.alignment = Alignment(horizontal="right")
+    return cell
 
 
 def _apply_header_row(ws, row_num, values, col_widths=None):
@@ -127,20 +146,22 @@ def export_rincian_excel(report_data, start_date, end_date):
             row.get('source_document_number', ''),
             expiry,
             row.get('sumber_dana__name', ''),
-            float(row.get('unit_price', 0)),
-            float(row.get('initial_stock', 0)),
-            float(row.get('received', 0)),
-            float(row.get('transfer_in', 0)),
-            float(row.get('distributed', 0)),
-            float(row.get('transfer_out', 0)),
-            float(row.get('expired', 0)),
-            float(row.get('ending_stock', 0)),
+            row.get('unit_price', 0),
+            row.get('initial_stock', 0),
+            row.get('received', 0),
+            row.get('transfer_in', 0),
+            row.get('distributed', 0),
+            row.get('transfer_out', 0),
+            row.get('expired', 0),
+            row.get('ending_stock', 0),
         ]
         for col_idx, val in enumerate(values, 1):
             cell = ws.cell(row=row_num, column=col_idx, value=_cell_value(val))
             cell.border = THIN_BORDER
-            if col_idx >= 9:  # Numeric columns
-                cell.number_format = IDR_FORMAT
+            if col_idx == 9:
+                _set_decimal_text(cell, val, decimal_places=10)
+            elif col_idx >= 10:
+                cell.number_format = PRECISE_DECIMAL_FORMAT
                 cell.alignment = Alignment(horizontal="right")
             elif col_idx == 1:
                 cell.alignment = Alignment(horizontal="center")
@@ -189,11 +210,11 @@ def export_rekap_excel(rekap_data, grand_totals, start_date, end_date):
         sd_values = [
             "",
             sd_group['sd_name'],
-            float(sd_group['subtotal_saldo_awal']),
-            float(sd_group['subtotal_nilai_terima']),
-            float(sd_group['subtotal_nilai_distribusi']),
-            float(sd_group['subtotal_nilai_ed']),
-            float(sd_group['subtotal_saldo_akhir']),
+            sd_group['subtotal_saldo_awal'],
+            sd_group['subtotal_nilai_terima'],
+            sd_group['subtotal_nilai_distribusi'],
+            sd_group['subtotal_nilai_ed'],
+            sd_group['subtotal_saldo_akhir'],
         ]
         for col_idx, val in enumerate(sd_values, 1):
             cell = ws.cell(row=row_num, column=col_idx, value=_cell_value(val))
@@ -201,8 +222,7 @@ def export_rekap_excel(rekap_data, grand_totals, start_date, end_date):
             cell.fill = SD_HEADER_FILL
             cell.border = THIN_BORDER
             if col_idx >= 3:
-                cell.number_format = IDR_FORMAT
-                cell.alignment = Alignment(horizontal="right")
+                _set_decimal_text(cell, val, decimal_places=12)
         row_num += 1
 
         # Category rows
@@ -210,18 +230,17 @@ def export_rekap_excel(rekap_data, grand_totals, start_date, end_date):
             cat_values = [
                 idx,
                 cat['kategori'],
-                float(cat['saldo_awal']),
-                float(cat['nilai_terima']),
-                float(cat['nilai_distribusi']),
-                float(cat['nilai_ed']),
-                float(cat['saldo_akhir']),
+                cat['saldo_awal'],
+                cat['nilai_terima'],
+                cat['nilai_distribusi'],
+                cat['nilai_ed'],
+                cat['saldo_akhir'],
             ]
             for col_idx, val in enumerate(cat_values, 1):
                 cell = ws.cell(row=row_num, column=col_idx, value=_cell_value(val))
                 cell.border = THIN_BORDER
                 if col_idx >= 3:
-                    cell.number_format = IDR_FORMAT
-                    cell.alignment = Alignment(horizontal="right")
+                    _set_decimal_text(cell, val, decimal_places=12)
                 elif col_idx == 1:
                     cell.alignment = Alignment(horizontal="center")
             row_num += 1
@@ -230,11 +249,11 @@ def export_rekap_excel(rekap_data, grand_totals, start_date, end_date):
     total_values = [
         "",
         "Total",
-        float(grand_totals.get('saldo_awal', 0)),
-        float(grand_totals.get('nilai_terima', 0)),
-        float(grand_totals.get('nilai_distribusi', 0)),
-        float(grand_totals.get('nilai_ed', 0)),
-        float(grand_totals.get('saldo_akhir', 0)),
+        grand_totals.get('saldo_awal', 0),
+        grand_totals.get('nilai_terima', 0),
+        grand_totals.get('nilai_distribusi', 0),
+        grand_totals.get('nilai_ed', 0),
+        grand_totals.get('saldo_akhir', 0),
     ]
     for col_idx, val in enumerate(total_values, 1):
         cell = ws.cell(row=row_num, column=col_idx, value=_cell_value(val))
@@ -242,8 +261,7 @@ def export_rekap_excel(rekap_data, grand_totals, start_date, end_date):
         cell.fill = TOTAL_FILL
         cell.border = THIN_BORDER
         if col_idx >= 3:
-            cell.number_format = IDR_FORMAT
-            cell.alignment = Alignment(horizontal="right")
+            _set_decimal_text(cell, val, decimal_places=12)
         elif col_idx == 2:
             cell.alignment = Alignment(horizontal="center")
 
@@ -338,22 +356,26 @@ def _export_penerimaan_excel(report_data, start_date, end_date, title, filename_
     _apply_header_row(ws, 4, headers, col_widths)
 
     row_num = 5
-    total_qty = 0
-    total_value = 0
+    total_qty = Decimal("0")
+    total_value = Decimal("0")
 
     for idx, row in enumerate(report_data, 1):
         values = row_builder(idx, row)
         for col_idx, val in enumerate(values, 1):
             cell = ws.cell(row=row_num, column=col_idx, value=_cell_value(val))
             cell.border = THIN_BORDER
-            # Last two cols are numeric (qty + total Rp), unit_price is third-to-last
-            if col_idx >= col_count - 2:
+            # Last three cols are unit price, qty, and total value.
+            if col_idx == col_count - 2:
+                _set_decimal_text(cell, val, decimal_places=10)
+            elif col_idx == col_count:
+                _set_decimal_text(cell, val, decimal_places=12)
+            elif col_idx == col_count - 1:
                 cell.number_format = IDR_FORMAT
                 cell.alignment = Alignment(horizontal="right")
             elif col_idx == 1:
                 cell.alignment = Alignment(horizontal="center")
-        total_qty += float(row.get('quantity', 0))
-        total_value += float(row.get('total_price', 0))
+        total_qty += Decimal(str(row.get('quantity', 0) or 0))
+        total_value += Decimal(str(row.get('total_price', 0) or 0))
         row_num += 1
 
     # Total row
@@ -368,8 +390,7 @@ def _export_penerimaan_excel(report_data, start_date, end_date, title, filename_
     qty_cell.number_format = IDR_FORMAT
     qty_cell.alignment = Alignment(horizontal="right")
     val_cell = ws.cell(row=row_num, column=col_count, value=total_value)
-    val_cell.number_format = IDR_FORMAT
-    val_cell.alignment = Alignment(horizontal="right")
+    _set_decimal_text(val_cell, total_value, decimal_places=12)
 
     filename = f"{filename_prefix}_{start_date}_{end_date}.xlsx"
     return _make_response(wb, filename)
@@ -396,9 +417,9 @@ def export_penerimaan_hibah_excel(report_data, start_date, end_date):
             row.get('satuan', ''),
             row.get('batch_lot', ''),
             expiry,
-            float(row.get('unit_price', 0)),
-            float(row.get('quantity', 0)),
-            float(row.get('total_price', 0)),
+            row.get('unit_price', 0),
+            row.get('quantity', 0),
+            row.get('total_price', 0),
         ]
 
     return _export_penerimaan_excel(
@@ -432,9 +453,9 @@ def export_pengadaan_excel(report_data, start_date, end_date):
             row.get('satuan', ''),
             row.get('batch_lot', ''),
             expiry,
-            float(row.get('unit_price', 0)),
-            float(row.get('quantity', 0)),
-            float(row.get('total_price', 0)),
+            row.get('unit_price', 0),
+            row.get('quantity', 0),
+            row.get('total_price', 0),
         ]
 
     return _export_penerimaan_excel(
@@ -468,9 +489,9 @@ def export_kadaluarsa_excel(report_data, start_date, end_date):
             row.get('batch_lot', ''),
             expiry,
             row.get('sumber_dana', ''),
-            float(row.get('unit_price', 0)),
-            float(row.get('quantity', 0)),
-            float(row.get('total_price', 0)),
+            row.get('unit_price', 0),
+            row.get('quantity', 0),
+            row.get('total_price', 0),
         ]
 
     return _export_penerimaan_excel(
@@ -544,20 +565,24 @@ def export_pengeluaran_excel(
             row.get('batch_lot', ''),
             expiry,
             row.get('sumber_dana', ''),
-            float(row.get('unit_price', 0)),
-            float(row.get('quantity', 0)),
-            float(row.get('total_price', 0)),
+            row.get('unit_price', 0),
+            row.get('quantity', 0),
+            row.get('total_price', 0),
         ]
         for col_idx, val in enumerate(values, 1):
             cell = ws.cell(row=row_num, column=col_idx, value=_cell_value(val))
             cell.border = THIN_BORDER
-            if col_idx >= col_count - 2:
+            if col_idx == col_count - 2:
+                _set_decimal_text(cell, val, decimal_places=10)
+            elif col_idx == col_count:
+                _set_decimal_text(cell, val, decimal_places=12)
+            elif col_idx == col_count - 1:
                 cell.number_format = IDR_FORMAT
                 cell.alignment = Alignment(horizontal="right")
             elif col_idx == 1:
                 cell.alignment = Alignment(horizontal="center")
-        total_qty += float(row.get('quantity', 0))
-        total_value += float(row.get('total_price', 0))
+        total_qty += Decimal(str(row.get('quantity', 0) or 0))
+        total_value += Decimal(str(row.get('total_price', 0) or 0))
         row_num += 1
 
     # Total row
@@ -571,8 +596,7 @@ def export_pengeluaran_excel(
     qty_cell.number_format = IDR_FORMAT
     qty_cell.alignment = Alignment(horizontal="right")
     val_cell = ws.cell(row=row_num, column=col_count, value=total_value)
-    val_cell.number_format = IDR_FORMAT
-    val_cell.alignment = Alignment(horizontal="right")
+    _set_decimal_text(val_cell, total_value, decimal_places=12)
 
     safe_distribution_type = distribution_type_label.replace(' ', '_').replace('/', '_')
     filename = f"Laporan_Pengeluaran_{safe_distribution_type}_{start_date}_{end_date}.xlsx"
