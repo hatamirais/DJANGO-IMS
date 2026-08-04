@@ -7,7 +7,11 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from apps.core.decimal_validation import PRICE_QUANT, validate_finite_decimal
+from apps.core.decimal_validation import (
+    PRICE_QUANT,
+    format_price_exact,
+    validate_finite_decimal,
+)
 from apps.core.xlsx_exports import escape_xlsx_formula
 from apps.lplpo.models import get_previous_lplpo, is_january_bootstrap_period
 
@@ -55,6 +59,7 @@ THIN_BORDER = Border(
 )
 NUMBER_FORMAT = "#,##0"
 DECIMAL_FORMAT = "#,##0.##########"
+TEXT_FORMAT = "@"
 
 
 def _cell_value(value):
@@ -200,16 +205,20 @@ def export_lplpo_workbook(lplpo_obj):
             line.permintaan_alasan,
         ]
         for column_index, value in enumerate(row_values, start=1):
+            cell_value = format_price_exact(value) if column_index == 7 else value
             cell = worksheet.cell(
                 row=row_index,
                 column=column_index,
-                value=_cell_value(value),
+                value=_cell_value(cell_value),
             )
             cell.border = THIN_BORDER
             if column_index in {5, 6, 8, 9, 10, 13, 14, 15}:
                 cell.number_format = NUMBER_FORMAT
                 cell.alignment = Alignment(horizontal="right")
-            elif column_index in {7, 11, 12}:
+            elif column_index == 7:
+                cell.number_format = TEXT_FORMAT
+                cell.alignment = Alignment(horizontal="right")
+            elif column_index in {11, 12}:
                 cell.number_format = DECIMAL_FORMAT
                 cell.alignment = Alignment(horizontal="right")
 
