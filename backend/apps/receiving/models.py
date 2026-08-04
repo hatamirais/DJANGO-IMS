@@ -8,7 +8,11 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db.models import F
 from django.utils import timezone
-from apps.core.decimal_validation import PRICE_DECIMAL_PLACES, PRICE_MAX_DIGITS
+from apps.core.decimal_validation import (
+    PRICE_DECIMAL_PLACES,
+    PRICE_MAX_DIGITS,
+    multiply_decimals,
+)
 from apps.core.models import TimeStampedModel
 from .storage import ReceivingDocumentStorage
 
@@ -690,7 +694,7 @@ class ReceivingItem(models.Model):
 
     @property
     def total_price(self):
-        return self.quantity * self.unit_price
+        return multiply_decimals(self.quantity, self.unit_price)
 
 
 class ReceivingDocument(models.Model):

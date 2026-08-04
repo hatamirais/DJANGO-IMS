@@ -46,6 +46,33 @@ from apps.puskesmas.models import PuskesmasReceiptConfirmation, PuskesmasReceipt
 
 
 class StockPickerLabelTests(TestCase):
+    def test_total_value_uses_widened_decimal_precision(self):
+        unit = Unit.objects.create(code="VAL-UNT", name="Value Unit")
+        category = Category.objects.create(code="VAL-CAT", name="Value Category")
+        item = Item.objects.create(
+            kode_barang="VAL-ITEM",
+            nama_barang="Value Item",
+            satuan=unit,
+            kategori=category,
+        )
+        location = Location.objects.create(code="VAL-LOC", name="Value Location")
+        funding = FundingSource.objects.create(code="VAL-FUND", name="Value Funding")
+        stock = Stock.objects.create(
+            item=item,
+            location=location,
+            batch_lot="BATCH-VALUE",
+            source_document_number="RCV-VALUE-001",
+            expiry_date=date(2030, 1, 31),
+            quantity=Decimal("9999999999.99"),
+            unit_price=Decimal("9999999999999.1234567891"),
+            sumber_dana=funding,
+        )
+
+        self.assertEqual(
+            stock.total_value,
+            Decimal("99999999999891234567891.008765432109"),
+        )
+
     def test_picker_label_includes_source_layer_context(self):
         unit = Unit.objects.create(code="LBL-UNT", name="Label Unit")
         category = Category.objects.create(code="LBL-CAT", name="Label Category")

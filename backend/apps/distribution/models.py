@@ -3,7 +3,11 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.db import models
 from django.utils import timezone
 from apps.core.models import TimeStampedModel
-from apps.core.decimal_validation import PRICE_DECIMAL_PLACES, PRICE_MAX_DIGITS
+from apps.core.decimal_validation import (
+    PRICE_DECIMAL_PLACES,
+    PRICE_MAX_DIGITS,
+    multiply_decimals,
+)
 
 from .numbering import generate_distribution_document_number
 
@@ -222,4 +226,4 @@ class DistributionItem(models.Model):
     def outstanding_value(self):
         if self.issued_unit_price is None:
             return 0
-        return self.outstanding_quantity * self.issued_unit_price
+        return multiply_decimals(self.outstanding_quantity, self.issued_unit_price)

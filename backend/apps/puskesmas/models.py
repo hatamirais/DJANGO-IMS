@@ -10,7 +10,11 @@ from django.db.models import Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
-from apps.core.decimal_validation import PRICE_DECIMAL_PLACES, PRICE_MAX_DIGITS
+from apps.core.decimal_validation import (
+    PRICE_DECIMAL_PLACES,
+    PRICE_MAX_DIGITS,
+    multiply_decimals,
+)
 from apps.core.models import TimeStampedModel
 
 
@@ -240,7 +244,7 @@ class PuskesmasReceiptConfirmationItem(models.Model):
 
     @property
     def total_price(self):
-        return _safe_decimal(self.quantity) * _safe_decimal(self.unit_price)
+        return multiply_decimals(self.quantity, self.unit_price)
 
     def clean(self):
         super().clean()

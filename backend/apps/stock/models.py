@@ -4,7 +4,12 @@ from django.conf import settings
 from django.utils import timezone
 from datetime import timedelta
 
-from apps.core.decimal_validation import PRICE_DECIMAL_PLACES, PRICE_MAX_DIGITS
+from apps.core.decimal_validation import (
+    PRICE_DECIMAL_PLACES,
+    PRICE_MAX_DIGITS,
+    multiply_decimals,
+    validate_finite_decimal,
+)
 from apps.core.models import TimeStampedModel
 
 
@@ -131,7 +136,7 @@ class Stock(TimeStampedModel):
     @property
     def total_value(self):
         """Total value = quantity × unit_price."""
-        return self.quantity * self.unit_price
+        return multiply_decimals(self.quantity, self.unit_price)
 
     @property
     def expiry_date_display(self):
