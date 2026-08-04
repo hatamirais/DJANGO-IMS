@@ -236,13 +236,11 @@ class DistributionItemForm(forms.ModelForm):
         self.fields["notes"].required = False
         # FEFO default: only show batches with available stock, ordered by earliest expiry
         self.fields["stock"].queryset = (
-            Stock.objects.select_related("item")
+            Stock.objects.select_related("item", "sumber_dana")
             .filter(quantity__gt=F("reserved"))
             .order_by(F("expiry_date").asc(nulls_last=True), "item_id", "batch_lot")
         )
-        self.fields["stock"].label_from_instance = lambda obj: (
-            f"{obj.batch_lot} | Tersedia: {obj.available_quantity} | Exp: {obj.expiry_date_display}"
-        )
+        self.fields["stock"].label_from_instance = lambda obj: obj.picker_label
         if self.lock_quantity_fields:
             for field_name in ("item", "quantity_requested", "quantity_approved"):
                 self.fields[field_name].disabled = True
@@ -287,7 +285,11 @@ class DistributionItemForm(forms.ModelForm):
                 "stock", "Batch stok harus sesuai dengan barang yang dipilih."
             )
 
-        if quantity_requested is not None and quantity_requested <= 0:
+        if (
+            quantity_requested is not None
+            and quantity_requested <= 0
+            and not (self.lock_quantity_fields and quantity_requested == 0)
+        ):
             self.add_error("quantity_requested", "Jumlah harus lebih dari 0.")
 
         if quantity_approved is not None and quantity_approved <= 0:

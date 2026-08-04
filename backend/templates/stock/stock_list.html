@@ -155,7 +155,10 @@
                                 </div>
                             </td>
                             <td>{{ stock.location.name }}</td>
-                            <td><span class="font-monospace">{{ stock.batch_lot }}</span></td>
+                            <td>
+                                <span class="font-monospace">{{ stock.batch_lot }}</span>
+                                <div class="text-muted small">Dok: {{ stock.source_document_number }}</div>
+                            </td>
                             <td>
                                 <div class="d-flex flex-wrap align-items-center gap-2">
                                     <span>{{ stock.expiry_date_display }}</span>

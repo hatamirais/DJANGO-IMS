@@ -279,6 +279,74 @@ def _log_lplpo_xlsx_event(level, event, *, request, lplpo_obj=None, **extra):
     getattr(security_logger, level)(json.dumps(payload, sort_keys=True))
 
 
+def _split_requested_quantities(requested_quantity, approved_splits):
+    requested_quantity = Decimal(requested_quantity or 0)
+    approved_total = sum(approved_splits, Decimal("0"))
+    if requested_quantity == approved_total:
+        return approved_splits
+    if approved_total <= 0:
+        return [Decimal("0") for _split in approved_splits]
+
+    requested_splits = []
+    remaining_requested = requested_quantity
+    remaining_approved = approved_total
+    for approved_quantity in approved_splits[:-1]:
+        if remaining_requested <= 0 or remaining_approved <= 0:
+            requested_split = Decimal("0")
+        else:
+            requested_split = (
+                remaining_requested * approved_quantity / remaining_approved
+            ).quantize(Decimal("0.01"))
+            requested_split = min(requested_split, remaining_requested)
+        requested_split = requested_split if requested_split > 0 else Decimal("0")
+        requested_splits.append(requested_split)
+        remaining_requested -= requested_split
+        remaining_approved -= approved_quantity
+    requested_splits.append(
+        remaining_requested if remaining_requested > 0 else Decimal("0")
+    )
+    return requested_splits
+
+
+def _allocate_lplpo_stock_layers(lplpo_item):
+    remaining_quantity = Decimal(lplpo_item.pemberian_jumlah or 0)
+    allocations = []
+    if remaining_quantity <= 0:
+        return allocations
+
+    stock_layers = (
+        Stock.objects.select_related("item", "sumber_dana")
+        .filter(item=lplpo_item.item, quantity__gt=F("reserved"))
+        .filter(
+            Q(expiry_date__isnull=True) | Q(expiry_date__gt=timezone.localdate())
+        )
+        .order_by(
+            F("expiry_date").asc(nulls_last=True),
+            "item__nama_barang",
+            "batch_lot",
+            "source_document_number",
+            "pk",
+        )
+    )
+    for stock in stock_layers:
+        available_quantity = stock.available_quantity
+        if available_quantity <= 0:
+            continue
+        allocated_quantity = min(remaining_quantity, available_quantity)
+        allocations.append((stock, allocated_quantity))
+        remaining_quantity -= allocated_quantity
+        if remaining_quantity <= 0:
+            break
+
+    if remaining_quantity > 0:
+        raise ValueError(
+            f"Stok gudang tidak cukup untuk {lplpo_item.item.nama_barang}. "
+            f"Dibutuhkan {lplpo_item.pemberian_jumlah}, kurang {remaining_quantity}."
+        )
+
+    return allocations
+
+
 def _create_lplpo_distribution(lplpo_obj, *, actor, processed_at):
     items_with_pemberian = list(
         lplpo_obj.items.filter(pemberian_jumlah__gt=0).select_related("item")
@@ -295,17 +363,28 @@ def _create_lplpo_distribution(lplpo_obj, *, actor, processed_at):
         notes=f"Dibuat otomatis dari LPLPO {lplpo_obj.document_number}.",
     )
 
-    DistributionItem.objects.bulk_create(
-        [
-            DistributionItem(
-                distribution=dist,
-                item=li.item,
-                quantity_requested=li.permintaan_jumlah,
-                quantity_approved=li.pemberian_jumlah,
+    distribution_items = []
+    for li in items_with_pemberian:
+        allocations = _allocate_lplpo_stock_layers(li)
+        requested_splits = _split_requested_quantities(
+            li.permintaan_jumlah,
+            [allocated_quantity for _stock, allocated_quantity in allocations],
+        )
+        for (stock, allocated_quantity), requested_quantity in zip(
+            allocations,
+            requested_splits,
+        ):
+            distribution_items.append(
+                DistributionItem(
+                    distribution=dist,
+                    item=li.item,
+                    quantity_requested=requested_quantity,
+                    quantity_approved=allocated_quantity,
+                    stock=stock,
+                )
             )
-            for li in items_with_pemberian
-        ]
-    )
+
+    DistributionItem.objects.bulk_create(distribution_items)
     assign_default_distribution_staff(dist, actor)
 
     lplpo_obj.status = LPLPO.Status.APPROVED
@@ -1313,6 +1392,7 @@ def lplpo_review(request, pk):
     warehouse_stock = {}
     stock_entries = (
         Stock.objects.filter(item__in=[li.item for li in items_qs])
+        .filter(Q(expiry_date__isnull=True) | Q(expiry_date__gt=timezone.localdate()))
         .annotate(
             available_quantity=ExpressionWrapper(
                 F("quantity") - F("reserved"),

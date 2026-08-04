@@ -1,4 +1,5 @@
 from io import BytesIO
+import hashlib
 import shutil
 import threading
 from datetime import date
@@ -12,6 +13,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, connections, transaction
 from django.test import Client, TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.distribution.models import Distribution, DistributionItem
 from apps.items.models import Category, Facility, FundingSource, Item, Location, Supplier, Unit
@@ -32,8 +34,9 @@ from apps.receiving.models import (
     ReceivingItem,
     ReceivingOrderItem,
     ReceivingTypeOption,
+    resolve_receiving_source_document_number,
 )
-from apps.stock.models import Stock, Transaction
+from apps.stock.models import OpeningBalanceImport, SourceDocumentNumberClaim, Stock, Transaction
 from apps.users.access import ensure_default_module_access
 from apps.users.models import User
 
@@ -104,6 +107,432 @@ class ReceivingItemModelExpiryValidationTests(TestCase):
         )
 
         receiving_item.full_clean()
+
+
+class ReceivingModelDocumentNumberCollisionTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_superuser(
+            username="receiving-docnum-admin",
+            password="secret12345",
+        )
+        self.unit = Unit.objects.create(code="RCV-DOCNUM-UNT", name="Docnum Unit")
+        self.category = Category.objects.create(
+            code="RCV-DOCNUM-CAT",
+            name="Docnum Category",
+        )
+        self.item = Item.objects.create(
+            kode_barang="RCV-DOCNUM-ITEM",
+            nama_barang="Receiving Docnum Item",
+            satuan=self.unit,
+            kategori=self.category,
+        )
+        self.location = Location.objects.create(
+            code="RCV-DOCNUM-LOC",
+            name="Receiving Docnum Location",
+        )
+        self.funding = FundingSource.objects.create(code="RCV-DOCNUM", name="Dana Docnum")
+
+    def _create_opening_balance_import(self, document_number):
+        return OpeningBalanceImport.objects.create(
+            document_number=document_number,
+            effective_date=date(2026, 1, 1),
+            created_by=self.user,
+        )
+
+    def test_full_clean_rejects_opening_balance_document_number_collision(self):
+        self._create_opening_balance_import("RCV-OB-COLLISION")
+        receiving = Receiving(
+            document_number="RCV-OB-COLLISION",
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            status=Receiving.Status.DRAFT,
+            created_by=self.user,
+        )
+
+        with self.assertRaises(ValidationError) as exc:
+            receiving.full_clean()
+
+        self.assertIn("document_number", exc.exception.message_dict)
+        self.assertIn(
+            "sudah digunakan oleh dokumen saldo awal",
+            exc.exception.message_dict["document_number"][0],
+        )
+
+    def test_save_rejects_opening_balance_document_number_collision(self):
+        self._create_opening_balance_import("RCV-OB-SAVE-COLLISION")
+
+        with self.assertRaises(ValidationError) as exc:
+            Receiving.objects.create(
+                document_number="RCV-OB-SAVE-COLLISION",
+                receiving_type=Receiving.ReceivingType.GRANT,
+                receiving_date=date(2026, 1, 15),
+                sumber_dana=self.funding,
+                status=Receiving.Status.DRAFT,
+                created_by=self.user,
+            )
+
+        self.assertIn("document_number", exc.exception.message_dict)
+        self.assertFalse(Receiving.objects.exists())
+
+    def test_save_claims_receiving_document_number(self):
+        receiving = Receiving.objects.create(
+            document_number="RCV-CLAIM-001",
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            status=Receiving.Status.DRAFT,
+            created_by=self.user,
+        )
+
+        claim = SourceDocumentNumberClaim.objects.get(
+            document_number="RCV-CLAIM-001"
+        )
+        self.assertEqual(
+            claim.source_type,
+            SourceDocumentNumberClaim.SourceType.RECEIVING,
+        )
+        self.assertEqual(claim.source_id, receiving.pk)
+
+    def test_queryset_delete_releases_unposted_receiving_document_number_claim(self):
+        receiving = Receiving.objects.create(
+            document_number="RCV-DELETE-UNPOSTED",
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            status=Receiving.Status.DRAFT,
+            created_by=self.user,
+        )
+        self.assertTrue(
+            SourceDocumentNumberClaim.objects.filter(
+                document_number="RCV-DELETE-UNPOSTED",
+                source_type=SourceDocumentNumberClaim.SourceType.RECEIVING,
+                source_id=receiving.pk,
+            ).exists()
+        )
+
+        Receiving.objects.filter(pk=receiving.pk).delete()
+
+        self.assertFalse(
+            SourceDocumentNumberClaim.objects.filter(
+                document_number="RCV-DELETE-UNPOSTED",
+                source_type=SourceDocumentNumberClaim.SourceType.RECEIVING,
+                source_id=receiving.pk,
+            ).exists()
+        )
+
+    def test_delete_retains_posted_receiving_document_number_claim(self):
+        receiving = Receiving.objects.create(
+            document_number="RCV-DELETE-POSTED",
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            status=Receiving.Status.VERIFIED,
+            created_by=self.user,
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot="RCV-DELETE-POSTED-BATCH",
+            quantity=Decimal("5"),
+            unit_price=Decimal("1000"),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=receiving.pk,
+            user=self.user,
+        )
+        receiving_id = receiving.pk
+
+        receiving.delete()
+
+        self.assertTrue(
+            SourceDocumentNumberClaim.objects.filter(
+                document_number="RCV-DELETE-POSTED",
+                source_type=SourceDocumentNumberClaim.SourceType.RECEIVING,
+                source_id=receiving_id,
+            ).exists()
+        )
+
+    def test_save_rejects_preclaimed_source_document_number(self):
+        SourceDocumentNumberClaim.objects.create(
+            document_number="RCV-PRECLAIMED-001",
+            source_type=SourceDocumentNumberClaim.SourceType.OPENING_BALANCE,
+        )
+
+        with self.assertRaises(ValidationError) as exc:
+            Receiving.objects.create(
+                document_number="RCV-PRECLAIMED-001",
+                receiving_type=Receiving.ReceivingType.GRANT,
+                receiving_date=date(2026, 1, 15),
+                sumber_dana=self.funding,
+                status=Receiving.Status.DRAFT,
+                created_by=self.user,
+            )
+
+        self.assertIn("document_number", exc.exception.message_dict)
+        self.assertFalse(Receiving.objects.exists())
+
+    def test_save_allows_unchanged_legacy_opening_balance_collision(self):
+        receiving = Receiving.objects.create(
+            document_number="RCV-LEGACY-COLLISION",
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            status=Receiving.Status.DRAFT,
+            created_by=self.user,
+        )
+        self._create_opening_balance_import("RCV-LEGACY-COLLISION")
+
+        receiving.notes = "Status update on migrated document"
+        receiving.full_clean()
+        receiving.save()
+
+        receiving.refresh_from_db()
+        self.assertEqual(receiving.document_number, "RCV-LEGACY-COLLISION")
+        self.assertEqual(receiving.notes, "Status update on migrated document")
+
+    def test_generated_document_number_skips_opening_balance_numbers(self):
+        year = timezone.now().year
+        self._create_opening_balance_import(f"RCV-{year}-00001")
+
+        receiving = Receiving.objects.create(
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            status=Receiving.Status.DRAFT,
+            created_by=self.user,
+        )
+
+        self.assertEqual(receiving.document_number, f"RCV-{year}-00002")
+
+    def test_generated_document_number_skips_retained_registry_claims(self):
+        year = timezone.now().year
+        SourceDocumentNumberClaim.objects.create(
+            document_number=f"RCV-{year}-00001",
+            source_type=SourceDocumentNumberClaim.SourceType.RECEIVING,
+            source_id=999999,
+        )
+
+        receiving = Receiving.objects.create(
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            status=Receiving.Status.DRAFT,
+            created_by=self.user,
+        )
+
+        self.assertEqual(receiving.document_number, f"RCV-{year}-00002")
+
+    def test_resolver_uses_existing_transaction_source_when_stock_reference_is_absent(self):
+        receiving = Receiving.objects.create(
+            document_number="RCV-RESOLVE-TX",
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            status=Receiving.Status.PARTIAL,
+            created_by=self.user,
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot="RCV-RESOLVE-TX-BATCH",
+            source_document_number="LEGACY-AGGREGATE-RCV",
+            quantity=Decimal("5"),
+            unit_price=Decimal("1000"),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=receiving.pk,
+            user=self.user,
+        )
+
+        self.assertEqual(
+            resolve_receiving_source_document_number(receiving),
+            "LEGACY-AGGREGATE-RCV",
+        )
+
+    def test_resolver_uses_stock_tuple_when_receiving_has_mixed_sources(self):
+        receiving = Receiving.objects.create(
+            document_number="RCV-RESOLVE-MIXED",
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            status=Receiving.Status.PARTIAL,
+            created_by=self.user,
+        )
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot="RCV-RESOLVE-HEADER",
+            source_document_number="RCV-RESOLVE-MIXED",
+            expiry_date=date(2030, 1, 1),
+            quantity=Decimal("4"),
+            reserved=Decimal("0"),
+            unit_price=Decimal("1000"),
+            sumber_dana=self.funding,
+            receiving_ref=receiving,
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot="RCV-RESOLVE-LEGACY",
+            source_document_number="LEGACY-MIXED-RCV",
+            quantity=Decimal("5"),
+            unit_price=Decimal("1000"),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=receiving.pk,
+            user=self.user,
+        )
+
+        self.assertEqual(
+            resolve_receiving_source_document_number(
+                receiving,
+                item=self.item,
+                location=self.location,
+                batch_lot="RCV-RESOLVE-HEADER",
+                sumber_dana=self.funding,
+            ),
+            "RCV-RESOLVE-MIXED",
+        )
+        self.assertEqual(
+            resolve_receiving_source_document_number(
+                receiving,
+                item=self.item,
+                location=self.location,
+                batch_lot="RCV-RESOLVE-LEGACY",
+                sumber_dana=self.funding,
+            ),
+            "LEGACY-MIXED-RCV",
+        )
+
+    def test_resolver_reuses_collision_alias_for_new_receiving_tuple(self):
+        document_number = "RCV-RESOLVE-COLLISION"
+        receiving = Receiving.objects.create(
+            document_number=document_number,
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            status=Receiving.Status.PARTIAL,
+            created_by=self.user,
+        )
+        self._create_opening_balance_import(document_number)
+        digest = hashlib.sha1(
+            f"RECEIVING:{document_number}".encode("utf-8")
+        ).hexdigest()[:8]
+        alias = f"RCV-{digest}-{document_number}"
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot="RCV-RESOLVE-COLLISION-OLD",
+            source_document_number=alias,
+            expiry_date=date(2030, 1, 1),
+            quantity=Decimal("4"),
+            reserved=Decimal("0"),
+            unit_price=Decimal("1000"),
+            sumber_dana=self.funding,
+            receiving_ref=receiving,
+        )
+
+        self.assertEqual(
+            resolve_receiving_source_document_number(
+                receiving,
+                item=self.item,
+                location=self.location,
+                batch_lot="RCV-RESOLVE-COLLISION-NEW",
+                sumber_dana=self.funding,
+            ),
+            alias,
+        )
+
+    def test_full_clean_rejects_document_number_change_after_ledger_transaction(self):
+        receiving = Receiving.objects.create(
+            document_number="RCV-LOCKED-001",
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            status=Receiving.Status.VERIFIED,
+            created_by=self.user,
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot="RCV-LOCKED-BATCH",
+            quantity=Decimal("5"),
+            unit_price=Decimal("1000"),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=receiving.pk,
+            user=self.user,
+        )
+        receiving.document_number = "RCV-LOCKED-RENAMED"
+
+        with self.assertRaises(ValidationError) as exc:
+            receiving.full_clean()
+
+        self.assertIn("document_number", exc.exception.message_dict)
+        self.assertIn(
+            "tidak dapat diubah",
+            exc.exception.message_dict["document_number"][0],
+        )
+
+    def test_save_rejects_document_number_change_after_stock_posting(self):
+        receiving = Receiving.objects.create(
+            document_number="RCV-STOCK-LOCKED-001",
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            status=Receiving.Status.VERIFIED,
+            created_by=self.user,
+        )
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot="RCV-STOCK-LOCKED-BATCH",
+            expiry_date=date(2030, 1, 1),
+            quantity=Decimal("5"),
+            reserved=Decimal("0"),
+            unit_price=Decimal("1000"),
+            sumber_dana=self.funding,
+            receiving_ref=receiving,
+            source_document_number=receiving.document_number,
+        )
+        receiving.document_number = "RCV-STOCK-LOCKED-RENAMED"
+
+        with self.assertRaises(ValidationError) as exc:
+            receiving.save()
+
+        self.assertIn("document_number", exc.exception.message_dict)
+        receiving.refresh_from_db()
+        self.assertEqual(receiving.document_number, "RCV-STOCK-LOCKED-001")
+
+    def test_receiving_admin_makes_document_number_readonly_after_posting(self):
+        receiving = Receiving.objects.create(
+            document_number="RCV-ADMIN-LOCKED-001",
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            status=Receiving.Status.VERIFIED,
+            created_by=self.user,
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot="RCV-ADMIN-LOCKED-BATCH",
+            quantity=Decimal("5"),
+            unit_price=Decimal("1000"),
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=receiving.pk,
+            user=self.user,
+        )
+        admin = ReceivingAdmin(Receiving, AdminSite())
+
+        self.assertIn("document_number", admin.get_readonly_fields(None, receiving))
 
 
 class ReceivingCSVImportTest(TestCase):
@@ -210,6 +639,29 @@ class ReceivingCSVImportTest(TestCase):
         self.assertEqual(stock.quantity, Decimal("10"))
         self.assertEqual(stock.batch_lot, "SALDO-0002")
         self.assertIsNone(stock.expiry_date)
+
+    def test_process_csv_rejects_opening_balance_document_number_collision(self):
+        OpeningBalanceImport.objects.create(
+            document_number="RCV-2026-OB-COLLISION",
+            effective_date=date(2026, 1, 1),
+            created_by=self.user,
+        )
+        csv_content = (
+            "document_number,receiving_type,receiving_date,supplier_code,sumber_dana_code,"
+            "location_code,item_code,quantity,batch_lot,expiry_date,unit_price\n"
+            "RCV-2026-OB-COLLISION,GRANT,12/03/2026,,APBD,GUDANG,ITM-TEST-0001,10,B-001,01/01/2030,1000\n"
+        )
+
+        with self.assertRaisesMessage(
+            ValueError,
+            "sudah digunakan oleh dokumen saldo awal",
+        ):
+            self.admin._process_csv(self._csv_file(csv_content), self.user)
+
+        self.assertEqual(Receiving.objects.count(), 0)
+        self.assertEqual(ReceivingItem.objects.count(), 0)
+        self.assertEqual(Stock.objects.count(), 0)
+        self.assertEqual(Transaction.objects.count(), 0)
 
     def test_process_csv_rejects_blank_expiry_for_items_that_require_it(self):
         csv_content = (
@@ -768,6 +1220,42 @@ class ReceivingWorkflowCleanupTest(TestCase):
         stock = Stock.objects.get(item=self.item, batch_lot="BATCH-NO-EXP")
         self.assertIsNone(stock.expiry_date)
 
+    def test_regular_receiving_create_rejects_opening_balance_document_number_collision(self):
+        OpeningBalanceImport.objects.create(
+            document_number="RCV-2026-WF-COLLISION",
+            effective_date=date(2026, 1, 1),
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            reverse("receiving:receiving_create"),
+            {
+                "document_number": "RCV-2026-WF-COLLISION",
+                "receiving_type": Receiving.ReceivingType.GRANT,
+                "receiving_date": "2026-03-16",
+                "supplier": "",
+                "sumber_dana": self.funding.pk,
+                "notes": "",
+                "items-TOTAL_FORMS": "1",
+                "items-INITIAL_FORMS": "0",
+                "items-MIN_NUM_FORMS": "0",
+                "items-MAX_NUM_FORMS": "1000",
+                "items-0-item": self.item.pk,
+                "items-0-quantity": "10",
+                "items-0-batch_lot": "BATCH-OB-COLLISION",
+                "items-0-expiry_date": "2030-01-01",
+                "items-0-unit_price": "1500",
+                "items-0-location": self.location.pk,
+            },
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "sudah digunakan oleh dokumen saldo awal")
+        self.assertEqual(Receiving.objects.count(), 0)
+        self.assertEqual(Stock.objects.count(), 0)
+        self.assertEqual(Transaction.objects.count(), 0)
+
     def test_regular_receiving_create_requires_expiry_for_expiring_item(self):
         response = self.client.post(
             reverse("receiving:receiving_create"),
@@ -796,7 +1284,7 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertContains(response, "Tanggal kedaluwarsa wajib diisi untuk barang ini.")
         self.assertEqual(Receiving.objects.count(), 0)
 
-    def test_regular_receiving_create_rejects_same_batch_with_different_expiry(self):
+    def test_regular_receiving_create_allows_same_batch_with_different_expiry_for_new_document(self):
         Stock.objects.create(
             item=self.item,
             location=self.location,
@@ -806,6 +1294,7 @@ class ReceivingWorkflowCleanupTest(TestCase):
             reserved=Decimal("0"),
             unit_price=Decimal("1500"),
             sumber_dana=self.funding,
+            source_document_number="LEGACY-DOC",
         )
 
         response = self.client.post(
@@ -831,14 +1320,18 @@ class ReceivingWorkflowCleanupTest(TestCase):
             secure=True,
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(
-            response,
-            "Batch stok yang sama tidak boleh memiliki tanggal kedaluwarsa berbeda.",
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            list(
+                Stock.objects.filter(item=self.item, batch_lot="BATCH-DUP")
+                .order_by("source_document_number")
+                .values_list("source_document_number", "expiry_date", "quantity")
+            ),
+            [
+                ("LEGACY-DOC", date(2030, 1, 1), Decimal("5.00")),
+                (Receiving.objects.get().document_number, date(2030, 2, 1), Decimal("10.00")),
+            ],
         )
-        stock = Stock.objects.get(item=self.item, batch_lot="BATCH-DUP")
-        self.assertEqual(stock.quantity, Decimal("5"))
-        self.assertEqual(Receiving.objects.count(), 0)
 
     def test_regular_receiving_create_rejects_non_finite_quantity(self):
         response = self.client.post(
@@ -1809,6 +2302,76 @@ class ReceivingWorkflowCleanupTest(TestCase):
             ).exists()
         )
 
+    def test_plan_receive_continues_migrated_disambiguated_source_layer(self):
+        receiving = Receiving.objects.create(
+            document_number="SRC-COLLIDE-PLAN",
+            receiving_type=Receiving.ReceivingType.PROCUREMENT,
+            receiving_date=date(2026, 3, 16),
+            sumber_dana=self.funding,
+            status=Receiving.Status.PARTIAL,
+            is_planned=True,
+            created_by=self.user,
+            approved_by=self.user,
+        )
+        order_item = ReceivingOrderItem.objects.create(
+            receiving=receiving,
+            item=self.item,
+            planned_quantity=Decimal("5"),
+            received_quantity=Decimal("2"),
+            unit_price=Decimal("100"),
+            is_cancelled=False,
+        )
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot="MIGRATED-ALIAS",
+            source_document_number="RCV-HASHED-SRC-COLLIDE-PLAN",
+            expiry_date=date(2030, 11, 30),
+            quantity=Decimal("2"),
+            reserved=Decimal("0"),
+            unit_price=Decimal("100"),
+            sumber_dana=self.funding,
+            receiving_ref=receiving,
+        )
+
+        response = self.client.post(
+            reverse("receiving:receiving_plan_receive", args=[receiving.pk]),
+            {
+                "items-TOTAL_FORMS": "1",
+                "items-INITIAL_FORMS": "0",
+                "items-MIN_NUM_FORMS": "0",
+                "items-MAX_NUM_FORMS": "1000",
+                "items-0-order_item": str(order_item.pk),
+                "items-0-quantity": "3",
+                "items-0-batch_lot": "MIGRATED-ALIAS",
+                "items-0-expiry_date": "2030-11-30",
+                "items-0-unit_price": "100.00",
+                "items-0-location": str(self.location.pk),
+            },
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        stock = Stock.objects.get(
+            receiving_ref=receiving,
+            source_document_number="RCV-HASHED-SRC-COLLIDE-PLAN",
+        )
+        self.assertEqual(stock.quantity, Decimal("5"))
+        self.assertFalse(
+            Stock.objects.filter(
+                receiving_ref=receiving,
+                source_document_number="SRC-COLLIDE-PLAN",
+            ).exists()
+        )
+        self.assertTrue(
+            Transaction.objects.filter(
+                reference_type=Transaction.ReferenceType.RECEIVING,
+                reference_id=receiving.pk,
+                source_document_number="RCV-HASHED-SRC-COLLIDE-PLAN",
+                quantity=Decimal("3"),
+            ).exists()
+        )
+
     def test_plan_receive_rejects_stale_locked_overage(self):
         from apps.receiving import views as receiving_views
 
@@ -2203,7 +2766,7 @@ class ReceivingStockConcurrencyTest(TransactionTestCase):
         finally:
             connections.close_all()
 
-    def test_regular_receiving_concurrent_posts_accumulate_single_stock_row(self):
+    def test_regular_receiving_concurrent_posts_create_source_document_layers(self):
         from apps.receiving import models as receiving_models
 
         barrier = threading.Barrier(2)
@@ -2254,21 +2817,21 @@ class ReceivingStockConcurrencyTest(TransactionTestCase):
             sorted(result["status_code"] for result in results.values()),
             [302, 302],
         )
-        stock = Stock.objects.get(
-            item=self.item,
-            location=self.location,
-            batch_lot=self.batch_lot,
-            sumber_dana=self.funding,
-        )
-        self.assertEqual(stock.quantity, Decimal("7"))
         self.assertEqual(
-            Stock.objects.filter(
-                item=self.item,
-                location=self.location,
-                batch_lot=self.batch_lot,
-                sumber_dana=self.funding,
-            ).count(),
-            1,
+            list(
+                Stock.objects.filter(
+                    item=self.item,
+                    location=self.location,
+                    batch_lot=self.batch_lot,
+                    sumber_dana=self.funding,
+                )
+                .order_by("source_document_number")
+                .values_list("source_document_number", "quantity")
+            ),
+            [
+                ("RCV-2026-RACE-REG-1", Decimal("3.00")),
+                ("RCV-2026-RACE-REG-2", Decimal("4.00")),
+            ],
         )
         self.assertEqual(Receiving.objects.count(), 2)
         self.assertEqual(ReceivingItem.objects.count(), 2)
@@ -2298,7 +2861,11 @@ class ReceivingStockConcurrencyTest(TransactionTestCase):
                 return self
 
             def first(self):
-                return {"pk": 99, "expiry_date": date(2031, 1, 1)}
+                return {
+                    "pk": 99,
+                    "expiry_date": date(2031, 1, 1),
+                    "unit_price": Decimal("1500"),
+                }
 
         with (
             patch(
@@ -2325,6 +2892,7 @@ class ReceivingStockConcurrencyTest(TransactionTestCase):
                     quantity=Decimal('3'),
                     unit_price=Decimal('1500'),
                     receiving_ref=None,
+                    source_document_number="RCV-RACE",
                 )
 
         self.assertIn('tanggal kedaluwarsa berbeda', str(exc.exception))
@@ -2332,7 +2900,7 @@ class ReceivingStockConcurrencyTest(TransactionTestCase):
         _, second_call_kwargs = mock_filter.call_args_list[1]
         self.assertEqual(second_call_kwargs['expiry_date'], date(2030, 1, 1))
 
-    def test_planned_receiving_concurrent_posts_accumulate_existing_stock(self):
+    def test_planned_receiving_concurrent_posts_create_source_document_layers(self):
         from apps.receiving import models as receiving_models
 
         Stock.objects.create(
@@ -2435,8 +3003,26 @@ class ReceivingStockConcurrencyTest(TransactionTestCase):
             location=self.location,
             batch_lot=self.batch_lot,
             sumber_dana=self.funding,
+            source_document_number="LEGACY",
         )
-        self.assertEqual(stock.quantity, Decimal("17"))
+        self.assertEqual(stock.quantity, Decimal("10"))
+        self.assertEqual(
+            list(
+                Stock.objects.filter(
+                    item=self.item,
+                    location=self.location,
+                    batch_lot=self.batch_lot,
+                    sumber_dana=self.funding,
+                )
+                .order_by("source_document_number")
+                .values_list("source_document_number", "quantity")
+            ),
+            [
+                ("LEGACY", Decimal("10.00")),
+                ("RCV-2026-RACE-PLAN-1", Decimal("3.00")),
+                ("RCV-2026-RACE-PLAN-2", Decimal("4.00")),
+            ],
+        )
         order_item_one.refresh_from_db()
         order_item_two.refresh_from_db()
         self.assertEqual(order_item_one.received_quantity, Decimal("3"))
@@ -2450,7 +3036,7 @@ class ReceivingStockConcurrencyTest(TransactionTestCase):
             2,
         )
 
-    def test_csv_import_concurrent_runs_accumulate_single_stock_row(self):
+    def test_csv_import_concurrent_runs_create_source_document_layers(self):
         from apps.receiving import models as receiving_models
 
         barrier = threading.Barrier(2)
@@ -2493,13 +3079,22 @@ class ReceivingStockConcurrencyTest(TransactionTestCase):
         self.assertNotIn("error", results.get("two", {}))
         self.assertEqual(results["one"]["counts"]["stock"], 1)
         self.assertEqual(results["two"]["counts"]["stock"], 1)
-        stock = Stock.objects.get(
-            item=self.item,
-            location=self.location,
-            batch_lot=self.batch_lot,
-            sumber_dana=self.funding,
+        self.assertEqual(
+            list(
+                Stock.objects.filter(
+                    item=self.item,
+                    location=self.location,
+                    batch_lot=self.batch_lot,
+                    sumber_dana=self.funding,
+                )
+                .order_by("source_document_number")
+                .values_list("source_document_number", "quantity")
+            ),
+            [
+                ("RCV-2026-RACE-CSV-1", Decimal("6.00")),
+                ("RCV-2026-RACE-CSV-2", Decimal("8.00")),
+            ],
         )
-        self.assertEqual(stock.quantity, Decimal("14"))
         self.assertEqual(Receiving.objects.count(), 2)
         self.assertEqual(ReceivingItem.objects.count(), 2)
         self.assertEqual(

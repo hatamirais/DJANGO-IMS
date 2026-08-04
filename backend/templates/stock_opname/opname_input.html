@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load number_format %}
 
 {% block title %}Input Hitung — {{ opname.document_number }} — Healthcare IMS{% endblock %}
 {% block page_title %}Input Hitung Fisik{% endblock %}
@@ -38,6 +39,8 @@
                                     <th>Nama Barang</th>
                                     <th>Tanggal Kedaluwarsa</th>
                                     <th>Batch/Lot</th>
+                                    <th>Dokumen Sumber</th>
+                                    <th class="text-end">Harga Satuan</th>
                                     <th>Satuan</th>
                                     <th class="text-end">Stok Sistem</th>
                                     <th style="width:120px;">Stok Aktual</th>
@@ -58,6 +61,8 @@
                                         {% endif %}
                                     </td>
                                     <td>{{ item.stock.batch_lot }}</td>
+                                    <td><code>{{ item.stock.source_document_number|default:"-" }}</code></td>
+                                    <td class="text-end">{{ item.stock.unit_price|id_decimal:2 }}</td>
                                     <td>{{ item.stock.item.satuan.name|default:'-' }}</td>
                                     <td class="text-end">{{ item.system_quantity }}</td>
                                     <td>
@@ -72,7 +77,7 @@
                                 </tr>
                                 {% empty %}
                                 <tr>
-                                    <td colspan="9" class="text-center text-muted py-4">Tidak ada item.</td>
+                                    <td colspan="11" class="text-center text-muted py-4">Tidak ada item.</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>

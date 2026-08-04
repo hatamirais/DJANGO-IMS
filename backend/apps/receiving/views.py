@@ -25,6 +25,7 @@ from .models import (
     ReceivingItem,
     ReceivingOrderItem,
     increment_receiving_stock,
+    resolve_receiving_source_document_number,
 )
 from .forms import (
     build_planned_receipt_item_formset,
@@ -109,6 +110,13 @@ def _create_verified_receiving(request, form, formset):
             item.received_by = request.user
             item.received_at = timezone.now()
             item.save()
+            source_document_number = resolve_receiving_source_document_number(
+                receiving,
+                item=item.item,
+                location=item.location,
+                batch_lot=item.batch_lot,
+                sumber_dana=receiving.sumber_dana,
+            )
 
             increment_receiving_stock(
                 item=item.item,
@@ -119,6 +127,7 @@ def _create_verified_receiving(request, form, formset):
                 quantity=item.quantity,
                 unit_price=item.unit_price,
                 receiving_ref=receiving,
+                source_document_number=source_document_number,
             )
 
             pending_transactions.append(
@@ -129,6 +138,7 @@ def _create_verified_receiving(request, form, formset):
                     batch_lot=item.batch_lot,
                     quantity=item.quantity,
                     unit_price=item.unit_price,
+                    source_document_number=source_document_number,
                     sumber_dana=receiving.sumber_dana,
                     reference_type=Transaction.ReferenceType.RECEIVING,
                     reference_id=receiving.pk,
@@ -678,6 +688,13 @@ def receiving_plan_receive(request, pk):
                         order_item.received_quantity + item.quantity
                     )
                     order_item.save(update_fields=["received_quantity", "updated_at"])
+                    source_document_number = resolve_receiving_source_document_number(
+                        receiving,
+                        item=item.item,
+                        location=item.location,
+                        batch_lot=item.batch_lot,
+                        sumber_dana=receiving.sumber_dana,
+                    )
 
                     increment_receiving_stock(
                         item=item.item,
@@ -688,6 +705,7 @@ def receiving_plan_receive(request, pk):
                         quantity=item.quantity,
                         unit_price=item.unit_price,
                         receiving_ref=receiving,
+                        source_document_number=source_document_number,
                     )
 
                     pending_transactions.append(
@@ -698,6 +716,7 @@ def receiving_plan_receive(request, pk):
                             batch_lot=item.batch_lot,
                             quantity=item.quantity,
                             unit_price=item.unit_price,
+                            source_document_number=source_document_number,
                             sumber_dana=receiving.sumber_dana,
                             reference_type=Transaction.ReferenceType.RECEIVING,
                             reference_id=receiving.pk,

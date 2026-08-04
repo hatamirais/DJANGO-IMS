@@ -541,7 +541,7 @@ erDiagram
 - Reports app has no bespoke database models; it aggregates data from other apps.
 - Many document number formats are generated in model `save()` methods when blank.
 - `ModuleAccess` unique tuple is `(user, module)`.
-- `Stock` unique tuple is `(item, location, batch_lot, sumber_dana)`.
+- `Stock` unique tuple is `(item, location, batch_lot, sumber_dana, source_document_number)`.
 - `StockOpnameItem` unique tuple is `(stock_opname, stock)`.
 - `AllocationItemFacility` unique tuple is `(allocation_item, facility)`.
 - `AllocationFacility` unique tuple is `(allocation, facility)`.

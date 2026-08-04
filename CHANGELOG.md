@@ -7,6 +7,28 @@ The format is based on Keep a Changelog and follows Semantic Versioning (`MAJOR.
 
 ## [Unreleased]
 
+### Added
+
+- Stock rows and stock transactions now track `source_document_number`, separating same item/location/batch/funding stock into document-specific layers.
+- Opening-balance CSV import now accepts both comma and semicolon delimiters and reports validation issues before preview/confirm.
+
+### Changed
+
+- Receiving, transfer, outbound, expired, recall, allocation, and opening-balance stock posting now use the source document number as part of the stock identity instead of averaging or merging price layers across documents.
+
+### Fixed
+
+- Opening-balance import validation now catches malformed row counts, invalid decimal precision, unknown references, and same-document price/expiry conflicts before database writes.
+- Opening-balance import validation now rejects `document_number` values already used by receiving documents so source-document layers cannot collide across workflows.
+- Receiving creation/import now rejects `document_number` values already used by opening-balance imports, and generated receiving numbers skip opening-balance-owned `RCV-YYYY-NNNNN` values.
+- Receiving document numbers can no longer be changed after stock rows or ledger transactions exist.
+- Historical stock migration now keeps ambiguous multi-document aggregate balances in a legacy source layer instead of assigning the whole balance to one receiving document.
+- Historical stock migration now disambiguates pre-existing receiving/opening-balance document-number collisions before source-layer reporting is enabled.
+- Historical stock migration now preserves opening-balance source layers across pre-upgrade stock transfers.
+- Historical transaction migration now maps all movements for a single legacy aggregate stock layer to that legacy source even when old contributing receipts had different prices.
+- Detailed inventory report rows and Excel export now display `source_document_number` when source-layer grouping splits otherwise identical rows.
+- Stock cards now split same-funding rows by `source_document_number` and display the source document so per-layer prices stay visible and accurate.
+
 ## [1.30.0] - 2026-07-29
 
 ### Added

@@ -91,8 +91,10 @@ def validate_csv_upload(uploaded_file, *, max_size_bytes):
     if "\x00" in decoded:
         raise ValidationError("File CSV mengandung null byte yang tidak diizinkan.")
 
+    first_line = decoded.splitlines()[0] if decoded.splitlines() else ""
+    delimiter = ";" if first_line.count(";") > first_line.count(",") else ","
     try:
-        rows = list(csv.reader(io.StringIO(decoded)))
+        rows = list(csv.reader(io.StringIO(decoded), delimiter=delimiter))
     except csv.Error as exc:
         raise ValidationError("File CSV tidak valid.") from exc
 

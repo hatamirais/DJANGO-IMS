@@ -26,6 +26,7 @@ from .models import (
     ReceivingOrderItem,
     ReceivingTypeOption,
     increment_receiving_stock,
+    resolve_receiving_source_document_number,
 )
 from apps.items.models import Item, FundingSource, Location, Supplier
 from apps.core.upload_validation import validate_csv_upload, validate_receiving_document_upload
@@ -170,6 +171,12 @@ class ReceivingAdmin(admin.ModelAdmin):
     list_per_page = 25
 
     change_list_template = "admin/receiving/receiving_changelist.html"
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly_fields = list(super().get_readonly_fields(request, obj))
+        if obj and obj.has_posted_stock_movements() and "document_number" not in readonly_fields:
+            readonly_fields.append("document_number")
+        return readonly_fields
 
     def save_formset(self, request, form, formset, change):
         if formset.model is not ReceivingDocument:
@@ -569,6 +576,13 @@ class ReceivingAdmin(admin.ModelAdmin):
                     received_at=timezone.now(),
                 )
                 counts["items"] += 1
+                source_document_number = resolve_receiving_source_document_number(
+                    receiving,
+                    item=item,
+                    location=row_location,
+                    batch_lot=batch_lot,
+                    sumber_dana=row_sumber_dana,
+                )
 
                 # Stock — update or create
                 increment_receiving_stock(
@@ -580,6 +594,7 @@ class ReceivingAdmin(admin.ModelAdmin):
                     quantity=quantity,
                     unit_price=unit_price,
                     receiving_ref=receiving,
+                    source_document_number=source_document_number,
                 )
                 counts["stock"] += 1
 
@@ -591,6 +606,7 @@ class ReceivingAdmin(admin.ModelAdmin):
                     batch_lot=batch_lot,
                     quantity=quantity,
                     unit_price=unit_price,
+                    source_document_number=source_document_number,
                     sumber_dana=row_sumber_dana,
                     reference_type=Transaction.ReferenceType.RECEIVING,
                     reference_id=receiving.pk,

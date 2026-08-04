@@ -103,7 +103,7 @@ class AllocationItemForm(forms.ModelForm):
         self.fields["total_qty_available"].required = False
 
         available_stock_queryset = (
-            Stock.objects.select_related("item")
+            Stock.objects.select_related("item", "sumber_dana")
             .filter(quantity__gt=F("reserved"))
             .order_by(F("expiry_date").asc(nulls_last=True), "item_id", "batch_lot")
         )
@@ -129,9 +129,7 @@ class AllocationItemForm(forms.ModelForm):
         else:
             self.fields["stock"].queryset = Stock.objects.none()
 
-        self.fields["stock"].label_from_instance = lambda obj: (
-            f"{obj.batch_lot} | Tersedia: {obj.available_quantity} | Exp: {obj.expiry_date_display}"
-        )
+        self.fields["stock"].label_from_instance = lambda obj: obj.picker_label
 
     def clean(self):
         cleaned_data = super().clean()

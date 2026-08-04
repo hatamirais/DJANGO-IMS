@@ -62,8 +62,10 @@ def reports_index(request):
         # A specific batch of an item from a specific funding source usually has a consistent expiry_date.
         expiry_sq = Stock.objects.filter(
             item=OuterRef('item'),
+            location=OuterRef('location'),
             batch_lot=OuterRef('batch_lot'),
-            sumber_dana=OuterRef('sumber_dana')
+            sumber_dana=OuterRef('sumber_dana'),
+            source_document_number=OuterRef('source_document_number'),
         ).values('expiry_date')[:1]
 
         # First level query to annotate initial balances and period flows
@@ -112,7 +114,11 @@ def reports_index(request):
             'item__kategori__sort_order',
             'item__nama_barang',
             'item__satuan__name',
+            'location_id',
+            'location__code',
+            'location__name',
             'batch_lot',
+            'source_document_number',
             'sumber_dana__name',
             'unit_price'
         ).annotate(
@@ -156,6 +162,21 @@ def reports_index(request):
                 ),
                 0, output_field=models.DecimalField()
             ),
+            transfer_in=Coalesce(
+                Sum(
+                    Case(
+                        When(
+                            created_at__date__range=[start_date, end_date],
+                            reference_type='TRANSFER',
+                            transaction_type='IN',
+                            then=F('quantity'),
+                        ),
+                        default=0,
+                        output_field=models.DecimalField(),
+                    )
+                ),
+                0, output_field=models.DecimalField()
+            ),
             distributed=Coalesce(
                 Sum(
                     Case(
@@ -167,6 +188,21 @@ def reports_index(request):
                         ),
                         default=0,
                         output_field=models.DecimalField()
+                    )
+                ),
+                0, output_field=models.DecimalField()
+            ),
+            transfer_out=Coalesce(
+                Sum(
+                    Case(
+                        When(
+                            created_at__date__range=[start_date, end_date],
+                            reference_type='TRANSFER',
+                            transaction_type='OUT',
+                            then=F('quantity'),
+                        ),
+                        default=0,
+                        output_field=models.DecimalField(),
                     )
                 ),
                 0, output_field=models.DecimalField()
@@ -186,21 +222,37 @@ def reports_index(request):
                 ),
                 0, output_field=models.DecimalField()
             )
-        ).order_by('item__kategori__sort_order', 'item__kategori__name', 'item__nama_barang', 'batch_lot')
+        ).order_by(
+            'item__kategori__sort_order',
+            'item__kategori__name',
+            'item__nama_barang',
+            'location__code',
+            'location__name',
+            'batch_lot',
+        )
         
         # We need a second annotate step (or list comprehension) to properly add ending_stock safely.
         # F-expressions mapped over coalesced outputs in annotate chaining sometimes act up on PostgreSQL.
         for row in qs:
+            row['location_label'] = (
+                f"{row['location__code']} - {row['location__name']}"
+                if row.get('location__code')
+                else row.get('location__name', '')
+            )
             row['ending_stock'] = (
                 row['initial_stock'] 
                 + row['received'] 
+                + row['transfer_in']
                 - row['distributed'] 
+                - row['transfer_out']
                 - row['expired']
             )
             # Only include rows that have actual movement or stock
             if (row['initial_stock'] != 0 or 
                 row['received'] != 0 or 
+                row['transfer_in'] != 0 or
                 row['distributed'] != 0 or 
+                row['transfer_out'] != 0 or
                 row['expired'] != 0):
                 report_data.append(row)
 

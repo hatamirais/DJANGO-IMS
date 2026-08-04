@@ -8,6 +8,13 @@ from apps.core.decimal_validation import validate_finite_decimal
 from apps.core.models import TimeStampedModel
 
 
+def format_decimal_label(value):
+    label = format(value, "f")
+    if "." in label:
+        label = label.rstrip("0").rstrip(".")
+    return label or "0"
+
+
 class Stock(TimeStampedModel):
     """Real-time inventory tracking by batch/location."""
 
@@ -22,6 +29,11 @@ class Stock(TimeStampedModel):
         related_name="stock_entries",
     )
     batch_lot = models.CharField(max_length=100)
+    source_document_number = models.CharField(
+        max_length=100,
+        default="LEGACY",
+        help_text="Original source document that created this stock valuation layer.",
+    )
     expiry_date = models.DateField(null=True, blank=True)
     quantity = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     reserved = models.DecimalField(
@@ -56,7 +68,13 @@ class Stock(TimeStampedModel):
                 name="chk_stock_reserved_gte_0",
             ),
             models.UniqueConstraint(
-                fields=["item", "location", "batch_lot", "sumber_dana"],
+                fields=[
+                    "item",
+                    "location",
+                    "batch_lot",
+                    "sumber_dana",
+                    "source_document_number",
+                ],
                 name="uq_stock_batch",
             ),
         ]
@@ -64,13 +82,19 @@ class Stock(TimeStampedModel):
             models.Index(
                 fields=["item", "location", "expiry_date"], name="idx_stock_fefo"
             ),
+            models.Index(
+                fields=["source_document_number"], name="idx_stock_source_doc"
+            ),
             models.Index(fields=["expiry_date"], name="idx_stock_expiry"),
             models.Index(fields=["item", "location"], name="idx_stock_item_loc"),
         ]
         ordering = ["item", "expiry_date"]
 
     def __str__(self):
-        return f"{self.item} | {self.batch_lot} | Qty: {self.quantity}"
+        return (
+            f"{self.item} | {self.batch_lot} | "
+            f"{self.source_document_number} | Qty: {self.quantity}"
+        )
 
     def clean(self):
         errors = {}
@@ -89,6 +113,16 @@ class Stock(TimeStampedModel):
     def available_quantity(self):
         """Available stock = quantity - reserved."""
         return self.quantity - self.reserved
+
+    @property
+    def picker_label(self):
+        funding_code = self.sumber_dana.code if self.sumber_dana_id else "-"
+        return (
+            f"{self.batch_lot} | "
+            f"Tersedia: {format_decimal_label(self.available_quantity)} | "
+            f"Exp: {self.expiry_date_display} | Dokumen: {self.source_document_number} | "
+            f"Dana: {funding_code} | Harga: {format_decimal_label(self.unit_price)}"
+        )
 
     @property
     def total_value(self):
@@ -150,6 +184,11 @@ class Transaction(models.Model):
         related_name="transactions",
     )
     batch_lot = models.CharField(max_length=100)
+    source_document_number = models.CharField(
+        max_length=100,
+        default="LEGACY",
+        help_text="Original source document for the stock valuation layer moved by this transaction.",
+    )
     quantity = models.DecimalField(max_digits=12, decimal_places=2)
     unit_price = models.DecimalField(
         max_digits=15, decimal_places=2, null=True, blank=True
@@ -184,6 +223,9 @@ class Transaction(models.Model):
             models.Index(
                 fields=["reference_type", "reference_id"], name="idx_trans_reference"
             ),
+            models.Index(
+                fields=["source_document_number"], name="idx_trans_source_doc"
+            ),
             models.Index(fields=["created_at"], name="idx_trans_created"),
         ]
         ordering = ["-created_at"]
@@ -216,6 +258,30 @@ class OpeningBalanceImport(TimeStampedModel):
 
     def __str__(self):
         return f"{self.document_number} ({self.effective_date:%Y-%m-%d})"
+
+
+class SourceDocumentNumberClaim(TimeStampedModel):
+    """Shared uniqueness registry for stock source document numbers."""
+
+    class SourceType(models.TextChoices):
+        RECEIVING = "RECEIVING", "Penerimaan"
+        OPENING_BALANCE = "OPENING_BALANCE", "Saldo Awal"
+
+    document_number = models.CharField(max_length=100, unique=True)
+    source_type = models.CharField(max_length=30, choices=SourceType.choices)
+    source_id = models.PositiveIntegerField(null=True, blank=True)
+
+    class Meta:
+        db_table = "source_document_number_claims"
+        indexes = [
+            models.Index(
+                fields=["source_type", "source_id"],
+                name="idx_source_doc_claim_source",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.document_number} ({self.source_type})"
 
 
 class OpeningBalanceImportItem(models.Model):

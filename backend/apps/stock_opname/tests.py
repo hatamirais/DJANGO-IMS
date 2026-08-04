@@ -533,6 +533,32 @@ class StockOpnamePresentationAndAuditTests(StockOpnameTestMixin, TestCase):
         self.assertContains(response, "DINAS KESEHATAN KABUPATEN")
         self.assertContains(response, "Instalasi Farmasi Daerah")
 
+    def test_opname_surfaces_show_source_layer_and_unit_price(self):
+        self.stock.source_document_number = "RCV-OPNAME-LAYER"
+        self.stock.unit_price = Decimal("1234.50")
+        self.stock.save(
+            update_fields=["source_document_number", "unit_price", "updated_at"]
+        )
+        opname = self.create_opname(status=StockOpname.Status.IN_PROGRESS)
+        StockOpnameItem.objects.create(
+            stock_opname=opname,
+            stock=self.stock,
+            system_quantity=Decimal("100"),
+            actual_quantity=Decimal("95"),
+        )
+
+        self.client.force_login(self.admin)
+        for url_name in ["opname_detail", "opname_input", "opname_print"]:
+            with self.subTest(url_name=url_name):
+                response = self.client.get(
+                    reverse(f"stock_opname:{url_name}", args=[opname.pk]),
+                    secure=True,
+                )
+
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, "RCV-OPNAME-LAYER")
+                self.assertContains(response, "1.234,50")
+
     def test_delete_completed_opname_returns_404(self):
         opname = self.create_opname(status=StockOpname.Status.COMPLETED)
         self.client.force_login(self.admin)

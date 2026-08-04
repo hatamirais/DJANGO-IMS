@@ -33,7 +33,7 @@ def _redirect_allocation_detail(pk):
 
 def _build_allocation_stock_catalog():
     available_stocks = (
-        Stock.objects.select_related("item")
+        Stock.objects.select_related("item", "sumber_dana")
         .filter(quantity__gt=F("reserved"))
         .order_by(F("expiry_date").asc(nulls_last=True), "item_id", "batch_lot")
     )
@@ -41,10 +41,7 @@ def _build_allocation_stock_catalog():
         {
             "id": stock.pk,
             "itemId": stock.item_id,
-            "label": (
-                f"{stock.batch_lot} | Tersedia: {stock.available_quantity}"
-                f" | Exp: {stock.expiry_date_display}"
-            ),
+            "label": stock.picker_label,
             "availableQty": float(stock.available_quantity),
         }
         for stock in available_stocks

@@ -412,6 +412,319 @@ class RekapOpeningBalanceReportTests(TestCase):
 		self.assertEqual(row["received"], Decimal("7"))
 		self.assertEqual(row["ending_stock"], Decimal("7"))
 
+	def test_detailed_report_separates_same_batch_price_by_source_document(self):
+		Stock.objects.create(
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-SOURCE-SPLIT",
+			source_document_number="SALDO-AWAL-SOURCE-A",
+			expiry_date=date(2030, 1, 1),
+			quantity=Decimal("5"),
+			reserved=Decimal("0"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+		)
+		Stock.objects.create(
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-SOURCE-SPLIT",
+			source_document_number="SALDO-AWAL-SOURCE-B",
+			expiry_date=date(2031, 1, 1),
+			quantity=Decimal("7"),
+			reserved=Decimal("0"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+		)
+		Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.IN,
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-SOURCE-SPLIT",
+			source_document_number="SALDO-AWAL-SOURCE-A",
+			quantity=Decimal("5"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+			reference_type=Transaction.ReferenceType.RECEIVING,
+			reference_id=11,
+			user=self.user,
+		)
+		Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.IN,
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-SOURCE-SPLIT",
+			source_document_number="SALDO-AWAL-SOURCE-B",
+			quantity=Decimal("7"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+			reference_type=Transaction.ReferenceType.RECEIVING,
+			reference_id=12,
+			user=self.user,
+		)
+
+		response = self.client.get(
+			reverse("reports:index"),
+			{"start_date": "2026-01-01", "end_date": "2026-12-31"},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		rows = sorted(
+			(
+				row["source_document_number"],
+				row["expiry_date"],
+				row["received"],
+			)
+			for row in response.context["report_data"]
+			if row["batch_lot"] == "RO-BATCH-SOURCE-SPLIT"
+		)
+		self.assertEqual(
+			rows,
+			[
+				("SALDO-AWAL-SOURCE-A", date(2030, 1, 1), Decimal("5")),
+				("SALDO-AWAL-SOURCE-B", date(2031, 1, 1), Decimal("7")),
+			],
+		)
+		self.assertContains(response, "SALDO-AWAL-SOURCE-A")
+		self.assertContains(response, "SALDO-AWAL-SOURCE-B")
+
+		export_response = self.client.get(
+			reverse("reports:index"),
+			{
+				"start_date": "2026-01-01",
+				"end_date": "2026-12-31",
+				"format": "excel",
+			},
+		)
+		self.assertEqual(export_response.status_code, 200)
+		workbook = load_workbook(BytesIO(export_response.content))
+		sheet = workbook.active
+		self.assertEqual(sheet["D4"].value, "Lokasi")
+		self.assertEqual(sheet["F4"].value, "Dokumen Sumber")
+		source_values = {
+			sheet.cell(row=row_idx, column=6).value
+			for row_idx in range(5, sheet.max_row + 1)
+		}
+		self.assertIn("SALDO-AWAL-SOURCE-A", source_values)
+		self.assertIn("SALDO-AWAL-SOURCE-B", source_values)
+
+	def test_detailed_report_separates_same_source_batch_by_location_expiry(self):
+		other_location = Location.objects.create(
+			code="RO-LOC-OTHER",
+			name="Gudang Pembantu",
+		)
+		Stock.objects.create(
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-LOCATION-SPLIT",
+			source_document_number="RCV-LOCATION-SPLIT",
+			expiry_date=date(2030, 1, 1),
+			quantity=Decimal("5"),
+			reserved=Decimal("0"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+		)
+		Stock.objects.create(
+			item=self.item,
+			location=other_location,
+			batch_lot="RO-BATCH-LOCATION-SPLIT",
+			source_document_number="RCV-LOCATION-SPLIT",
+			expiry_date=date(2031, 1, 1),
+			quantity=Decimal("7"),
+			reserved=Decimal("0"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+		)
+		Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.IN,
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-LOCATION-SPLIT",
+			source_document_number="RCV-LOCATION-SPLIT",
+			quantity=Decimal("5"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+			reference_type=Transaction.ReferenceType.RECEIVING,
+			reference_id=21,
+			user=self.user,
+		)
+		Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.IN,
+			item=self.item,
+			location=other_location,
+			batch_lot="RO-BATCH-LOCATION-SPLIT",
+			source_document_number="RCV-LOCATION-SPLIT",
+			quantity=Decimal("7"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+			reference_type=Transaction.ReferenceType.RECEIVING,
+			reference_id=22,
+			user=self.user,
+		)
+
+		response = self.client.get(
+			reverse("reports:index"),
+			{"start_date": "2026-01-01", "end_date": "2026-12-31"},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		rows = sorted(
+			(
+				row["location_label"],
+				row["expiry_date"],
+				row["received"],
+			)
+			for row in response.context["report_data"]
+			if row["batch_lot"] == "RO-BATCH-LOCATION-SPLIT"
+		)
+		self.assertEqual(
+			rows,
+			[
+				("RO-LOC - Gudang Rekap", date(2030, 1, 1), Decimal("5")),
+				("RO-LOC-OTHER - Gudang Pembantu", date(2031, 1, 1), Decimal("7")),
+			],
+		)
+		self.assertContains(response, "RO-LOC-OTHER - Gudang Pembantu")
+
+	def test_detailed_report_groups_locations_by_unique_location_id(self):
+		same_name_location = Location.objects.create(
+			code="RO-LOC-DUP",
+			name=self.location.name,
+		)
+		for location, quantity in (
+			(self.location, Decimal("5")),
+			(same_name_location, Decimal("7")),
+		):
+			Stock.objects.create(
+				item=self.item,
+				location=location,
+				batch_lot="RO-BATCH-DUP-LOCATION",
+				source_document_number="RCV-DUP-LOCATION",
+				expiry_date=date(2030, 1, 1),
+				quantity=quantity,
+				reserved=Decimal("0"),
+				unit_price=Decimal("100"),
+				sumber_dana=self.funding,
+			)
+			Transaction.objects.create(
+				transaction_type=Transaction.TransactionType.IN,
+				item=self.item,
+				location=location,
+				batch_lot="RO-BATCH-DUP-LOCATION",
+				source_document_number="RCV-DUP-LOCATION",
+				quantity=quantity,
+				unit_price=Decimal("100"),
+				sumber_dana=self.funding,
+				reference_type=Transaction.ReferenceType.RECEIVING,
+				reference_id=30 + location.pk,
+				user=self.user,
+			)
+
+		response = self.client.get(
+			reverse("reports:index"),
+			{"start_date": "2026-01-01", "end_date": "2026-12-31"},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		rows = sorted(
+			(row["location_label"], row["received"])
+			for row in response.context["report_data"]
+			if row["batch_lot"] == "RO-BATCH-DUP-LOCATION"
+		)
+		self.assertEqual(
+			rows,
+			[
+				("RO-LOC - Gudang Rekap", Decimal("5")),
+				("RO-LOC-DUP - Gudang Rekap", Decimal("7")),
+			],
+		)
+		self.assertContains(response, "RO-LOC-DUP - Gudang Rekap")
+
+	def test_detailed_report_applies_in_period_transfers_by_location(self):
+		destination = Location.objects.create(
+			code="RO-LOC-TRANSFER",
+			name="Gudang Transfer",
+		)
+		Stock.objects.create(
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-TRANSFER",
+			source_document_number="RCV-TRANSFER-SOURCE",
+			expiry_date=date(2030, 1, 1),
+			quantity=Decimal("6"),
+			reserved=Decimal("0"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+		)
+		Stock.objects.create(
+			item=self.item,
+			location=destination,
+			batch_lot="RO-BATCH-TRANSFER",
+			source_document_number="RCV-TRANSFER-SOURCE",
+			expiry_date=date(2030, 1, 1),
+			quantity=Decimal("4"),
+			reserved=Decimal("0"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+		)
+		Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.IN,
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-TRANSFER",
+			source_document_number="RCV-TRANSFER-SOURCE",
+			quantity=Decimal("10"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+			reference_type=Transaction.ReferenceType.RECEIVING,
+			reference_id=31,
+			user=self.user,
+		)
+		Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.OUT,
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-TRANSFER",
+			source_document_number="RCV-TRANSFER-SOURCE",
+			quantity=Decimal("4"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+			reference_type=Transaction.ReferenceType.TRANSFER,
+			reference_id=32,
+			user=self.user,
+		)
+		Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.IN,
+			item=self.item,
+			location=destination,
+			batch_lot="RO-BATCH-TRANSFER",
+			source_document_number="RCV-TRANSFER-SOURCE",
+			quantity=Decimal("4"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+			reference_type=Transaction.ReferenceType.TRANSFER,
+			reference_id=32,
+			user=self.user,
+		)
+
+		response = self.client.get(
+			reverse("reports:index"),
+			{"start_date": "2026-01-01", "end_date": "2026-12-31"},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		rows = {
+			row["location_label"]: row
+			for row in response.context["report_data"]
+			if row["batch_lot"] == "RO-BATCH-TRANSFER"
+		}
+		self.assertEqual(rows["RO-LOC - Gudang Rekap"]["received"], Decimal("10"))
+		self.assertEqual(rows["RO-LOC - Gudang Rekap"]["transfer_out"], Decimal("4"))
+		self.assertEqual(rows["RO-LOC - Gudang Rekap"]["ending_stock"], Decimal("6"))
+		self.assertEqual(rows["RO-LOC-TRANSFER - Gudang Transfer"]["transfer_in"], Decimal("4"))
+		self.assertEqual(rows["RO-LOC-TRANSFER - Gudang Transfer"]["ending_stock"], Decimal("4"))
+		self.assertContains(response, "Transfer In")
+		self.assertContains(response, "Transfer Out")
+
 	def test_rekap_next_year_carries_prior_year_ending_balance_without_reimport(self):
 		Transaction.objects.create(
 			transaction_type=Transaction.TransactionType.IN,

@@ -519,6 +519,7 @@ def expired_verify(request, pk):
                     batch_lot=stock.batch_lot,
                     quantity=expired_item.quantity,
                     unit_price=stock.unit_price,
+                    source_document_number=stock.source_document_number,
                     sumber_dana=stock.sumber_dana,
                     reference_type=Transaction.ReferenceType.EXPIRED,
                     reference_id=expired_doc.id,

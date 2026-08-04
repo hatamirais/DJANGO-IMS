@@ -1,6 +1,9 @@
+import hashlib
 import unicodedata
 
 from django.db import IntegrityError, models, transaction
+from django.db.models.signals import pre_delete
+from django.dispatch import receiver
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db.models import F
@@ -76,6 +79,7 @@ def _create_receiving_stock_row(
     quantity,
     unit_price,
     receiving_ref,
+    source_document_number,
 ):
     from apps.stock.models import Stock
 
@@ -83,6 +87,7 @@ def _create_receiving_stock_row(
         item=item,
         location=location,
         batch_lot=batch_lot,
+        source_document_number=source_document_number,
         sumber_dana=sumber_dana,
         expiry_date=expiry_date,
         quantity=quantity,
@@ -101,6 +106,7 @@ def increment_receiving_stock(
     quantity,
     unit_price,
     receiving_ref,
+    source_document_number,
 ):
     if not transaction.get_connection().in_atomic_block:
         raise RuntimeError("increment_receiving_stock harus dipanggil dalam transaksi.")
@@ -112,21 +118,27 @@ def increment_receiving_stock(
         "location": location,
         "batch_lot": batch_lot,
         "sumber_dana": sumber_dana,
+        "source_document_number": source_document_number,
     }
     updated_at = timezone.now()
     existing_stock = (
         Stock.objects.filter(**stock_filters)
-        .values("pk", "expiry_date")
+        .values("pk", "expiry_date", "unit_price")
         .first()
     )
     if existing_stock and existing_stock["expiry_date"] != expiry_date:
         raise ValueError(
             "Batch stok yang sama tidak boleh memiliki tanggal kedaluwarsa berbeda."
         )
+    if existing_stock and existing_stock["unit_price"] != unit_price:
+        raise ValueError(
+            "Batch stok yang sama dalam dokumen sumber yang sama tidak boleh memiliki harga satuan berbeda."
+        )
 
     update_filters = {
         **stock_filters,
         "expiry_date": expiry_date,
+        "unit_price": unit_price,
     }
     updated = Stock.objects.filter(**update_filters).update(
         quantity=F("quantity") + quantity,
@@ -146,16 +158,21 @@ def increment_receiving_stock(
                 quantity=quantity,
                 unit_price=unit_price,
                 receiving_ref=receiving_ref,
+                source_document_number=source_document_number,
             )
     except IntegrityError:
         existing_stock = (
             Stock.objects.filter(**stock_filters)
-            .values("pk", "expiry_date")
+            .values("pk", "expiry_date", "unit_price")
             .first()
         )
         if existing_stock and existing_stock["expiry_date"] != expiry_date:
             raise ValueError(
                 "Batch stok yang sama tidak boleh memiliki tanggal kedaluwarsa berbeda."
+            )
+        if existing_stock and existing_stock["unit_price"] != unit_price:
+            raise ValueError(
+                "Batch stok yang sama dalam dokumen sumber yang sama tidak boleh memiliki harga satuan berbeda."
             )
         updated = Stock.objects.filter(**update_filters).update(
             quantity=F("quantity") + quantity,
@@ -164,6 +181,116 @@ def increment_receiving_stock(
         if updated:
             return
         raise
+
+
+def resolve_receiving_source_document_number(
+    receiving,
+    item=None,
+    location=None,
+    batch_lot=None,
+    sumber_dana=None,
+):
+    if not receiving.pk:
+        return receiving.document_number
+
+    from apps.stock.models import Stock, Transaction
+
+    stock_filters = {"receiving_ref": receiving}
+    if item is not None:
+        stock_filters["item"] = item
+    if location is not None:
+        stock_filters["location"] = location
+    if batch_lot is not None:
+        stock_filters["batch_lot"] = batch_lot
+    if sumber_dana is not None:
+        stock_filters["sumber_dana"] = sumber_dana
+
+    existing_sources = list(
+        Stock.objects.filter(**stock_filters)
+        .exclude(source_document_number="")
+        .values_list("source_document_number", flat=True)
+        .distinct()
+        .order_by("source_document_number")
+    )
+    non_header_sources = [
+        source
+        for source in existing_sources
+        if source != receiving.document_number
+    ]
+    if len(non_header_sources) == 1:
+        return non_header_sources[0]
+    if len(existing_sources) == 1:
+        return existing_sources[0]
+
+    transaction_filters = {
+        "reference_type": Transaction.ReferenceType.RECEIVING,
+        "reference_id": receiving.pk,
+    }
+    if item is not None:
+        transaction_filters["item"] = item
+    if location is not None:
+        transaction_filters["location"] = location
+    if batch_lot is not None:
+        transaction_filters["batch_lot"] = batch_lot
+    if sumber_dana is not None:
+        transaction_filters["sumber_dana"] = sumber_dana
+
+    transaction_sources = list(
+        Transaction.objects.filter(**transaction_filters)
+        .exclude(source_document_number="")
+        .values_list("source_document_number", flat=True)
+        .distinct()
+        .order_by("source_document_number")
+    )
+    non_header_transaction_sources = [
+        source
+        for source in transaction_sources
+        if source != receiving.document_number
+    ]
+    if len(non_header_transaction_sources) == 1:
+        return non_header_transaction_sources[0]
+    if len(transaction_sources) == 1:
+        return transaction_sources[0]
+    collision_alias = _receiving_collision_source_document_number(receiving)
+    if collision_alias:
+        document_sources = set(
+            Stock.objects.filter(receiving_ref=receiving)
+            .exclude(source_document_number="")
+            .values_list("source_document_number", flat=True)
+        )
+        document_sources.update(
+            Transaction.objects.filter(
+                reference_type=Transaction.ReferenceType.RECEIVING,
+                reference_id=receiving.pk,
+            )
+            .exclude(source_document_number="")
+            .values_list("source_document_number", flat=True)
+        )
+        non_header_document_sources = {
+            source
+            for source in document_sources
+            if source != receiving.document_number
+        }
+        if non_header_document_sources == {collision_alias}:
+            return collision_alias
+    return receiving.document_number
+
+
+def _receiving_collision_source_document_number(receiving):
+    from apps.stock.models import OpeningBalanceImport
+
+    if not receiving.document_number:
+        return ""
+    if not OpeningBalanceImport.objects.filter(
+        document_number=receiving.document_number
+    ).exists():
+        return ""
+
+    digest = hashlib.sha1(
+        f"RECEIVING:{receiving.document_number}".encode("utf-8")
+    ).hexdigest()[:8]
+    suffix_length = 100 - len("RCV") - len(digest) - 2
+    return f"RCV-{digest}-{receiving.document_number[:suffix_length]}"
 
 
 class Receiving(TimeStampedModel):
@@ -292,6 +419,8 @@ class Receiving(TimeStampedModel):
     def clean(self):
         super().clean()
         self.receiving_type = validate_receiving_type_code(self.receiving_type)
+        self._validate_document_number_not_opening_balance_collision()
+        self._validate_document_number_immutable_after_movements()
         if self.receiving_type == self.ReceivingType.PROCUREMENT and not self.supplier_id:
             raise ValidationError(
                 {"supplier": "Supplier wajib diisi untuk tipe Pengadaan."}
@@ -307,29 +436,185 @@ class Receiving(TimeStampedModel):
             if duplicate_qs.exists():
                 raise ValidationError({"contract": "Setiap kontrak SPJ hanya boleh memiliki satu rencana penerimaan."})
 
+    def _validate_document_number_not_opening_balance_collision(self):
+        if not self.document_number:
+            return
+
+        from apps.stock.models import OpeningBalanceImport, SourceDocumentNumberClaim
+
+        if OpeningBalanceImport.objects.filter(
+            document_number=self.document_number
+        ).exists() and not self._document_number_is_unchanged():
+            raise ValidationError(
+                {
+                    "document_number": (
+                        f"Nomor dokumen '{self.document_number}' sudah digunakan "
+                        "oleh dokumen saldo awal. Gunakan nomor penerimaan yang berbeda."
+                    )
+                }
+            )
+
+        claimed_numbers = SourceDocumentNumberClaim.objects.filter(
+            document_number=self.document_number
+        )
+        if self.pk:
+            claimed_numbers = claimed_numbers.exclude(
+                source_type=SourceDocumentNumberClaim.SourceType.RECEIVING,
+                source_id=self.pk,
+            )
+        if claimed_numbers.exists() and not self._document_number_is_unchanged():
+            raise ValidationError(
+                {
+                    "document_number": (
+                        f"Nomor dokumen '{self.document_number}' sudah diklaim "
+                        "oleh dokumen sumber stok lain."
+                    )
+                }
+            )
+
+    def _document_number_is_unchanged(self):
+        if not self.pk or not self.document_number:
+            return False
+        return Receiving.objects.filter(
+            pk=self.pk,
+            document_number=self.document_number,
+        ).exists()
+
+    def _claim_document_number(self, old_document_number=None):
+        if old_document_number == self.document_number:
+            return None
+
+        from apps.stock.models import SourceDocumentNumberClaim
+
+        try:
+            return SourceDocumentNumberClaim.objects.create(
+                document_number=self.document_number,
+                source_type=SourceDocumentNumberClaim.SourceType.RECEIVING,
+                source_id=self.pk,
+            )
+        except IntegrityError as exc:
+            raise ValidationError(
+                {
+                    "document_number": (
+                        f"Nomor dokumen '{self.document_number}' sudah diklaim "
+                        "oleh dokumen sumber stok lain."
+                    )
+                }
+            ) from exc
+
+    def _release_old_document_number_claim(self, old_document_number):
+        if not old_document_number or old_document_number == self.document_number:
+            return
+
+        from apps.stock.models import SourceDocumentNumberClaim
+
+        SourceDocumentNumberClaim.objects.filter(
+            document_number=old_document_number,
+            source_type=SourceDocumentNumberClaim.SourceType.RECEIVING,
+            source_id=self.pk,
+        ).delete()
+
+    def has_posted_stock_movements(self):
+        if not self.pk:
+            return False
+
+        from apps.stock.models import Stock, Transaction
+
+        return (
+            Transaction.objects.filter(
+                reference_type=Transaction.ReferenceType.RECEIVING,
+                reference_id=self.pk,
+            ).exists()
+            or Stock.objects.filter(receiving_ref_id=self.pk).exists()
+        )
+
+    def _validate_document_number_immutable_after_movements(self):
+        if not self.pk or not self.document_number:
+            return
+
+        old_document_number = (
+            Receiving.objects.filter(pk=self.pk)
+            .values_list("document_number", flat=True)
+            .first()
+        )
+        if (
+            old_document_number
+            and old_document_number != self.document_number
+            and self.has_posted_stock_movements()
+        ):
+            raise ValidationError(
+                {
+                    "document_number": (
+                        "Nomor dokumen penerimaan tidak dapat diubah setelah "
+                        "stok atau transaksi ledger dibuat."
+                    )
+                }
+            )
+
     @staticmethod
     def generate_document_number():
         year = timezone.now().year
         prefix = f"RCV-{year}-"
-        last = (
+
+        from apps.stock.models import OpeningBalanceImport, SourceDocumentNumberClaim
+
+        document_numbers = list(
             Receiving.objects.filter(document_number__startswith=prefix)
-            .order_by("-document_number")
             .values_list("document_number", flat=True)
-            .first()
         )
-        if last:
+        document_numbers.extend(
+            OpeningBalanceImport.objects.filter(document_number__startswith=prefix)
+            .values_list("document_number", flat=True)
+        )
+        document_numbers.extend(
+            SourceDocumentNumberClaim.objects.filter(
+                document_number__startswith=prefix
+            ).values_list("document_number", flat=True)
+        )
+        max_num = 0
+        for document_number in document_numbers:
             try:
-                num = int(last.split("-")[-1]) + 1
+                max_num = max(max_num, int(document_number.split("-")[-1]))
             except (ValueError, IndexError):
-                num = 1
-        else:
-            num = 1
+                continue
+        num = max_num + 1
         return f"{prefix}{num:05d}"
 
     def save(self, *args, **kwargs):
+        old_document_number = None
+        if self.pk:
+            old_document_number = (
+                Receiving.objects.filter(pk=self.pk)
+                .values_list("document_number", flat=True)
+                .first()
+            )
+
         if not self.document_number:
             self.document_number = self.generate_document_number()
-        super().save(*args, **kwargs)
+        self._validate_document_number_not_opening_balance_collision()
+        self._validate_document_number_immutable_after_movements()
+
+        with transaction.atomic():
+            claim = self._claim_document_number(old_document_number)
+            super().save(*args, **kwargs)
+            if claim and claim.source_id != self.pk:
+                claim.source_id = self.pk
+                claim.save(update_fields=["source_id", "updated_at"])
+            self._release_old_document_number_claim(old_document_number)
+
+
+@receiver(pre_delete, sender=Receiving)
+def release_unposted_receiving_document_number_claim(sender, instance, **kwargs):
+    if instance.has_posted_stock_movements():
+        return
+
+    from apps.stock.models import SourceDocumentNumberClaim
+
+    SourceDocumentNumberClaim.objects.filter(
+        document_number=instance.document_number,
+        source_type=SourceDocumentNumberClaim.SourceType.RECEIVING,
+        source_id=instance.pk,
+    ).delete()
 
 
 class ReceivingItem(models.Model):

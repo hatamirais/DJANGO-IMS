@@ -67,6 +67,7 @@
                                 <th>Nama Barang</th>
                                 <th>Batch/Lot</th>
                                 <th>Tanggal Kedaluwarsa</th>
+                                <th>Dokumen Sumber</th>
                                 <th class="text-end">Kuantitas Mutasi</th>
                                 <th>Catatan</th>
                             </tr>
@@ -79,12 +80,13 @@
                                 <td>{{ line.item.nama_barang }}</td>
                                 <td>{{ line.stock.batch_lot }}</td>
                                 <td>{{ line.stock.expiry_date_display }}</td>
+                                <td><code>{{ line.stock.source_document_number|default:"-" }}</code></td>
                                 <td class="text-end fw-semibold">{{ line.quantity }}</td>
                                 <td class="text-muted small">{{ line.notes|default:"-" }}</td>
                             </tr>
                             {% empty %}
                             <tr>
-                                <td colspan="7">
+                                <td colspan="8">
                                     <div class="empty-state py-4">
                                         <i class="bi bi-journal-x d-block"></i>
                                         <p>Belum ada item mutasi.</p>

@@ -54,14 +54,12 @@ class ExpiredItemForm(forms.ModelForm):
         self.fields['notes'].required = False
         # FEFO default: only show batches with available stock, ordered by earliest expiry
         self.fields['stock'].queryset = (
-            Stock.objects.select_related('item')
+            Stock.objects.select_related('item', 'sumber_dana')
             .filter(quantity__gt=F('reserved'))
             .filter(expiry_date__isnull=False)
             .order_by(F('expiry_date').asc(nulls_last=True), 'item_id', 'batch_lot')
         )
-        self.fields['stock'].label_from_instance = lambda obj: (
-            f"{obj.batch_lot} | Tersedia: {obj.available_quantity} | Exp: {obj.expiry_date_display}"
-        )
+        self.fields['stock'].label_from_instance = lambda obj: obj.picker_label
 
     def clean(self):
         cleaned_data = super().clean()
