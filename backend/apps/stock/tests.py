@@ -3730,6 +3730,13 @@ class StockCardTest(TestCase):
         self.assertEqual(cards_by_source['OBI-QUIET-LAYER']['batch_lot'], 'QUIET-LAYER-B')
         self.assertContains(response, f'Lokasi: {self.location.name}')
         self.assertContains(response, 'Batch: QUIET-LAYER-B')
+        print_response = self.client.get(
+            reverse('stock:stock_card_print', args=[self.item.id]),
+            {'date_from': '2026-01-02'},
+        )
+        self.assertEqual(print_response.status_code, 200)
+        self.assertContains(print_response, f'Lokasi: {self.location.name}')
+        self.assertContains(print_response, 'Batch: QUIET-LAYER-B')
 
     def test_stock_card_preserves_batch_prices_within_one_receiving_document(self):
         receiving = Receiving.objects.create(
