@@ -1,4 +1,4 @@
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, localcontext
 
 from django.core.exceptions import ValidationError
 
@@ -6,6 +6,7 @@ from django.core.exceptions import ValidationError
 PRICE_MAX_DIGITS = 23
 PRICE_DECIMAL_PLACES = 10
 PRICE_QUANT = Decimal("0.0000000001")
+DECIMAL_CALCULATION_PRECISION = 60
 
 
 def validate_finite_decimal(value, *, field_label="Nilai"):
@@ -62,6 +63,32 @@ def quantize_price(value):
     return validate_finite_decimal(value, field_label="Harga satuan").quantize(
         PRICE_QUANT
     )
+
+
+def decimal_from_value(value):
+    if value in (None, ""):
+        return Decimal("0")
+    if isinstance(value, Decimal):
+        return validate_finite_decimal(value)
+    return validate_finite_decimal(Decimal(str(value)))
+
+
+def multiply_decimals(*values):
+    with localcontext() as context:
+        context.prec = DECIMAL_CALCULATION_PRECISION
+        result = Decimal("1")
+        for value in values:
+            result *= decimal_from_value(value)
+        return result
+
+
+def sum_decimals(values):
+    with localcontext() as context:
+        context.prec = DECIMAL_CALCULATION_PRECISION
+        total = Decimal("0")
+        for value in values:
+            total += decimal_from_value(value)
+        return total
 
 
 def format_price_exact(value):

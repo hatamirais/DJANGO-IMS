@@ -3398,7 +3398,7 @@ class PuskesmasReportViewTests(SecureClientDefaultsMixin, TestCase):
 					"distribution_document_number": "@DIST-SOURCE",
 					"nama_barang": "@Amoxicillin 500 mg",
 					"satuan": "-Tablet",
-					"quantity": Decimal("1.01"),
+					"quantity": Decimal("9999999999.99"),
 					"unit_price": Decimal("9999999999999.1234567891"),
 					"batch_lot": "+BATCH-LOT",
 					"expiry_date": None,
@@ -3424,13 +3424,13 @@ class PuskesmasReportViewTests(SecureClientDefaultsMixin, TestCase):
 		self.assertEqual(sheet["I5"].value, "'+BATCH-LOT")
 		self.assertEqual(sheet["L5"].value, "'=BATCH-01")
 		self.assertEqual(sheet["A2"].data_type, "s")
-		self.assertEqual(sheet["G5"].value, 1.01)
+		self.assertEqual(sheet["G5"].value, 9999999999.99)
 		self.assertEqual(sheet["H5"].value, "9999999999999.1234567891")
-		self.assertEqual(sheet["K5"].value, "10099999999999.114691356991")
+		self.assertEqual(sheet["K5"].value, "99999999999891234567891.008765432109")
 		self.assertEqual(sheet["G5"].data_type, "n")
 		self.assertEqual(sheet["H5"].data_type, "s")
 		self.assertEqual(sheet["K5"].data_type, "s")
-		self.assertEqual(sheet["K6"].value, "10099999999999.114691356991")
+		self.assertEqual(sheet["K6"].value, "99999999999891234567891.008765432109")
 
 	def test_rekap_persediaan_excel_exports_values_as_precise_text(self):
 		response = export_puskesmas_rekap_persediaan_excel(

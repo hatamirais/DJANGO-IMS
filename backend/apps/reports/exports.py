@@ -5,6 +5,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill, numbers
 from openpyxl.utils import get_column_letter
 
+from apps.core.decimal_validation import sum_decimals
 from apps.core.xlsx_exports import escape_xlsx_formula
 
 
@@ -375,7 +376,7 @@ def _export_penerimaan_excel(report_data, start_date, end_date, title, filename_
             elif col_idx == 1:
                 cell.alignment = Alignment(horizontal="center")
         total_qty += Decimal(str(row.get('quantity', 0) or 0))
-        total_value += Decimal(str(row.get('total_price', 0) or 0))
+        total_value = sum_decimals([total_value, row.get('total_price', 0)])
         row_num += 1
 
     # Total row
@@ -582,7 +583,7 @@ def export_pengeluaran_excel(
             elif col_idx == 1:
                 cell.alignment = Alignment(horizontal="center")
         total_qty += Decimal(str(row.get('quantity', 0) or 0))
-        total_value += Decimal(str(row.get('total_price', 0) or 0))
+        total_value = sum_decimals([total_value, row.get('total_price', 0)])
         row_num += 1
 
     # Total row

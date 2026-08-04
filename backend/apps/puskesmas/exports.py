@@ -6,6 +6,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 from openpyxl.utils import get_column_letter
 
+from apps.core.decimal_validation import multiply_decimals, sum_decimals
 from apps.core.xlsx_exports import escape_xlsx_formula
 
 
@@ -136,7 +137,7 @@ def export_puskesmas_penerimaan_excel(report_data, start_date, end_date, facilit
         received_date_str = received_date.strftime("%d/%m/%Y") if received_date else "-"
         qty = Decimal(str(row.get("quantity", 0) or 0))
         unit_price = Decimal(str(row.get("unit_price", 0) or 0))
-        total_price = qty * unit_price
+        total_price = multiply_decimals(qty, unit_price)
 
         values = [
             idx,
@@ -168,7 +169,7 @@ def export_puskesmas_penerimaan_excel(report_data, start_date, end_date, facilit
                 _set_decimal_text(cell, val, decimal_places=12)
 
         total_qty += qty
-        total_value += total_price
+        total_value = sum_decimals([total_value, total_price])
         row_num += 1
 
     # Total row

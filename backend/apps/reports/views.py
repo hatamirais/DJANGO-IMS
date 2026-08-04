@@ -6,6 +6,7 @@ from django.db.models import Sum, Q, F, Case, When, OuterRef, Subquery, Count, E
 from django.db.models.functions import Coalesce, TruncDate
 from django.urls import reverse
 
+from apps.core.decimal_validation import multiply_decimals, sum_decimals
 from .forms import InventoryReportFilterForm, NumberingHistoryFilterForm
 from .exports import (
     export_numbering_history_excel,
@@ -649,14 +650,14 @@ def reports_penerimaan_hibah(request):
                 'expiry_date': ri.expiry_date,
                 'unit_price': ri.unit_price,
                 'quantity': ri.quantity,
-                'total_price': ri.quantity * ri.unit_price,
+                'total_price': multiply_decimals(ri.quantity, ri.unit_price),
             })
 
         if request.GET.get('format') == 'excel' and report_data:
             return export_penerimaan_hibah_excel(report_data, start_date, end_date)
 
     total_quantity = sum(r['quantity'] for r in report_data)
-    total_value = sum(r['total_price'] for r in report_data)
+    total_value = sum_decimals(r['total_price'] for r in report_data)
 
     context = {
         'form': form,
@@ -710,14 +711,14 @@ def reports_pengadaan(request):
                 'expiry_date': ri.expiry_date,
                 'unit_price': ri.unit_price,
                 'quantity': ri.quantity,
-                'total_price': ri.quantity * ri.unit_price,
+                'total_price': multiply_decimals(ri.quantity, ri.unit_price),
             })
 
         if request.GET.get('format') == 'excel' and report_data:
             return export_pengadaan_excel(report_data, start_date, end_date)
 
     total_quantity = sum(r['quantity'] for r in report_data)
-    total_value = sum(r['total_price'] for r in report_data)
+    total_value = sum_decimals(r['total_price'] for r in report_data)
 
     context = {
         'form': form,
@@ -761,7 +762,7 @@ def reports_kadaluarsa(request):
                 'sumber_dana': ei.stock.sumber_dana.name if ei.stock and ei.stock.sumber_dana else '-',
                 'unit_price': unit_price,
                 'quantity': ei.quantity,
-                'total_price': ei.quantity * unit_price,
+                'total_price': multiply_decimals(ei.quantity, unit_price),
                 'notes': ei.notes,
             })
 
@@ -769,7 +770,7 @@ def reports_kadaluarsa(request):
             return export_kadaluarsa_excel(report_data, start_date, end_date)
 
     total_quantity = sum(r['quantity'] for r in report_data)
-    total_value = sum(r['total_price'] for r in report_data)
+    total_value = sum_decimals(r['total_price'] for r in report_data)
 
     context = {
         'form': form,
@@ -854,7 +855,7 @@ def render_pengeluaran_report(
                 'sumber_dana': di.stock.sumber_dana.name if di.stock and di.stock.sumber_dana else '-',
                 'unit_price': unit_price,
                 'quantity': qty,
-                'total_price': qty * unit_price,
+                'total_price': multiply_decimals(qty, unit_price),
             })
 
         if request.GET.get('format') == 'excel' and report_data:
@@ -892,7 +893,7 @@ def render_pengeluaran_report(
         )
 
     total_quantity = sum(r['quantity'] for r in report_data)
-    total_value = sum(r['total_price'] for r in report_data)
+    total_value = sum_decimals(r['total_price'] for r in report_data)
 
     context = {
         'form': form,
