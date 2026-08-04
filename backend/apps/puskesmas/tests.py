@@ -3437,14 +3437,14 @@ class PuskesmasReportViewTests(SecureClientDefaultsMixin, TestCase):
 			[
 				{
 					"kategori": self.category.name,
-					"saldo_awal": Decimal("0.124691356991"),
+					"saldo_awal": Decimal("-0.124691356991"),
 					"nilai_terima": Decimal("10099999999999.114691356991"),
 					"nilai_keluar": Decimal("0"),
 					"saldo_akhir": Decimal("10099999999999.239382713982"),
 				}
 			],
 			{
-				"saldo_awal": Decimal("0.124691356991"),
+				"saldo_awal": Decimal("-0.124691356991"),
 				"nilai_terima": Decimal("10099999999999.114691356991"),
 				"nilai_keluar": Decimal("0"),
 				"saldo_akhir": Decimal("10099999999999.239382713982"),
@@ -3456,7 +3456,7 @@ class PuskesmasReportViewTests(SecureClientDefaultsMixin, TestCase):
 
 		workbook = load_workbook(BytesIO(response.content))
 		sheet = workbook.active
-		self.assertEqual(sheet["C5"].value, "0.124691356991")
+		self.assertEqual(sheet["C5"].value, "-0.124691356991")
 		self.assertEqual(sheet["D5"].value, "10099999999999.114691356991")
 		self.assertEqual(sheet["F6"].value, "10099999999999.239382713982")
 		self.assertEqual(sheet["C5"].data_type, "s")

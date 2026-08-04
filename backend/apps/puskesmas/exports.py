@@ -39,7 +39,7 @@ def _decimal_text(value, *, decimal_places):
 
 
 def _set_decimal_text(cell, value, *, decimal_places):
-    cell.value = _cell_value(_decimal_text(value, decimal_places=decimal_places))
+    cell.value = _decimal_text(value, decimal_places=decimal_places)
     cell.number_format = TEXT_FORMAT
     cell.alignment = Alignment(horizontal="right")
     return cell

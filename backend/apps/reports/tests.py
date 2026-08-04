@@ -11,7 +11,11 @@ from apps.distribution.models import Distribution
 from apps.items.models import Category, Facility, FundingSource, Item, Location, Supplier, Unit
 from apps.procurement.models import ProcurementContract
 from apps.receiving.models import Receiving, ReceivingItem
-from apps.reports.exports import export_numbering_history_excel, export_pengeluaran_excel
+from apps.reports.exports import (
+	export_numbering_history_excel,
+	export_pengeluaran_excel,
+	export_rekap_excel,
+)
 from apps.stock.models import OpeningBalanceImport, OpeningBalanceImportItem, Stock, Transaction
 from apps.users.models import User
 
@@ -1014,6 +1018,48 @@ class PengeluaranReportTests(TestCase):
 		self.assertEqual(sheet["J5"].data_type, "n")
 		self.assertEqual(sheet["K5"].data_type, "s")
 		self.assertEqual(sheet["K6"].value, "10099999999999.114691356991")
+
+	def test_rekap_excel_preserves_negative_decimal_text_without_escape_prefix(self):
+		response = export_rekap_excel(
+			[
+				{
+					"sd_name": "DAU",
+					"subtotal_saldo_awal": Decimal("-1.23"),
+					"subtotal_nilai_terima": Decimal("0"),
+					"subtotal_nilai_distribusi": Decimal("0"),
+					"subtotal_nilai_ed": Decimal("0"),
+					"subtotal_saldo_akhir": Decimal("-1.23"),
+					"categories": [
+						{
+							"kategori": "Obat",
+							"saldo_awal": Decimal("-1.23"),
+							"nilai_terima": Decimal("0"),
+							"nilai_distribusi": Decimal("0"),
+							"nilai_ed": Decimal("0"),
+							"saldo_akhir": Decimal("-1.23"),
+						}
+					],
+				}
+			],
+			{
+				"saldo_awal": Decimal("-1.23"),
+				"nilai_terima": Decimal("0"),
+				"nilai_distribusi": Decimal("0"),
+				"nilai_ed": Decimal("0"),
+				"saldo_akhir": Decimal("-1.23"),
+			},
+			"2026-04-01",
+			"2026-04-30",
+		)
+
+		workbook = load_workbook(BytesIO(response.content))
+		sheet = workbook.active
+
+		self.assertEqual(sheet["C5"].value, "-1.23")
+		self.assertEqual(sheet["C6"].value, "-1.23")
+		self.assertEqual(sheet["C7"].value, "-1.23")
+		self.assertEqual(sheet["G7"].value, "-1.23")
+		self.assertEqual(sheet["C5"].data_type, "s")
 
 
 class ProcurementReportTests(TestCase):
