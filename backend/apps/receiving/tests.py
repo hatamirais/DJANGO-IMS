@@ -1,4 +1,5 @@
 from io import BytesIO
+import hashlib
 import shutil
 import threading
 from datetime import date
@@ -405,6 +406,45 @@ class ReceivingModelDocumentNumberCollisionTests(TestCase):
                 sumber_dana=self.funding,
             ),
             "LEGACY-MIXED-RCV",
+        )
+
+    def test_resolver_reuses_collision_alias_for_new_receiving_tuple(self):
+        document_number = "RCV-RESOLVE-COLLISION"
+        receiving = Receiving.objects.create(
+            document_number=document_number,
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 1, 15),
+            sumber_dana=self.funding,
+            status=Receiving.Status.PARTIAL,
+            created_by=self.user,
+        )
+        self._create_opening_balance_import(document_number)
+        digest = hashlib.sha1(
+            f"RECEIVING:{document_number}".encode("utf-8")
+        ).hexdigest()[:8]
+        alias = f"RCV-{digest}-{document_number}"
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot="RCV-RESOLVE-COLLISION-OLD",
+            source_document_number=alias,
+            expiry_date=date(2030, 1, 1),
+            quantity=Decimal("4"),
+            reserved=Decimal("0"),
+            unit_price=Decimal("1000"),
+            sumber_dana=self.funding,
+            receiving_ref=receiving,
+        )
+
+        self.assertEqual(
+            resolve_receiving_source_document_number(
+                receiving,
+                item=self.item,
+                location=self.location,
+                batch_lot="RCV-RESOLVE-COLLISION-NEW",
+                sumber_dana=self.funding,
+            ),
+            alias,
         )
 
     def test_full_clean_rejects_document_number_change_after_ledger_transaction(self):

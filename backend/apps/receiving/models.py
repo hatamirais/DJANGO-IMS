@@ -1,3 +1,4 @@
+import hashlib
 import unicodedata
 
 from django.db import IntegrityError, models, transaction
@@ -250,7 +251,46 @@ def resolve_receiving_source_document_number(
         return non_header_transaction_sources[0]
     if len(transaction_sources) == 1:
         return transaction_sources[0]
+    collision_alias = _receiving_collision_source_document_number(receiving)
+    if collision_alias:
+        document_sources = set(
+            Stock.objects.filter(receiving_ref=receiving)
+            .exclude(source_document_number="")
+            .values_list("source_document_number", flat=True)
+        )
+        document_sources.update(
+            Transaction.objects.filter(
+                reference_type=Transaction.ReferenceType.RECEIVING,
+                reference_id=receiving.pk,
+            )
+            .exclude(source_document_number="")
+            .values_list("source_document_number", flat=True)
+        )
+        non_header_document_sources = {
+            source
+            for source in document_sources
+            if source != receiving.document_number
+        }
+        if non_header_document_sources == {collision_alias}:
+            return collision_alias
     return receiving.document_number
+
+
+def _receiving_collision_source_document_number(receiving):
+    from apps.stock.models import OpeningBalanceImport
+
+    if not receiving.document_number:
+        return ""
+    if not OpeningBalanceImport.objects.filter(
+        document_number=receiving.document_number
+    ).exists():
+        return ""
+
+    digest = hashlib.sha1(
+        f"RECEIVING:{receiving.document_number}".encode("utf-8")
+    ).hexdigest()[:8]
+    suffix_length = 100 - len("RCV") - len(digest) - 2
+    return f"RCV-{digest}-{receiving.document_number[:suffix_length]}"
 
 
 class Receiving(TimeStampedModel):
