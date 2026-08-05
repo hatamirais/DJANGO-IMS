@@ -565,7 +565,9 @@ def reports_rekap(request):
             nilai_terima = row['nilai_terima'] or Decimal('0')
             nilai_distribusi = row['nilai_distribusi'] or Decimal('0')
             nilai_ed = row['nilai_ed'] or Decimal('0')
-            saldo_akhir = saldo_awal + nilai_terima - nilai_distribusi - nilai_ed
+            saldo_akhir = sum_decimals(
+                [saldo_awal, nilai_terima, -nilai_distribusi, -nilai_ed]
+            )
 
             # Skip zero rows
             if saldo_awal == 0 and nilai_terima == 0 and nilai_distribusi == 0 and nilai_ed == 0:
@@ -582,21 +584,41 @@ def reports_rekap(request):
             sd_groups[sd_name]['categories'].append(category_row)
 
             # Accumulate subtotals
-            sd_groups[sd_name]['subtotal_saldo_awal'] += saldo_awal
-            sd_groups[sd_name]['subtotal_nilai_terima'] += nilai_terima
-            sd_groups[sd_name]['subtotal_nilai_distribusi'] += nilai_distribusi
-            sd_groups[sd_name]['subtotal_nilai_ed'] += nilai_ed
-            sd_groups[sd_name]['subtotal_saldo_akhir'] += saldo_akhir
+            sd_groups[sd_name]['subtotal_saldo_awal'] = sum_decimals(
+                [sd_groups[sd_name]['subtotal_saldo_awal'], saldo_awal]
+            )
+            sd_groups[sd_name]['subtotal_nilai_terima'] = sum_decimals(
+                [sd_groups[sd_name]['subtotal_nilai_terima'], nilai_terima]
+            )
+            sd_groups[sd_name]['subtotal_nilai_distribusi'] = sum_decimals(
+                [sd_groups[sd_name]['subtotal_nilai_distribusi'], nilai_distribusi]
+            )
+            sd_groups[sd_name]['subtotal_nilai_ed'] = sum_decimals(
+                [sd_groups[sd_name]['subtotal_nilai_ed'], nilai_ed]
+            )
+            sd_groups[sd_name]['subtotal_saldo_akhir'] = sum_decimals(
+                [sd_groups[sd_name]['subtotal_saldo_akhir'], saldo_akhir]
+            )
 
         # Build final list and grand totals
         for sd_name, group in sd_groups.items():
             if group['categories']:
                 rekap_data.append(group)
-                grand_totals['saldo_awal'] += group['subtotal_saldo_awal']
-                grand_totals['nilai_terima'] += group['subtotal_nilai_terima']
-                grand_totals['nilai_distribusi'] += group['subtotal_nilai_distribusi']
-                grand_totals['nilai_ed'] += group['subtotal_nilai_ed']
-                grand_totals['saldo_akhir'] += group['subtotal_saldo_akhir']
+                grand_totals['saldo_awal'] = sum_decimals(
+                    [grand_totals['saldo_awal'], group['subtotal_saldo_awal']]
+                )
+                grand_totals['nilai_terima'] = sum_decimals(
+                    [grand_totals['nilai_terima'], group['subtotal_nilai_terima']]
+                )
+                grand_totals['nilai_distribusi'] = sum_decimals(
+                    [grand_totals['nilai_distribusi'], group['subtotal_nilai_distribusi']]
+                )
+                grand_totals['nilai_ed'] = sum_decimals(
+                    [grand_totals['nilai_ed'], group['subtotal_nilai_ed']]
+                )
+                grand_totals['saldo_akhir'] = sum_decimals(
+                    [grand_totals['saldo_akhir'], group['subtotal_saldo_akhir']]
+                )
 
     # Excel export path
     if request.GET.get('format') == 'excel' and rekap_data:

@@ -217,6 +217,39 @@ class RekapOpeningBalanceReportTests(TestCase):
 		self.assertEqual(row["nilai_terima"], Decimal("0"))
 		self.assertEqual(row["saldo_akhir"], Decimal("1000"))
 
+	def test_rekap_preserves_large_precise_values_in_post_processing(self):
+		precise_total = Decimal("99999999999891234567891.008765432109")
+		OpeningBalanceImportItem.objects.filter(
+			opening_balance=self.opening_balance,
+			item=self.item,
+		).update(
+			quantity=Decimal("9999999999.99"),
+			unit_price=Decimal("9999999999999.1234567891"),
+		)
+		Transaction.objects.filter(
+			reference_type=Transaction.ReferenceType.INITIAL_IMPORT,
+			reference_id=self.opening_balance.pk,
+			item=self.item,
+		).update(
+			quantity=Decimal("9999999999.99"),
+			unit_price=Decimal("9999999999999.1234567891"),
+		)
+
+		response = self.client.get(
+			reverse("reports:rekap"),
+			{"start_date": "2026-01-01", "end_date": "2026-12-31"},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		row = self._category_row(response)
+		group = response.context["rekap_data"][0]
+		self.assertEqual(row["saldo_awal"], precise_total)
+		self.assertEqual(row["saldo_akhir"], precise_total)
+		self.assertEqual(group["subtotal_saldo_awal"], precise_total)
+		self.assertEqual(group["subtotal_saldo_akhir"], precise_total)
+		self.assertEqual(response.context["grand_totals"]["saldo_awal"], precise_total)
+		self.assertEqual(response.context["grand_totals"]["saldo_akhir"], precise_total)
+
 	def test_rekap_keeps_legacy_unlinked_initial_import_as_saldo_awal(self):
 		legacy_tx = Transaction.objects.create(
 			transaction_type=Transaction.TransactionType.IN,
