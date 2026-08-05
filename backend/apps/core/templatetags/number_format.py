@@ -46,6 +46,20 @@ def id_price_exact(value):
     if not label:
         return ""
 
+    return _format_exact_indonesian(label)
+
+
+@register.filter
+def id_value_exact(value):
+    """Format a calculated money value with Indonesian separators and exact decimals."""
+    number = _to_decimal(value)
+    label = format(number, "f")
+    if "." in label:
+        label = label.rstrip("0").rstrip(".")
+    return _format_exact_indonesian(label or "0")
+
+
+def _format_exact_indonesian(label):
     sign = ""
     if label.startswith("-"):
         sign = "-"

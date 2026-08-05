@@ -1388,6 +1388,28 @@ class LPLPOWorkflowTests(LPLPOTestCase):
 		self.assertContains(response, 'id="submit-btn"')
 		self.assertContains(response, 'id="delete-btn"')
 
+	def test_detail_displays_exact_high_precision_harga_satuan(self):
+		lplpo = self.create_lplpo()
+		LPLPOItem.objects.create(
+			lplpo=lplpo,
+			item=self.item_a,
+			stock_awal=10,
+			penerimaan=3,
+			harga_satuan=Decimal("1060.3827160486"),
+			pemakaian=2,
+		)
+
+		self.client.force_login(self.puskesmas_user)
+		response = self.client.get(reverse("lplpo:lplpo_detail", args=[lplpo.pk]))
+
+		self.assertEqual(response.status_code, 200)
+		self.assertContains(response, "Rp 1.060,3827160486")
+		self.assertNotContains(
+			response,
+			'<td class="text-end">Rp 1.060,38</td>',
+			html=True,
+		)
+
 	def test_non_puskesmas_cannot_delete_draft_lplpo(self):
 		lplpo = self.create_lplpo()
 

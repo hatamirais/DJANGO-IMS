@@ -1190,6 +1190,30 @@ class ProcurementReportTests(TestCase):
         self.assertEqual(sheet["K5"].value, "99999999999891234567891.008765432109")
         self.assertEqual(sheet["K6"].value, "99999999999891234567891.008765432109")
 
+    def test_procurement_report_html_displays_exact_prices_and_values(self):
+        ReceivingItem.objects.filter(receiving=self.receiving, item=self.item).update(
+            quantity=Decimal("9999999999.99"),
+            unit_price=Decimal("9999999999999.1234567891"),
+        )
+
+        response = self.client.get(
+            reverse("reports:pengadaan"),
+            {"start_date": "2026-07-01", "end_date": "2026-07-31"},
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Rp 9.999.999.999.999,1234567891")
+        self.assertContains(
+            response,
+            "Rp 99.999.999.999.891.234.567.891,008765432109",
+        )
+        self.assertNotContains(
+            response,
+            '<td class="text-end">Rp 9.999.999.999.999,12</td>',
+            html=True,
+        )
+
 
 class ProcurementReceivingReportTests(TestCase):
     @classmethod
