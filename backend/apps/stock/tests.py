@@ -3689,6 +3689,44 @@ class StockCardTest(TestCase):
         self.assertContains(response, 'Dokumen Sumber: RCV-PRICE-A')
         self.assertContains(response, 'Dokumen Sumber: RCV-PRICE-B')
 
+    def test_stock_card_displays_exact_high_precision_unit_price(self):
+        precise_price = Decimal('5000.1234567890')
+        source_document_number = 'RCV-PRECISE-STOCK-CARD'
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot='PRECISE-CARD',
+            source_document_number=source_document_number,
+            expiry_date=date(2031, 5, 1),
+            quantity=Decimal('10'),
+            reserved=Decimal('0'),
+            unit_price=precise_price,
+            sumber_dana=self.funding,
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot='PRECISE-CARD',
+            source_document_number=source_document_number,
+            quantity=Decimal('10'),
+            unit_price=precise_price,
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=9001,
+            user=self.user,
+        )
+
+        response = self.client.get(reverse('stock:stock_card_detail', args=[self.item.id]))
+        print_response = self.client.get(reverse('stock:stock_card_print', args=[self.item.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(print_response.status_code, 200)
+        self.assertContains(response, 'Harga Satuan: Rp 5.000,123456789')
+        self.assertContains(print_response, 'Harga Satuan: Rp 5.000,123456789')
+        self.assertNotContains(response, 'Harga Satuan: Rp 5.000,12</div>', html=False)
+        self.assertNotContains(print_response, 'Harga Satuan: Rp 5.000,12<br>', html=False)
+
     def test_stock_card_filter_includes_quiet_opening_balance_layers(self):
         old_timestamp = timezone.make_aware(datetime(2026, 1, 1, 9, 0))
         active_timestamp = timezone.make_aware(datetime(2026, 1, 2, 9, 0))
