@@ -8,9 +8,12 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from apps.core.decimal_validation import (
+    PRICE_DECIMAL_PLACES,
+    PRICE_MAX_DIGITS,
     PRICE_QUANT,
     format_price_exact,
     validate_finite_decimal,
+    validate_decimal_precision,
 )
 from apps.core.xlsx_exports import escape_xlsx_formula
 from apps.lplpo.models import get_previous_lplpo, is_january_bootstrap_period
@@ -342,6 +345,16 @@ def apply_lplpo_workbook_import(*, uploaded_file, lplpo_obj):
         if harga_satuan < 0:
             workbook.close()
             raise ValidationError(f"Baris {row_num}: harga_satuan tidak boleh negatif.")
+        try:
+            validate_decimal_precision(
+                harga_satuan,
+                max_digits=PRICE_MAX_DIGITS,
+                decimal_places=PRICE_DECIMAL_PLACES,
+                field_label=f"Baris {row_num} harga_satuan",
+            )
+        except ValidationError:
+            workbook.close()
+            raise
         line.harga_satuan = harga_satuan.quantize(PRICE_QUANT)
         line.stock_gudang_puskesmas = _parse_integer_from_cell(
             row_cells[12].value,

@@ -124,6 +124,28 @@ class LPLPOOfflineXlsxTests(LPLPOTestCase):
         line_a.refresh_from_db()
         self.assertEqual(line_a.harga_satuan, precise_price)
 
+    def test_import_xlsx_rejects_harga_satuan_with_too_many_decimal_places(self):
+        lplpo, line_a, _ = self.create_lplpo_with_items()
+        self.client.force_login(self.puskesmas_user)
+        workbook = self._export_workbook(lplpo)
+        worksheet = workbook["LPLPO Offline Entry"]
+        row_a = self._find_row_by_item_code(worksheet, self.item_a.kode_barang)
+        worksheet.cell(row=row_a, column=7).value = "1.12345678915"
+
+        response = self.client.post(
+            reverse("lplpo:lplpo_import_xlsx", args=[lplpo.pk]),
+            {"xlsx_file": self._workbook_upload(workbook)},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            f"Baris {row_a} harga_satuan maksimal 23 digit dan 10 angka desimal.",
+            [str(message) for message in get_messages(response.wsgi_request)],
+        )
+        line_a.refresh_from_db()
+        self.assertEqual(line_a.harga_satuan, Decimal("1250.00"))
+
     def test_import_xlsx_updates_editable_fields_and_preserves_server_owned_values(self):
         lplpo, line_a, line_b = self.create_lplpo_with_items()
         self.client.force_login(self.puskesmas_user)
