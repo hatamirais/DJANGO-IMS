@@ -2785,6 +2785,27 @@ class PuskesmasReportViewTests(SecureClientDefaultsMixin, TestCase):
 		self.assertIn(sbbk_own.document_number, document_numbers)
 		self.assertNotIn(sbbk_other.document_number, document_numbers)
 
+	def test_penerimaan_report_displays_exact_high_precision_unit_price(self):
+		from datetime import date as dt
+
+		sbbk = self._make_sbbk(self.facility, received_date=dt(2026, 3, 15))
+		PuskesmasSBBKItem.objects.create(
+			sbbk=sbbk,
+			item=self.item,
+			quantity=Decimal("10"),
+			unit_price=Decimal("1000.1234567890"),
+		)
+
+		self.client.force_login(self.report_operator)
+		response = self.client.get(
+			reverse("puskesmas:report_penerimaan"),
+			{"start_date": "2026-03-01", "end_date": "2026-03-31"},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertContains(response, "Rp 1.000,123456789")
+		self.assertNotContains(response, "Rp 1.000,12</td>", html=False)
+
 	# ────────────── Pemakaian data correctness ──────────────
 
 	def _make_lplpo(self, facility, bulan, tahun, status):
