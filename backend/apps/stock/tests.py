@@ -5412,6 +5412,21 @@ class PuskesmasStockViewTests(TestCase):
         self.assertNotContains(response, 'DRAFT-A')
         self.assertEqual(response.context['receiving_stats']['total_received'], 7)
 
+    def test_puskesmas_stock_receiving_displays_exact_high_precision_prices(self):
+        PuskesmasReceiptConfirmationItem.objects.filter(
+            sbbk__facility=self.facility_a,
+            batch_lot='RCV-A1',
+        ).update(unit_price=Decimal('1000.1234567890'))
+
+        response = self.client.get(
+            reverse('stock:puskesmas_stock'),
+            {'year': str(self.year), 'tab': 'receiving', 'facility': str(self.facility_a.pk)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Rp 1.000,123456789')
+        self.assertNotContains(response, 'Rp 1.000,12</td>', html=False)
+
     def test_puskesmas_stock_consumption_aggregates_yearly_totals(self):
         response = self.client.get(
             reverse('stock:puskesmas_stock'),
