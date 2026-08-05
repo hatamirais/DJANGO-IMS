@@ -179,7 +179,7 @@
                                             <div class="text-muted small">{{ row.distribution_item.item.kode_barang }}</div>
                                         </td>
                                         <td class="text-end">{{ row.source_quantity|id_decimal:2 }}</td>
-                                        <td class="text-end">Rp {{ row.distribution_item.issued_unit_price|default:0|id_decimal:2 }}</td>
+                                        <td class="text-end">Rp {{ row.distribution_item.issued_unit_price|default:0|id_price_exact }}</td>
                                         <td>{{ row.distribution_item.issued_batch_lot|default:"-" }}</td>
                                         <td>{{ row.distribution_item.issued_expiry_date|date:"d/m/Y"|default:"-" }}</td>
                                     </tr>

@@ -1145,6 +1145,21 @@ class PuskesmasSBBKViewTests(SecureClientDefaultsMixin, TestCase):
 		self.assertContains(response, 'id="distribution-preview-form"', html=False)
 		self.assertNotContains(response, 'formmethod="get"', html=False)
 
+	def test_create_get_displays_exact_distribution_unit_price(self):
+		self.client.force_login(self.operator)
+		distribution, distribution_item = self._create_distribution()
+		distribution_item.issued_unit_price = Decimal("1000.1234567890")
+		distribution_item.save(update_fields=["issued_unit_price"])
+
+		response = self.client.get(
+			reverse("puskesmas:receiving_create"),
+			{"distribution": str(distribution.pk)},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertContains(response, "Rp 1.000,123456789")
+		self.assertNotContains(response, "Rp 1.000,12</td>", html=False)
+
 	def test_create_get_ignores_cross_facility_distribution_preview(self):
 		self.client.force_login(self.operator)
 		distribution, distribution_item = self._create_distribution(
