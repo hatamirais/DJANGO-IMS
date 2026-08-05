@@ -2306,6 +2306,33 @@ class DistributionWorkflowTest(SecureClientDefaultsMixin, TestCase):
         self.assertContains(response, "Petugas")
         self.assertContains(response, str(self.user))
 
+    def test_detail_displays_exact_high_precision_prices_and_values(self):
+        self.stock.unit_price = Decimal("1000.1234567890")
+        self.stock.save(update_fields=["unit_price", "updated_at"])
+        dist = self._create_distribution(status=Distribution.Status.DISTRIBUTED)
+        line = dist.items.get()
+        line.quantity_requested = Decimal("1.01")
+        line.quantity_approved = Decimal("1.01")
+        line.save(update_fields=["quantity_requested", "quantity_approved"])
+
+        response = self.client.get(
+            reverse("distribution:distribution_detail", args=[dist.pk])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "1.000,123456789")
+        self.assertContains(response, "1.010,12469135689")
+        self.assertNotContains(
+            response,
+            '<td class="text-end">1.000,12</td>',
+            html=True,
+        )
+        self.assertNotContains(
+            response,
+            '<td class="text-end fw-semibold">1.010,12</td>',
+            html=True,
+        )
+
     def test_distribution_detail_requires_view_permission(self):
         dist = self._create_distribution(status=Distribution.Status.DRAFT)
         restricted_user = User.objects.create_user(
