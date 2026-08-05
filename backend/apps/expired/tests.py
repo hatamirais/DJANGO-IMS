@@ -747,6 +747,39 @@ class ExpiredWorkflowTest(TestCase):
             "generated_by.get_full_name|default:generated_by.username|default:generated_by",
         )
 
+    def test_expired_audit_report_print_displays_exact_high_precision_unit_price(self):
+        self.stock.unit_price = Decimal("9999999999999.1234567891")
+        self.stock.save(update_fields=["unit_price", "updated_at"])
+        expired_doc = self._create_expired(status=Expired.Status.DISPOSED)
+        expired_doc.disposed_by = self.user
+        expired_doc.disposed_at = timezone.make_aware(
+            timezone.datetime(2026, 3, 18, 9, 0, 0)
+        )
+        expired_doc.save(update_fields=["disposed_by", "disposed_at", "updated_at"])
+
+        response = self.client.get(
+            reverse("expired:expired_audit_report"),
+            {
+                "start_date": "2026-03-01",
+                "end_date": "2026-03-31",
+                "date_field": "disposed_at",
+                "outcome_type": "BOTH",
+                "location": str(self.location.pk),
+                "item": str(self.item.pk),
+                "funding_source": str(self.funding_source.pk),
+                "format": "print",
+            },
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Rp 9.999.999.999.999,1234567891")
+        self.assertNotContains(
+            response,
+            '<td class="text-right">Rp 9.999.999.999.999,12</td>',
+            html=True,
+        )
+
     def test_expired_audit_report_print_empty_state_uses_current_column_count(self):
         response = self.client.get(
             reverse("expired:expired_audit_report"),
