@@ -9,7 +9,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.items.models import Category, FundingSource, Item, Location, Supplier, Unit
-from apps.procurement.forms import ProcurementContractForm
+from apps.procurement.forms import ProcurementAmendmentLineForm, ProcurementContractForm
 from apps.procurement.models import (
     PROCUREMENT_CONTRACT_NUMBER_MAX_LENGTH,
     ProcurementAmendment,
@@ -879,3 +879,57 @@ class ProcurementWorkflowTests(TestCase):
         self.assertEqual(summary_rows[0]["current_quantity"], Decimal("14"))
         self.assertEqual(summary_rows[0]["received_quantity"], Decimal("4"))
         self.assertEqual(summary_rows[0]["remaining_quantity"], Decimal("10"))
+
+    def test_procurement_surfaces_display_exact_high_precision_prices(self):
+        contract, line = self._approve_contract(
+            quantity="10",
+            unit_price="123.1234567891",
+        )
+        amendment = ProcurementAmendment.objects.create(
+            contract=contract,
+            amendment_date=date(2026, 7, 8),
+            notes="Harga presisi",
+            status=ProcurementAmendment.Status.DRAFT,
+            created_by=self.admin,
+        )
+        ProcurementAmendmentLine.objects.create(
+            amendment=amendment,
+            contract_line=line,
+            revised_quantity=Decimal("11"),
+            revised_unit_price=Decimal("456.1234567891"),
+        )
+
+        contract_response = self.client.get(
+            reverse("procurement:contract_detail", args=[contract.pk]),
+            secure=True,
+        )
+        amendment_response = self.client.get(
+            reverse("procurement:amendment_detail", args=[amendment.pk]),
+            secure=True,
+        )
+        amendment_form_response = self.client.get(
+            reverse("procurement:amendment_create", args=[contract.pk]),
+            secure=True,
+        )
+
+        self.assertEqual(contract_response.status_code, 200)
+        self.assertEqual(amendment_response.status_code, 200)
+        self.assertEqual(amendment_form_response.status_code, 200)
+        self.assertContains(contract_response, "Rp 123,1234567891")
+        self.assertContains(amendment_response, "Rp 123,1234567891")
+        self.assertContains(amendment_response, "Rp 456,1234567891")
+        self.assertContains(amendment_form_response, "Rp 123,1234567891")
+        self.assertNotContains(contract_response, "Rp 123,12</td>", html=False)
+        self.assertNotContains(amendment_response, "Rp 123,12</td>", html=False)
+        self.assertNotContains(amendment_form_response, "Rp 123,12</td>", html=False)
+
+    def test_amendment_line_selector_label_uses_exact_unit_price(self):
+        contract, line = self._approve_contract(
+            quantity="10",
+            unit_price="123.1234567891",
+        )
+        form = ProcurementAmendmentLineForm(contract=contract)
+        label = form.fields["contract_line"].label_from_instance(line)
+
+        self.assertIn("@ 123,1234567891", label)
+        self.assertNotEqual(label, "Paracetamol 500mg | Awal: 10,00 @ 123,12")

@@ -3,7 +3,7 @@ from crispy_forms.layout import Div, Layout
 from django import forms
 from django.forms import inlineformset_factory
 
-from apps.core.decimal_validation import validate_finite_decimal
+from apps.core.decimal_validation import format_price_exact, validate_finite_decimal
 from apps.items.models import FundingSource, Item, Supplier
 
 from .models import (
@@ -22,6 +22,23 @@ def _format_id_decimal(value, places=2):
         places_int = 2
     formatted = f"{value:,.{places_int}f}"
     return formatted.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _format_id_price_exact(value):
+    label = format_price_exact(value)
+    if not label:
+        return ""
+
+    sign = ""
+    if label.startswith("-"):
+        sign = "-"
+        label = label[1:]
+
+    whole, separator, fractional = label.partition(".")
+    grouped_whole = f"{int(whole or '0'):,}".replace(",", ".")
+    if separator:
+        return f"{sign}{grouped_whole},{fractional}"
+    return f"{sign}{grouped_whole}"
 
 
 def _normalize_text_value(value, *, field_label, max_length=None, allow_blank=True):
@@ -196,12 +213,12 @@ class ProcurementAmendmentLineForm(forms.ModelForm):
         if not summary:
             return (
                 f"{line.item.nama_barang} | Awal: {_format_id_decimal(line.original_quantity)} "
-                f"@ {_format_id_decimal(line.original_unit_price)}"
+                f"@ {_format_id_price_exact(line.original_unit_price)}"
             )
         return (
             f"{line.item.nama_barang} | Saat ini: "
             f"{_format_id_decimal(summary['current_quantity'])} @ "
-            f"{_format_id_decimal(summary['current_unit_price'])} | Diterima: "
+            f"{_format_id_price_exact(summary['current_unit_price'])} | Diterima: "
             f"{_format_id_decimal(summary['received_quantity'])} | Sisa: "
             f"{_format_id_decimal(summary['remaining_quantity'])}"
         )

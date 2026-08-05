@@ -70,8 +70,8 @@
                                 <td>{{ line.contract_line.item.nama_barang }}</td>
                                 <td class="text-end">{{ line.contract_line.original_quantity|id_decimal }}</td>
                                 <td class="text-end">{{ line.revised_quantity|id_decimal }}</td>
-                                <td class="text-end">Rp {{ line.contract_line.original_unit_price|id_decimal:2 }}</td>
-                                <td class="text-end">Rp {{ line.revised_unit_price|id_decimal:2 }}</td>
+                                <td class="text-end">Rp {{ line.contract_line.original_unit_price|id_price_exact }}</td>
+                                <td class="text-end">Rp {{ line.revised_unit_price|id_price_exact }}</td>
                                 <td>{{ line.notes|default:"-" }}</td>
                             </tr>
                             {% empty %}
