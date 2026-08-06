@@ -7,37 +7,42 @@ The format is based on Keep a Changelog and follows Semantic Versioning (`MAJOR.
 
 ## [Unreleased]
 
+## [1.31.0] - 2026-08-06
+
 ### Added
 
-- Stock rows and stock transactions now track `source_document_number`, separating same item/location/batch/funding stock into document-specific layers.
-- Added a source-document claim registry so receiving and opening-balance document numbers cannot be reused across stock-source workflows.
-- Opening-balance CSV import now accepts both comma and semicolon delimiters and reports validation issues before preview/confirm.
-- Added shared high-precision unit-price helpers for stored prices, calculated values, Indonesian display formatting, and exact export text.
+- Baris stok dan transaksi stok sekarang menyimpan `source_document_number`, sehingga stok dengan barang/lokasi/batch/sumber dana yang sama tetap dipisahkan per dokumen sumber.
+- Ditambahkan registry klaim nomor dokumen sumber agar nomor dokumen penerimaan dan saldo awal tidak bisa dipakai ulang lintas workflow sumber stok.
+- Import CSV saldo awal sekarang menerima delimiter koma dan titik koma, serta menampilkan masalah validasi sebelum tahap preview/confirm.
+- Ditambahkan helper bersama untuk harga satuan presisi tinggi, nilai hasil kalkulasi, format tampilan Indonesia, dan teks ekspor yang tetap presisi.
 
 ### Changed
 
-- Receiving, transfer, outbound, expired, recall, allocation, and opening-balance stock posting now use the source document number as part of the stock identity instead of averaging or merging price layers across documents.
-- Stock cards, printed stock cards, and detailed inventory reports now expose source-layer identity so users can distinguish otherwise similar rows by source document, location, and batch.
-- Persisted unit-price fields across stock, transactions, opening-balance imports, receiving, procurement, distribution snapshots, Puskesmas receipts, and LPLPO now support up to 10 decimal places while keeping Decimal calculations exact.
-- Report/export paths now calculate from stored high-precision prices and preserve exact decimal values where reconciliation depends on them, while rounded currency formatting remains limited to intentional display boundaries.
+- Posting stok untuk penerimaan, transfer, pengeluaran, kedaluwarsa, recall, alokasi, dan saldo awal sekarang memakai nomor dokumen sumber sebagai bagian dari identitas stok, bukan merata-ratakan atau menggabungkan layer harga antar dokumen.
+- Kartu stok, cetak kartu stok, dan laporan persediaan rincian sekarang menampilkan identitas layer sumber agar baris yang mirip tetap bisa dibedakan berdasarkan dokumen sumber, lokasi, dan batch.
+- Field `unit_price` tersimpan di stok, transaksi, import saldo awal, penerimaan, pengadaan, snapshot distribusi, penerimaan Puskesmas, dan LPLPO sekarang mendukung sampai 10 angka desimal dengan kalkulasi `Decimal` yang tetap presisi.
+- Jalur laporan dan ekspor sekarang menghitung dari harga presisi tinggi yang tersimpan dan mempertahankan nilai desimal persis pada area yang dipakai untuk rekonsiliasi, sementara pembulatan mata uang hanya dilakukan pada batas tampilan yang memang disengaja.
 
 ### Fixed
 
-- Opening-balance import validation now catches malformed row counts, invalid decimal precision, unknown references, and same-document price/expiry conflicts before database writes.
-- Opening-balance and receiving import/form flows now preserve decimal-comma high-precision prices such as `8893,31985` instead of rounding or rejecting them at two decimal places.
-- Opening-balance import validation now rejects `document_number` values already used by receiving documents so source-document layers cannot collide across workflows.
-- Receiving creation/import now rejects `document_number` values already used by opening-balance imports, and generated receiving numbers skip opening-balance-owned `RCV-YYYY-NNNNN` values.
-- Receiving document numbers can no longer be changed after stock rows or ledger transactions exist.
-- Deleting unposted receiving drafts now releases their unused source-document number claim while retaining claims for documents that already produced stock or ledger movements.
-- Receiving source-document resolution now reuses migrated collision aliases for later partial receipts so one historical receiving document does not acquire multiple source identities.
-- Historical stock migration now keeps ambiguous multi-document aggregate balances in a legacy source layer instead of assigning the whole balance to one receiving document.
-- Historical stock migration now disambiguates pre-existing receiving/opening-balance document-number collisions before source-layer reporting is enabled.
-- Historical stock migration now preserves opening-balance source layers across pre-upgrade stock transfers.
-- Historical transaction migration now maps all movements for a single legacy aggregate stock layer to that legacy source even when old contributing receipts had different prices.
-- Detailed inventory report rows and Excel export now display `source_document_number` when source-layer grouping splits otherwise identical rows.
-- Stock cards now split same-funding rows by `source_document_number` and display the source document so per-layer prices stay visible and accurate.
-- Stock cards now keep quiet opening-balance layers visible under date filters and label detail/print headers with location and batch when no in-period transaction row exists.
-- Generated LPLPO distribution recovery now preserves valid submitted stock/batch selections and notes while rebuilding only unavailable item rows.
+- Validasi import saldo awal sekarang menangkap jumlah kolom yang salah, presisi desimal yang tidak valid, referensi yang tidak dikenal, serta konflik harga/kedaluwarsa dalam dokumen yang sama sebelum menulis ke database.
+- Alur import/form saldo awal dan penerimaan sekarang mempertahankan harga presisi tinggi dengan koma desimal seperti `8893,31985`, bukan membulatkan atau menolaknya pada dua angka desimal.
+- Validasi import saldo awal sekarang menolak `document_number` yang sudah dipakai dokumen penerimaan agar layer dokumen sumber tidak bertabrakan antar workflow.
+- Pembuatan/import penerimaan sekarang menolak `document_number` yang sudah dipakai import saldo awal, dan nomor penerimaan otomatis melewati nomor `RCV-YYYY-NNNNN` milik saldo awal.
+- Nomor dokumen penerimaan tidak bisa lagi diubah setelah dokumen tersebut memiliki baris stok atau transaksi ledger.
+- Penghapusan draft penerimaan yang belum posting sekarang melepas klaim nomor dokumen sumber yang belum terpakai, tetapi tetap menahan klaim untuk dokumen yang sudah menghasilkan stok atau transaksi ledger.
+- Resolusi dokumen sumber penerimaan sekarang memakai ulang alias collision hasil migrasi untuk penerimaan parsial berikutnya, sehingga satu dokumen historis tidak mendapat beberapa identitas sumber.
+- Migrasi stok historis sekarang mempertahankan saldo agregat multi-dokumen yang ambigu dalam layer sumber legacy, bukan menetapkan seluruh saldo ke satu dokumen penerimaan.
+- Migrasi stok historis sekarang memisahkan tabrakan nomor dokumen penerimaan/saldo awal yang sudah ada sebelum laporan berbasis layer sumber diaktifkan.
+- Migrasi stok historis sekarang mempertahankan layer sumber saldo awal melalui transfer stok yang dibuat sebelum upgrade.
+- Migrasi transaksi historis sekarang memetakan semua pergerakan untuk satu layer stok agregat legacy ke sumber legacy tersebut walaupun penerimaan lama penyusunnya memiliki harga berbeda.
+- Baris laporan persediaan rincian dan ekspor Excel sekarang menampilkan `source_document_number` ketika grouping layer sumber memisahkan baris yang sebelumnya tampak identik.
+- Kartu stok sekarang memisahkan baris dengan sumber dana sama berdasarkan `source_document_number` dan menampilkan dokumen sumber agar harga per layer tetap terlihat dan akurat.
+- Kartu stok sekarang tetap menampilkan layer saldo awal yang tidak memiliki transaksi dalam filter tanggal, serta memberi label lokasi dan batch pada header detail/cetak ketika tidak ada transaksi dalam periode.
+- Recovery distribusi LPLPO yang digenerate sekarang mempertahankan pilihan stok/batch dan catatan yang masih valid dari dokumen submitted, sambil membangun ulang hanya baris item yang tidak tersedia.
+- Ekspor/import XLSX LPLPO sekarang mempertahankan `harga_satuan` presisi tinggi secara lossless, termasuk nilai dengan digit signifikan yang melebihi batas aman angka Excel.
+- Agregasi rekap, negasi nilai keluar/kedaluwarsa, dan total laporan sekarang memakai konteks presisi yang lebih lebar agar nilai besar dengan harga 10 desimal tidak terpotong.
+- Tampilan HTML/cetak yang dipakai rekonsiliasi sekarang menampilkan harga atau nilai presisi penuh pada kartu stok, laporan rincian/rekap, detail penerimaan, pengadaan, detail distribusi, penerimaan Puskesmas, checklist Puskesmas, stock opname, LPLPO, dan print audit kedaluwarsa.
 
 ## [1.30.0] - 2026-07-29
 
