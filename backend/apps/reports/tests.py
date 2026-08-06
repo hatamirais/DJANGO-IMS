@@ -250,6 +250,39 @@ class RekapOpeningBalanceReportTests(TestCase):
 		self.assertEqual(response.context["grand_totals"]["saldo_awal"], precise_total)
 		self.assertEqual(response.context["grand_totals"]["saldo_akhir"], precise_total)
 
+	def test_rekap_negates_large_precise_outbound_values_without_rounding(self):
+		precise_total = Decimal("99999999999891234567891.008765432109")
+		expected_saldo_akhir = Decimal("-99999999999891234566891.008765432109")
+		Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.OUT,
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-OUT",
+			quantity=Decimal("9999999999.99"),
+			unit_price=Decimal("9999999999999.1234567891"),
+			sumber_dana=self.funding,
+			reference_type=Transaction.ReferenceType.DISTRIBUTION,
+			reference_id=999,
+			user=self.user,
+		)
+
+		response = self.client.get(
+			reverse("reports:rekap"),
+			{"start_date": "2026-01-01", "end_date": "2026-12-31"},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		row = self._category_row(response)
+		group = response.context["rekap_data"][0]
+		self.assertEqual(row["nilai_distribusi"], precise_total)
+		self.assertEqual(row["saldo_awal"], Decimal("1000"))
+		self.assertEqual(row["saldo_akhir"], expected_saldo_akhir)
+		self.assertEqual(group["subtotal_saldo_akhir"], expected_saldo_akhir)
+		self.assertEqual(
+			response.context["grand_totals"]["saldo_akhir"],
+			expected_saldo_akhir,
+		)
+
 	def test_rekap_keeps_legacy_unlinked_initial_import_as_saldo_awal(self):
 		legacy_tx = Transaction.objects.create(
 			transaction_type=Transaction.TransactionType.IN,

@@ -565,8 +565,12 @@ def reports_rekap(request):
             nilai_terima = row['nilai_terima'] or Decimal('0')
             nilai_distribusi = row['nilai_distribusi'] or Decimal('0')
             nilai_ed = row['nilai_ed'] or Decimal('0')
+            negative_nilai_distribusi = multiply_decimals(
+                nilai_distribusi, Decimal("-1")
+            )
+            negative_nilai_ed = multiply_decimals(nilai_ed, Decimal("-1"))
             saldo_akhir = sum_decimals(
-                [saldo_awal, nilai_terima, -nilai_distribusi, -nilai_ed]
+                [saldo_awal, nilai_terima, negative_nilai_distribusi, negative_nilai_ed]
             )
 
             # Skip zero rows
