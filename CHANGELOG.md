@@ -12,15 +12,19 @@ The format is based on Keep a Changelog and follows Semantic Versioning (`MAJOR.
 - Stock rows and stock transactions now track `source_document_number`, separating same item/location/batch/funding stock into document-specific layers.
 - Added a source-document claim registry so receiving and opening-balance document numbers cannot be reused across stock-source workflows.
 - Opening-balance CSV import now accepts both comma and semicolon delimiters and reports validation issues before preview/confirm.
+- Added shared high-precision unit-price helpers for stored prices, calculated values, Indonesian display formatting, and exact export text.
 
 ### Changed
 
 - Receiving, transfer, outbound, expired, recall, allocation, and opening-balance stock posting now use the source document number as part of the stock identity instead of averaging or merging price layers across documents.
 - Stock cards, printed stock cards, and detailed inventory reports now expose source-layer identity so users can distinguish otherwise similar rows by source document, location, and batch.
+- Persisted unit-price fields across stock, transactions, opening-balance imports, receiving, procurement, distribution snapshots, Puskesmas receipts, and LPLPO now support up to 10 decimal places while keeping Decimal calculations exact.
+- Report/export paths now calculate from stored high-precision prices and preserve exact decimal values where reconciliation depends on them, while rounded currency formatting remains limited to intentional display boundaries.
 
 ### Fixed
 
 - Opening-balance import validation now catches malformed row counts, invalid decimal precision, unknown references, and same-document price/expiry conflicts before database writes.
+- Opening-balance and receiving import/form flows now preserve decimal-comma high-precision prices such as `8893,31985` instead of rounding or rejecting them at two decimal places.
 - Opening-balance import validation now rejects `document_number` values already used by receiving documents so source-document layers cannot collide across workflows.
 - Receiving creation/import now rejects `document_number` values already used by opening-balance imports, and generated receiving numbers skip opening-balance-owned `RCV-YYYY-NNNNN` values.
 - Receiving document numbers can no longer be changed after stock rows or ledger transactions exist.
