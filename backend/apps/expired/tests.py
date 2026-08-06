@@ -601,6 +601,53 @@ class ExpiredWorkflowTest(TestCase):
         self.assertEqual(report["rows"][0]["total_price"], Decimal("12500"))
         self.assertEqual(report["summary_rows"][0]["destroy_total_value"], Decimal("12500"))
 
+    def test_expired_audit_report_preserves_large_price_total_precision(self):
+        self.stock.quantity = Decimal("9999999999.99")
+        self.stock.unit_price = Decimal("9999999999999.1234567891")
+        self.stock.save(update_fields=["quantity", "unit_price", "updated_at"])
+        expired_doc = self._create_expired(status=Expired.Status.DISPOSED)
+        expired_doc.disposed_by = self.user
+        expired_doc.disposed_at = timezone.make_aware(timezone.datetime(2026, 3, 18, 9, 0, 0))
+        expired_doc.save(update_fields=["disposed_by", "disposed_at", "updated_at"])
+        expired_item = expired_doc.items.get()
+        expired_item.quantity = Decimal("9999999999.99")
+        expired_item.save(update_fields=["quantity"])
+
+        report = build_expired_audit_report(
+            {
+                "start_date": timezone.datetime(2026, 3, 1).date(),
+                "end_date": timezone.datetime(2026, 3, 31).date(),
+                "date_field": "disposed_at",
+                "location": self.location,
+                "item": self.item,
+                "outcome_type": "BOTH",
+                "funding_source": self.funding_source,
+            }
+        )
+
+        expected_total = Decimal("99999999999891234567891.008765432109")
+        self.assertEqual(report["rows"][0]["total_price"], expected_total)
+        self.assertEqual(report["totals_value_by_outcome"]["DESTROY"], expected_total)
+        self.assertEqual(report["summary_rows"][0]["destroy_total_value"], expected_total)
+
+        response = self.client.get(
+            reverse("expired:expired_audit_report"),
+            {
+                "start_date": "2026-03-01",
+                "end_date": "2026-03-31",
+                "date_field": "disposed_at",
+                "outcome_type": "BOTH",
+                "location": str(self.location.pk),
+                "item": str(self.item.pk),
+                "funding_source": str(self.funding_source.pk),
+                "format": "csv",
+            },
+            secure=True,
+        )
+
+        csv_output = b"".join(response.streaming_content).decode("utf-8")
+        self.assertIn(str(expected_total), csv_output)
+
     def test_expired_audit_report_csv_endpoint_returns_destroy_rows_only(self):
         out_transaction = Transaction.objects.create(
             transaction_type=Transaction.TransactionType.OUT,
@@ -698,6 +745,45 @@ class ExpiredWorkflowTest(TestCase):
         self.assertNotContains(
             response,
             "generated_by.get_full_name|default:generated_by.username|default:generated_by",
+        )
+
+    def test_expired_audit_report_print_displays_exact_high_precision_unit_price(self):
+        self.stock.unit_price = Decimal("9999999999999.1234567891")
+        self.stock.save(update_fields=["unit_price", "updated_at"])
+        expired_doc = self._create_expired(status=Expired.Status.DISPOSED)
+        expired_doc.disposed_by = self.user
+        expired_doc.disposed_at = timezone.make_aware(
+            timezone.datetime(2026, 3, 18, 9, 0, 0)
+        )
+        expired_doc.save(update_fields=["disposed_by", "disposed_at", "updated_at"])
+
+        response = self.client.get(
+            reverse("expired:expired_audit_report"),
+            {
+                "start_date": "2026-03-01",
+                "end_date": "2026-03-31",
+                "date_field": "disposed_at",
+                "outcome_type": "BOTH",
+                "location": str(self.location.pk),
+                "item": str(self.item.pk),
+                "funding_source": str(self.funding_source.pk),
+                "format": "print",
+            },
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Rp 49.999.999.999.995,6172839455")
+        self.assertContains(response, "Rp 9.999.999.999.999,1234567891")
+        self.assertNotContains(
+            response,
+            '<td class="text-right">Rp 9.999.999.999.999,12</td>',
+            html=True,
+        )
+        self.assertNotContains(
+            response,
+            '<td class="text-right">Rp 49.999.999.999.996</td>',
+            html=True,
         )
 
     def test_expired_audit_report_print_empty_state_uses_current_column_count(self):

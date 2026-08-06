@@ -236,7 +236,7 @@
     <div class="card-title-row">
         <h2>Kartu Stok</h2>
         <div class="card-unit-price">
-            Harga Satuan: Rp {{ card.unit_price|id_decimal:0 }}<br>
+            Harga Satuan: Rp {{ card.unit_price|id_price_exact }}<br>
             <span>Dokumen Sumber: {{ card.source_document_number|default:"-" }}</span><br>
             <span>Lokasi: {{ card.location_name|default:"-" }}</span><br>
             <span>Batch: {{ card.batch_lot|default:"-" }}</span>

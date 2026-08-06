@@ -16,7 +16,10 @@ from openpyxl import load_workbook
 from apps.core.tests.mixins import SecureClientDefaultsMixin
 from apps.distribution.models import Distribution, DistributionItem
 from apps.items.models import Category, Facility, Item, Unit
-from apps.puskesmas.exports import export_puskesmas_penerimaan_excel
+from apps.puskesmas.exports import (
+	export_puskesmas_penerimaan_excel,
+	export_puskesmas_rekap_persediaan_excel,
+)
 from apps.puskesmas.forms import (
 	PuskesmasConsumptionMatrixForm,
 	PuskesmasRequestForm,
@@ -1082,6 +1085,8 @@ class PuskesmasSBBKViewTests(SecureClientDefaultsMixin, TestCase):
 	def test_operator_can_create_and_list_own_facility_sbbk(self):
 		self.client.force_login(self.operator)
 		distribution, distribution_item = self._create_distribution()
+		distribution_item.issued_unit_price = Decimal("1000.1234567890")
+		distribution_item.save(update_fields=["issued_unit_price"])
 		create_response = self.client.post(
 			reverse("puskesmas:receiving_create"),
 			self._create_payload(
@@ -1095,6 +1100,10 @@ class PuskesmasSBBKViewTests(SecureClientDefaultsMixin, TestCase):
 		sbbk = PuskesmasSBBK.objects.get()
 		self.assertEqual(sbbk.facility, self.facility)
 		self.assertEqual(sbbk.created_by, self.operator)
+		self.assertEqual(
+			PuskesmasSBBKItem.objects.get().unit_price,
+			Decimal("1000.1234567890"),
+		)
 
 		list_response = self.client.get(reverse("puskesmas:receiving_list"))
 		self.assertEqual(list_response.status_code, 200)
@@ -1135,6 +1144,21 @@ class PuskesmasSBBKViewTests(SecureClientDefaultsMixin, TestCase):
 		self.assertNotContains(response, "Informasi Konfirmasi")
 		self.assertContains(response, 'id="distribution-preview-form"', html=False)
 		self.assertNotContains(response, 'formmethod="get"', html=False)
+
+	def test_create_get_displays_exact_distribution_unit_price(self):
+		self.client.force_login(self.operator)
+		distribution, distribution_item = self._create_distribution()
+		distribution_item.issued_unit_price = Decimal("1000.1234567890")
+		distribution_item.save(update_fields=["issued_unit_price"])
+
+		response = self.client.get(
+			reverse("puskesmas:receiving_create"),
+			{"distribution": str(distribution.pk)},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertContains(response, "Rp 1.000,123456789")
+		self.assertNotContains(response, "Rp 1.000,12</td>", html=False)
 
 	def test_create_get_ignores_cross_facility_distribution_preview(self):
 		self.client.force_login(self.operator)
@@ -1668,6 +1692,33 @@ class PuskesmasSBBKViewTests(SecureClientDefaultsMixin, TestCase):
 		self.assertEqual(response.status_code, 200)
 		self.assertContains(response, reverse("puskesmas:receiving_list"))
 		self.assertContains(response, "Konfirmasi Penerimaan")
+
+	def test_receiving_detail_displays_exact_high_precision_unit_price(self):
+		sbbk = self._create_sbbk()
+		PuskesmasSBBKItem.objects.create(
+			sbbk=sbbk,
+			item=self.item,
+			quantity=Decimal("1"),
+			unit_price=Decimal("1000.1234567890"),
+			batch_lot="DETAIL-PRECISE",
+		)
+		self.client.force_login(self.operator)
+
+		response = self.client.get(reverse("puskesmas:receiving_detail", args=[sbbk.pk]))
+
+		self.assertEqual(response.status_code, 200)
+		self.assertContains(response, "Rp 1.000,123456789")
+		self.assertContains(
+			response,
+			'<td class="text-end">Rp 1.000,123456789</td>',
+			html=True,
+		)
+		self.assertNotContains(response, "Rp 1.000,12</td>", html=False)
+		self.assertNotContains(
+			response,
+			'<td class="text-end">Rp 1.000</td>',
+			html=True,
+		)
 
 
 class PuskesmasRequestCreateViewTests(SecureClientDefaultsMixin, TestCase):
@@ -2776,6 +2827,27 @@ class PuskesmasReportViewTests(SecureClientDefaultsMixin, TestCase):
 		self.assertIn(sbbk_own.document_number, document_numbers)
 		self.assertNotIn(sbbk_other.document_number, document_numbers)
 
+	def test_penerimaan_report_displays_exact_high_precision_unit_price(self):
+		from datetime import date as dt
+
+		sbbk = self._make_sbbk(self.facility, received_date=dt(2026, 3, 15))
+		PuskesmasSBBKItem.objects.create(
+			sbbk=sbbk,
+			item=self.item,
+			quantity=Decimal("10"),
+			unit_price=Decimal("1000.1234567890"),
+		)
+
+		self.client.force_login(self.report_operator)
+		response = self.client.get(
+			reverse("puskesmas:report_penerimaan"),
+			{"start_date": "2026-03-01", "end_date": "2026-03-31"},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertContains(response, "Rp 1.000,123456789")
+		self.assertNotContains(response, "Rp 1.000,12</td>", html=False)
+
 	# ────────────── Pemakaian data correctness ──────────────
 
 	def _make_lplpo(self, facility, bulan, tahun, status):
@@ -3235,8 +3307,51 @@ class PuskesmasReportViewTests(SecureClientDefaultsMixin, TestCase):
 		self.assertEqual(response.context["totals"]["saldo_akhir"], Decimal("24900.00"))
 		self.assertContains(response, "URAIAN")
 		self.assertContains(response, "SALDO AWAL 2026")
-		self.assertContains(response, "Rp 22.100,00")
+		self.assertContains(response, "Rp 22.100")
 		self.assertContains(response, "Triwulan I")
+
+	def test_rekap_persediaan_preserves_large_precise_values_in_aggregation(self):
+		from apps.lplpo.models import LPLPO, LPLPOItem
+
+		lplpo = LPLPO.objects.create(
+			facility=self.facility,
+			bulan=1,
+			tahun=2026,
+			status=LPLPO.Status.CLOSED,
+			created_by=self.admin,
+		)
+		LPLPOItem.objects.create(
+			lplpo=lplpo,
+			item=self.item,
+			stock_awal=2147483647,
+			penerimaan=0,
+			harga_satuan=Decimal("9999999999999.1234567891"),
+			pemakaian=0,
+		)
+
+		self.client.force_login(self.report_operator)
+		response = self.client.get(
+			reverse("puskesmas:report_rekap_persediaan"),
+			{"year": "2026", "period": "q1"},
+			follow=True,
+		)
+
+		expected_total = Decimal("21474836469998117637788.7033778477")
+		self.assertEqual(response.status_code, 200)
+		row = response.context["rekap_data"][0]
+		self.assertEqual(row["saldo_awal"], expected_total)
+		self.assertEqual(row["saldo_akhir"], expected_total)
+		self.assertEqual(response.context["totals"]["saldo_awal"], expected_total)
+		self.assertEqual(response.context["totals"]["saldo_akhir"], expected_total)
+		self.assertContains(
+			response,
+			"Rp 21.474.836.469.998.117.637.788,7033778477",
+		)
+		self.assertNotContains(
+			response,
+			'<td class="text-end">Rp 21.474.836.469.998.117.637.788,70</td>',
+			html=True,
+		)
 
 	def test_rekap_persediaan_admin_aggregates_across_facilities(self):
 		from apps.lplpo.models import LPLPO, LPLPOItem
@@ -3338,8 +3453,6 @@ class PuskesmasReportViewTests(SecureClientDefaultsMixin, TestCase):
 		)
 
 	def test_rekap_persediaan_excel_export_uses_category_summary_headers(self):
-		from apps.puskesmas.exports import export_puskesmas_rekap_persediaan_excel
-
 		response = export_puskesmas_rekap_persediaan_excel(
 			rekap_data=[
 				{
@@ -3391,8 +3504,8 @@ class PuskesmasReportViewTests(SecureClientDefaultsMixin, TestCase):
 					"distribution_document_number": "@DIST-SOURCE",
 					"nama_barang": "@Amoxicillin 500 mg",
 					"satuan": "-Tablet",
-					"quantity": Decimal("5"),
-					"unit_price": Decimal("2500"),
+					"quantity": Decimal("9999999999.99"),
+					"unit_price": Decimal("9999999999999.1234567891"),
 					"batch_lot": "+BATCH-LOT",
 					"expiry_date": None,
 					"notes": "=BATCH-01",
@@ -3417,10 +3530,40 @@ class PuskesmasReportViewTests(SecureClientDefaultsMixin, TestCase):
 		self.assertEqual(sheet["I5"].value, "'+BATCH-LOT")
 		self.assertEqual(sheet["L5"].value, "'=BATCH-01")
 		self.assertEqual(sheet["A2"].data_type, "s")
-		self.assertEqual(sheet["G5"].value, 5)
-		self.assertEqual(sheet["H5"].value, 2500)
-		self.assertEqual(sheet["K5"].value, 12500)
+		self.assertEqual(sheet["G5"].value, 9999999999.99)
+		self.assertEqual(sheet["H5"].value, "9999999999999.1234567891")
+		self.assertEqual(sheet["K5"].value, "99999999999891234567891.008765432109")
 		self.assertEqual(sheet["G5"].data_type, "n")
-		self.assertEqual(sheet["H5"].data_type, "n")
-		self.assertEqual(sheet["K5"].data_type, "n")
+		self.assertEqual(sheet["H5"].data_type, "s")
+		self.assertEqual(sheet["K5"].data_type, "s")
+		self.assertEqual(sheet["K6"].value, "99999999999891234567891.008765432109")
+
+	def test_rekap_persediaan_excel_exports_values_as_precise_text(self):
+		response = export_puskesmas_rekap_persediaan_excel(
+			[
+				{
+					"kategori": self.category.name,
+					"saldo_awal": Decimal("-0.124691356991"),
+					"nilai_terima": Decimal("10099999999999.114691356991"),
+					"nilai_keluar": Decimal("0"),
+					"saldo_akhir": Decimal("10099999999999.239382713982"),
+				}
+			],
+			{
+				"saldo_awal": Decimal("-0.124691356991"),
+				"nilai_terima": Decimal("10099999999999.114691356991"),
+				"nilai_keluar": Decimal("0"),
+				"saldo_akhir": Decimal("10099999999999.239382713982"),
+			},
+			year=2026,
+			period_label="Triwulan I",
+			facility_name=self.facility.name,
+		)
+
+		workbook = load_workbook(BytesIO(response.content))
+		sheet = workbook.active
+		self.assertEqual(sheet["C5"].value, "-0.124691356991")
+		self.assertEqual(sheet["D5"].value, "10099999999999.114691356991")
+		self.assertEqual(sheet["F6"].value, "10099999999999.239382713982")
+		self.assertEqual(sheet["C5"].data_type, "s")
 

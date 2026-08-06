@@ -21,6 +21,7 @@ from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
+from apps.core.decimal_validation import multiply_decimals, sum_decimals
 from apps.core.decorators import module_scope_required, perm_required
 from apps.lplpo.forms import RejectLPLPOForm
 from apps.lplpo.models import LPLPO
@@ -842,12 +843,12 @@ def distribution_detail(request, pk):
         unit_price = di.stock.unit_price if di.stock else None
         line_total = None
         if quantity is not None and unit_price is not None:
-            line_total = quantity * unit_price
+            line_total = multiply_decimals(quantity, unit_price)
 
         if quantity is not None:
             total_quantity += quantity
         if line_total is not None:
-            grand_total += line_total
+            grand_total = sum_decimals([grand_total, line_total])
 
         printable_items.append(
             {

@@ -15,6 +15,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
 from apps.core.decorators import module_scope_required, perm_required
+from apps.core.decimal_validation import format_price_input
 from apps.core.rate_limits import lplpo_import_ratelimit
 from apps.distribution.models import Distribution, DistributionItem
 from apps.distribution.services import assign_default_distribution_staff
@@ -742,7 +743,8 @@ def api_prefill_penerimaan(request):
             "tahun": tahun,
             "items": {str(item_id): str(total) for item_id, total in data.items()},
             "unit_prices": {
-                str(item_id): str(total) for item_id, total in unit_price_data.items()
+                str(item_id): format_price_input(total)
+                for item_id, total in unit_price_data.items()
             },
         }
     )

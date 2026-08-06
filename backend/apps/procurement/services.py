@@ -2,6 +2,7 @@ from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
+from apps.core.decimal_validation import multiply_decimals
 from apps.receiving.models import Receiving, ReceivingOrderItem
 
 from .models import (
@@ -314,7 +315,10 @@ def build_contract_summary_rows(contract):
                 "current_quantity": effective["quantity"],
                 "current_unit_price": effective["unit_price"],
                 "received_quantity": received_quantity,
-                "received_value": received_quantity * effective["unit_price"],
+                "received_value": multiply_decimals(
+                    received_quantity,
+                    effective["unit_price"],
+                ),
                 "remaining_quantity": remaining_quantity,
                 "cancelled_quantity": cancelled_quantity,
             }

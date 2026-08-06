@@ -770,6 +770,9 @@ class DistributionWorkflowTest(SecureClientDefaultsMixin, TestCase):
     # --- Distribute workflow (stock deduction + transaction) ---
 
     def test_distribute_deducts_stock_and_creates_transaction(self):
+        precise_price = Decimal("5000.1234567890")
+        self.stock.unit_price = precise_price
+        self.stock.save(update_fields=["unit_price", "updated_at"])
         dist = self._create_distribution(status=Distribution.Status.VERIFIED)
         response = self.client.post(
             reverse("distribution:distribution_distribute", args=[dist.pk])
@@ -793,12 +796,13 @@ class DistributionWorkflowTest(SecureClientDefaultsMixin, TestCase):
         self.assertEqual(txn.transaction_type, Transaction.TransactionType.OUT)
         self.assertEqual(txn.quantity, Decimal("40"))
         self.assertEqual(txn.item, self.item)
+        self.assertEqual(txn.unit_price, precise_price)
 
         distribution_item = dist.items.get()
         self.assertEqual(distribution_item.reserved_quantity, Decimal("0"))
         self.assertEqual(distribution_item.issued_batch_lot, "BATCH-D01")
         self.assertEqual(distribution_item.issued_expiry_date.isoformat(), "2027-12-31")
-        self.assertEqual(distribution_item.issued_unit_price, Decimal("5000"))
+        self.assertEqual(distribution_item.issued_unit_price, precise_price)
         self.assertEqual(distribution_item.issued_sumber_dana, self.funding_source)
 
     def test_assigned_gudang_can_distribute_verified_distribution(self):
@@ -2301,6 +2305,33 @@ class DistributionWorkflowTest(SecureClientDefaultsMixin, TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Petugas")
         self.assertContains(response, str(self.user))
+
+    def test_detail_displays_exact_high_precision_prices_and_values(self):
+        self.stock.unit_price = Decimal("1000.1234567890")
+        self.stock.save(update_fields=["unit_price", "updated_at"])
+        dist = self._create_distribution(status=Distribution.Status.DISTRIBUTED)
+        line = dist.items.get()
+        line.quantity_requested = Decimal("1.01")
+        line.quantity_approved = Decimal("1.01")
+        line.save(update_fields=["quantity_requested", "quantity_approved"])
+
+        response = self.client.get(
+            reverse("distribution:distribution_detail", args=[dist.pk])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "1.000,123456789")
+        self.assertContains(response, "1.010,12469135689")
+        self.assertNotContains(
+            response,
+            '<td class="text-end">1.000,12</td>',
+            html=True,
+        )
+        self.assertNotContains(
+            response,
+            '<td class="text-end fw-semibold">1.010,12</td>',
+            html=True,
+        )
 
     def test_distribution_detail_requires_view_permission(self):
         dist = self._create_distribution(status=Distribution.Status.DRAFT)

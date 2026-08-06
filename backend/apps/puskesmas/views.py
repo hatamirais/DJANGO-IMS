@@ -21,6 +21,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.contrib import messages
 from django.utils import timezone
 
+from apps.core.decimal_validation import sum_decimals
 from apps.core.decorators import module_scope_required, perm_required
 from apps.core.rate_limits import (
     puskesmas_consumption_mutation_ratelimit,
@@ -2460,8 +2461,8 @@ def puskesmas_report_rekap_persediaan(request):
             facilities_to_query = facilities_to_query.filter(pk=facility.pk)
 
         category_map = {}
-        money_field = DecimalField(max_digits=20, decimal_places=2)
-        zero_money = Value(Decimal("0.00"), output_field=money_field)
+        money_field = DecimalField(max_digits=38, decimal_places=12)
+        zero_money = Value(Decimal("0"), output_field=money_field)
         stock_awal_value = ExpressionWrapper(
             F("stock_awal") * F("harga_satuan"),
             output_field=money_field,
@@ -2522,9 +2523,15 @@ def puskesmas_report_rekap_persediaan(request):
                     "saldo_akhir": Decimal("0"),
                 },
             )
-            aggregated["saldo_awal"] += row["saldo_awal"] or Decimal("0")
-            aggregated["nilai_terima"] += row["nilai_terima"] or Decimal("0")
-            aggregated["nilai_keluar"] += row["nilai_keluar"] or Decimal("0")
+            aggregated["saldo_awal"] = sum_decimals(
+                [aggregated["saldo_awal"], row["saldo_awal"] or Decimal("0")]
+            )
+            aggregated["nilai_terima"] = sum_decimals(
+                [aggregated["nilai_terima"], row["nilai_terima"] or Decimal("0")]
+            )
+            aggregated["nilai_keluar"] = sum_decimals(
+                [aggregated["nilai_keluar"], row["nilai_keluar"] or Decimal("0")]
+            )
 
         latest_item_values = (
             base_lplpo_items.annotate(
@@ -2559,7 +2566,9 @@ def puskesmas_report_rekap_persediaan(request):
                     "saldo_akhir": Decimal("0"),
                 },
             )
-            aggregated["saldo_akhir"] += row["saldo_akhir"] or Decimal("0")
+            aggregated["saldo_akhir"] = sum_decimals(
+                [aggregated["saldo_akhir"], row["saldo_akhir"] or Decimal("0")]
+            )
 
         for _key, row in sorted(
             category_map.items(),
@@ -2573,10 +2582,18 @@ def puskesmas_report_rekap_persediaan(request):
                 "saldo_akhir": row["saldo_akhir"],
             }
             rekap_data.append(entry)
-            totals["saldo_awal"] += row["saldo_awal"]
-            totals["nilai_terima"] += row["nilai_terima"]
-            totals["nilai_keluar"] += row["nilai_keluar"]
-            totals["saldo_akhir"] += row["saldo_akhir"]
+            totals["saldo_awal"] = sum_decimals(
+                [totals["saldo_awal"], row["saldo_awal"]]
+            )
+            totals["nilai_terima"] = sum_decimals(
+                [totals["nilai_terima"], row["nilai_terima"]]
+            )
+            totals["nilai_keluar"] = sum_decimals(
+                [totals["nilai_keluar"], row["nilai_keluar"]]
+            )
+            totals["saldo_akhir"] = sum_decimals(
+                [totals["saldo_akhir"], row["saldo_akhir"]]
+            )
 
         if request.GET.get("format") == "excel" and rekap_data:
             return export_puskesmas_rekap_persediaan_excel(

@@ -5,7 +5,11 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 
-from apps.core.decimal_validation import validate_finite_decimal
+from apps.core.decimal_validation import (
+    PRICE_DECIMAL_PLACES,
+    PRICE_MAX_DIGITS,
+    validate_finite_decimal,
+)
 from apps.core.models import TimeStampedModel
 
 
@@ -162,7 +166,10 @@ class ProcurementContractLine(TimeStampedModel):
         related_name="procurement_contract_lines",
     )
     original_quantity = models.DecimalField(max_digits=12, decimal_places=2)
-    original_unit_price = models.DecimalField(max_digits=15, decimal_places=2)
+    original_unit_price = models.DecimalField(
+        max_digits=PRICE_MAX_DIGITS,
+        decimal_places=PRICE_DECIMAL_PLACES,
+    )
     notes = models.TextField(blank=True)
 
     class Meta:
@@ -323,7 +330,10 @@ class ProcurementAmendmentLine(TimeStampedModel):
         related_name="amendment_lines",
     )
     revised_quantity = models.DecimalField(max_digits=12, decimal_places=2)
-    revised_unit_price = models.DecimalField(max_digits=15, decimal_places=2)
+    revised_unit_price = models.DecimalField(
+        max_digits=PRICE_MAX_DIGITS,
+        decimal_places=PRICE_DECIMAL_PLACES,
+    )
     notes = models.TextField(blank=True)
 
     class Meta:

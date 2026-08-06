@@ -234,7 +234,7 @@
                                 {% if active_tab == 'receiving' %}
                                 <td><span class="batch-pill">{{ row.batch_lot }}</span></td>
                                 <td>{{ row.expiry_display }}</td>
-                                <td class="text-end">Rp {{ row.unit_price|id_decimal:0 }}</td>
+                                <td class="text-end">Rp {{ row.unit_price|id_price_exact }}</td>
                                 <td class="text-end fw-semibold">{{ row.total_received|id_decimal:0 }}</td>
                                 {% elif active_tab == 'consumption' %}
                                 <td>{{ row.kategori }}</td>

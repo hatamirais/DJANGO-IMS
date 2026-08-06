@@ -640,6 +640,23 @@ class ReceivingCSVImportTest(TestCase):
         self.assertEqual(stock.batch_lot, "SALDO-0002")
         self.assertIsNone(stock.expiry_date)
 
+    def test_process_csv_preserves_high_precision_unit_price(self):
+        csv_content = (
+            "document_number,receiving_type,receiving_date,supplier_code,sumber_dana_code,"
+            "location_code,item_code,quantity,batch_lot,expiry_date,unit_price\n"
+            "RCV-2026-00001,GRANT,12/03/2026,,APBD,GUDANG,ITM-TEST-0001,10,B-001,01/01/2030,8893.31985\n"
+        )
+
+        result = self.admin._process_csv(self._csv_file(csv_content), self.user)
+
+        self.assertEqual(result["items"], 1)
+        receiving_item = ReceivingItem.objects.get()
+        self.assertEqual(receiving_item.unit_price, Decimal("8893.31985"))
+        stock = Stock.objects.get()
+        self.assertEqual(stock.unit_price, Decimal("8893.31985"))
+        transaction = Transaction.objects.get()
+        self.assertEqual(transaction.unit_price, Decimal("8893.31985"))
+
     def test_process_csv_rejects_opening_balance_document_number_collision(self):
         OpeningBalanceImport.objects.create(
             document_number="RCV-2026-OB-COLLISION",
@@ -1809,6 +1826,38 @@ class ReceivingWorkflowCleanupTest(TestCase):
         )
 
         self.assertEqual(response.status_code, 404)
+
+    def test_regular_receiving_detail_shows_exact_unit_price(self):
+        precise_price = Decimal("1000.1234567890")
+        receiving = Receiving.objects.create(
+            document_number="RCV-2026-PRECISE",
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 3, 16),
+            sumber_dana=self.funding,
+            status=Receiving.Status.VERIFIED,
+            is_planned=False,
+            created_by=self.user,
+            verified_by=self.user,
+        )
+        ReceivingItem.objects.create(
+            receiving=receiving,
+            item=self.item,
+            quantity=Decimal("1.01"),
+            batch_lot="BATCH-PRECISE",
+            expiry_date=date(2030, 1, 1),
+            unit_price=precise_price,
+            location=self.location,
+        )
+
+        response = self.client.get(
+            reverse("receiving:receiving_detail", args=[receiving.pk]),
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "1000.123456789")
+        self.assertContains(response, "1.010,12469135689")
+        self.assertNotContains(response, '<td class="text-end fw-semibold">1010</td>', html=True)
 
     def test_procurement_receiving_forms_require_supplier(self):
         form_data = {

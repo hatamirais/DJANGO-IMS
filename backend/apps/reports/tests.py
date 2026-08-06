@@ -11,7 +11,11 @@ from apps.distribution.models import Distribution
 from apps.items.models import Category, Facility, FundingSource, Item, Location, Supplier, Unit
 from apps.procurement.models import ProcurementContract
 from apps.receiving.models import Receiving, ReceivingItem
-from apps.reports.exports import export_numbering_history_excel, export_pengeluaran_excel
+from apps.reports.exports import (
+	export_numbering_history_excel,
+	export_pengeluaran_excel,
+	export_rekap_excel,
+)
 from apps.stock.models import OpeningBalanceImport, OpeningBalanceImportItem, Stock, Transaction
 from apps.users.models import User
 
@@ -71,7 +75,7 @@ class NumberingHistoryReportTests(TestCase):
 		lplpo_dist = self._create_distribution(Distribution.DistributionType.LPLPO)
 		special_dist = self._create_distribution(Distribution.DistributionType.SPECIAL_REQUEST)
 
-		response = self.client.get(reverse('reports:numbering_history'))
+		response = self.client.get(reverse('reports:numbering_history'), secure=True)
 
 		self.assertEqual(response.status_code, 200)
 		self.assertContains(response, lplpo_dist.document_number)
@@ -86,6 +90,7 @@ class NumberingHistoryReportTests(TestCase):
 		response = self.client.get(
 			reverse('reports:numbering_history'),
 			{'distribution_type': Distribution.DistributionType.LPLPO, 'year': 2026},
+			secure=True,
 		)
 
 		self.assertEqual(response.status_code, 200)
@@ -95,7 +100,7 @@ class NumberingHistoryReportTests(TestCase):
 	def test_numbering_history_page_shows_print_and_export_actions(self):
 		self._create_distribution(Distribution.DistributionType.LPLPO)
 
-		response = self.client.get(reverse('reports:numbering_history'))
+		response = self.client.get(reverse('reports:numbering_history'), secure=True)
 
 		self.assertContains(response, 'Cetak Laporan')
 		self.assertContains(response, 'Export Excel')
@@ -106,6 +111,7 @@ class NumberingHistoryReportTests(TestCase):
 		response = self.client.get(
 			reverse('reports:numbering_history'),
 			{'year': 2026, 'format': 'excel'},
+			secure=True,
 		)
 
 		self.assertEqual(response.status_code, 200)
@@ -210,6 +216,80 @@ class RekapOpeningBalanceReportTests(TestCase):
 		self.assertEqual(row["saldo_awal"], Decimal("1000"))
 		self.assertEqual(row["nilai_terima"], Decimal("0"))
 		self.assertEqual(row["saldo_akhir"], Decimal("1000"))
+
+	def test_rekap_preserves_large_precise_values_in_post_processing(self):
+		precise_total = Decimal("99999999999891234567891.008765432109")
+		OpeningBalanceImportItem.objects.filter(
+			opening_balance=self.opening_balance,
+			item=self.item,
+		).update(
+			quantity=Decimal("9999999999.99"),
+			unit_price=Decimal("9999999999999.1234567891"),
+		)
+		Transaction.objects.filter(
+			reference_type=Transaction.ReferenceType.INITIAL_IMPORT,
+			reference_id=self.opening_balance.pk,
+			item=self.item,
+		).update(
+			quantity=Decimal("9999999999.99"),
+			unit_price=Decimal("9999999999999.1234567891"),
+		)
+
+		response = self.client.get(
+			reverse("reports:rekap"),
+			{"start_date": "2026-01-01", "end_date": "2026-12-31"},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		row = self._category_row(response)
+		group = response.context["rekap_data"][0]
+		self.assertEqual(row["saldo_awal"], precise_total)
+		self.assertEqual(row["saldo_akhir"], precise_total)
+		self.assertEqual(group["subtotal_saldo_awal"], precise_total)
+		self.assertEqual(group["subtotal_saldo_akhir"], precise_total)
+		self.assertEqual(response.context["grand_totals"]["saldo_awal"], precise_total)
+		self.assertEqual(response.context["grand_totals"]["saldo_akhir"], precise_total)
+		self.assertContains(
+			response,
+			"Rp 99.999.999.999.891.234.567.891,008765432109",
+		)
+		self.assertNotContains(
+			response,
+			"Rp 99.999.999.999.891.234.567.891,01",
+		)
+
+	def test_rekap_negates_large_precise_outbound_values_without_rounding(self):
+		precise_total = Decimal("99999999999891234567891.008765432109")
+		expected_saldo_akhir = Decimal("-99999999999891234566891.008765432109")
+		Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.OUT,
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-OUT",
+			quantity=Decimal("9999999999.99"),
+			unit_price=Decimal("9999999999999.1234567891"),
+			sumber_dana=self.funding,
+			reference_type=Transaction.ReferenceType.DISTRIBUTION,
+			reference_id=999,
+			user=self.user,
+		)
+
+		response = self.client.get(
+			reverse("reports:rekap"),
+			{"start_date": "2026-01-01", "end_date": "2026-12-31"},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		row = self._category_row(response)
+		group = response.context["rekap_data"][0]
+		self.assertEqual(row["nilai_distribusi"], precise_total)
+		self.assertEqual(row["saldo_awal"], Decimal("1000"))
+		self.assertEqual(row["saldo_akhir"], expected_saldo_akhir)
+		self.assertEqual(group["subtotal_saldo_akhir"], expected_saldo_akhir)
+		self.assertEqual(
+			response.context["grand_totals"]["saldo_akhir"],
+			expected_saldo_akhir,
+		)
 
 	def test_rekap_keeps_legacy_unlinked_initial_import_as_saldo_awal(self):
 		legacy_tx = Transaction.objects.create(
@@ -506,6 +586,44 @@ class RekapOpeningBalanceReportTests(TestCase):
 		}
 		self.assertIn("SALDO-AWAL-SOURCE-A", source_values)
 		self.assertIn("SALDO-AWAL-SOURCE-B", source_values)
+
+	def test_detailed_report_displays_exact_high_precision_unit_prices(self):
+		Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.IN,
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-EXACT-PRICE",
+			source_document_number="RCV-EXACT-PRICE-A",
+			quantity=Decimal("5"),
+			unit_price=Decimal("1000.1234567890"),
+			sumber_dana=self.funding,
+			reference_type=Transaction.ReferenceType.RECEIVING,
+			reference_id=21,
+			user=self.user,
+		)
+		Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.IN,
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-EXACT-PRICE",
+			source_document_number="RCV-EXACT-PRICE-B",
+			quantity=Decimal("7"),
+			unit_price=Decimal("1000.1240000000"),
+			sumber_dana=self.funding,
+			reference_type=Transaction.ReferenceType.RECEIVING,
+			reference_id=22,
+			user=self.user,
+		)
+
+		response = self.client.get(
+			reverse("reports:index"),
+			{"start_date": "2026-01-01", "end_date": "2026-12-31"},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertContains(response, "1.000,123456789")
+		self.assertContains(response, "1.000,124")
+		self.assertNotContains(response, "1000.12")
 
 	def test_detailed_report_separates_same_source_batch_by_location_expiry(self):
 		other_location = Location.objects.create(
@@ -832,6 +950,7 @@ class PengeluaranReportTests(TestCase):
 				'end_date': '2026-04-30',
 				'distribution_type': Distribution.DistributionType.ALLOCATION,
 			},
+			secure=True,
 		)
 
 		self.assertEqual(response.status_code, 200)
@@ -854,6 +973,7 @@ class PengeluaranReportTests(TestCase):
 				'start_date': '2026-04-01',
 				'end_date': '2026-04-30',
 			},
+			secure=True,
 		)
 
 		self.assertEqual(response.status_code, 200)
@@ -889,6 +1009,7 @@ class PengeluaranReportTests(TestCase):
 				'facility': self.facility.pk,
 				'distribution_type': Distribution.DistributionType.SPECIAL_REQUEST,
 			},
+			secure=True,
 		)
 
 		self.assertEqual(response.status_code, 200)
@@ -909,6 +1030,7 @@ class PengeluaranReportTests(TestCase):
 				'end_date': '2026-04-30',
 				'distribution_type': 'NOT_A_REAL_TYPE',
 			},
+			secure=True,
 		)
 
 		self.assertEqual(response.status_code, 200)
@@ -930,6 +1052,7 @@ class PengeluaranReportTests(TestCase):
 				'distribution_type': Distribution.DistributionType.ALLOCATION,
 				'format': 'excel',
 			},
+			secure=True,
 		)
 
 		self.assertEqual(response.status_code, 200)
@@ -949,6 +1072,7 @@ class PengeluaranReportTests(TestCase):
 				'start_date': '2026-04-01',
 				'end_date': '2026-04-30',
 			},
+			secure=True,
 		)
 
 		self.assertEqual(response.status_code, 200)
@@ -974,9 +1098,9 @@ class PengeluaranReportTests(TestCase):
 					"batch_lot": "=BATCH-01",
 					"expiry_date": None,
 					"sumber_dana": "=DAU",
-					"unit_price": 2500,
-					"quantity": 5,
-					"total_price": 12500,
+					"unit_price": Decimal("9999999999999.1234567891"),
+					"quantity": Decimal("1.01"),
+					"total_price": Decimal("10099999999999.114691356991"),
 				}
 			],
 			"2026-04-01",
@@ -999,12 +1123,55 @@ class PengeluaranReportTests(TestCase):
 		self.assertEqual(sheet["F5"].value, "'=BATCH-01")
 		self.assertEqual(sheet["H5"].value, "'=DAU")
 		self.assertEqual(sheet["A2"].data_type, "s")
-		self.assertEqual(sheet["I5"].value, 2500)
-		self.assertEqual(sheet["J5"].value, 5)
-		self.assertEqual(sheet["K5"].value, 12500)
-		self.assertEqual(sheet["I5"].data_type, "n")
+		self.assertEqual(sheet["I5"].value, "9999999999999.1234567891")
+		self.assertEqual(sheet["J5"].value, 1.01)
+		self.assertEqual(sheet["K5"].value, "10099999999999.114691356991")
+		self.assertEqual(sheet["I5"].data_type, "s")
 		self.assertEqual(sheet["J5"].data_type, "n")
-		self.assertEqual(sheet["K5"].data_type, "n")
+		self.assertEqual(sheet["K5"].data_type, "s")
+		self.assertEqual(sheet["K6"].value, "10099999999999.114691356991")
+
+	def test_rekap_excel_preserves_negative_decimal_text_without_escape_prefix(self):
+		response = export_rekap_excel(
+			[
+				{
+					"sd_name": "DAU",
+					"subtotal_saldo_awal": Decimal("-1.23"),
+					"subtotal_nilai_terima": Decimal("0"),
+					"subtotal_nilai_distribusi": Decimal("0"),
+					"subtotal_nilai_ed": Decimal("0"),
+					"subtotal_saldo_akhir": Decimal("-1.23"),
+					"categories": [
+						{
+							"kategori": "Obat",
+							"saldo_awal": Decimal("-1.23"),
+							"nilai_terima": Decimal("0"),
+							"nilai_distribusi": Decimal("0"),
+							"nilai_ed": Decimal("0"),
+							"saldo_akhir": Decimal("-1.23"),
+						}
+					],
+				}
+			],
+			{
+				"saldo_awal": Decimal("-1.23"),
+				"nilai_terima": Decimal("0"),
+				"nilai_distribusi": Decimal("0"),
+				"nilai_ed": Decimal("0"),
+				"saldo_akhir": Decimal("-1.23"),
+			},
+			"2026-04-01",
+			"2026-04-30",
+		)
+
+		workbook = load_workbook(BytesIO(response.content))
+		sheet = workbook.active
+
+		self.assertEqual(sheet["C5"].value, "-1.23")
+		self.assertEqual(sheet["C6"].value, "-1.23")
+		self.assertEqual(sheet["C7"].value, "-1.23")
+		self.assertEqual(sheet["G7"].value, "-1.23")
+		self.assertEqual(sheet["C5"].data_type, "s")
 
 
 class ProcurementReportTests(TestCase):
@@ -1082,6 +1249,49 @@ class ProcurementReportTests(TestCase):
         sheet = workbook.active
         self.assertEqual(sheet["C4"].value, "No. SPJ")
         self.assertEqual(sheet["C5"].value, "SPJ-2026-00077")
+
+    def test_procurement_report_excel_calculates_large_totals_with_widened_precision(self):
+        ReceivingItem.objects.filter(receiving=self.receiving, item=self.item).update(
+            quantity=Decimal("9999999999.99"),
+            unit_price=Decimal("9999999999999.1234567891"),
+        )
+
+        response = self.client.get(
+            reverse("reports:pengadaan"),
+            {"start_date": "2026-07-01", "end_date": "2026-07-31", "format": "excel"},
+            secure=True,
+        )
+
+        workbook = load_workbook(BytesIO(response.content))
+        sheet = workbook.active
+
+        self.assertEqual(sheet["I5"].value, "9999999999999.1234567891")
+        self.assertEqual(sheet["K5"].value, "99999999999891234567891.008765432109")
+        self.assertEqual(sheet["K6"].value, "99999999999891234567891.008765432109")
+
+    def test_procurement_report_html_displays_exact_prices_and_values(self):
+        ReceivingItem.objects.filter(receiving=self.receiving, item=self.item).update(
+            quantity=Decimal("9999999999.99"),
+            unit_price=Decimal("9999999999999.1234567891"),
+        )
+
+        response = self.client.get(
+            reverse("reports:pengadaan"),
+            {"start_date": "2026-07-01", "end_date": "2026-07-31"},
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Rp 9.999.999.999.999,1234567891")
+        self.assertContains(
+            response,
+            "Rp 99.999.999.999.891.234.567.891,008765432109",
+        )
+        self.assertNotContains(
+            response,
+            '<td class="text-end">Rp 9.999.999.999.999,12</td>',
+            html=True,
+        )
 
 
 class ProcurementReceivingReportTests(TestCase):

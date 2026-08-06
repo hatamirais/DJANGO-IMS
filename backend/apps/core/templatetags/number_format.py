@@ -3,6 +3,8 @@ from urllib.parse import urlparse
 
 from django import template
 
+from apps.core.decimal_validation import format_price_exact
+
 
 register = template.Library()
 
@@ -35,6 +37,39 @@ def id_decimal(value, places=2):
 
     formatted = f"{number:,.{places_int}f}"
     return formatted.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+@register.filter
+def id_price_exact(value):
+    """Format a stored unit price with Indonesian separators and exact decimals."""
+    label = format_price_exact(value)
+    if not label:
+        return ""
+
+    return _format_exact_indonesian(label)
+
+
+@register.filter
+def id_value_exact(value):
+    """Format a calculated money value with Indonesian separators and exact decimals."""
+    number = _to_decimal(value)
+    label = format(number, "f")
+    if "." in label:
+        label = label.rstrip("0").rstrip(".")
+    return _format_exact_indonesian(label or "0")
+
+
+def _format_exact_indonesian(label):
+    sign = ""
+    if label.startswith("-"):
+        sign = "-"
+        label = label[1:]
+
+    whole, separator, fractional = label.partition(".")
+    grouped_whole = f"{int(whole or '0'):,}".replace(",", ".")
+    if separator:
+        return f"{sign}{grouped_whole},{fractional}"
+    return f"{sign}{grouped_whole}"
 
 
 @register.filter

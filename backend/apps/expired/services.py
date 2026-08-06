@@ -6,6 +6,7 @@ from django.http import StreamingHttpResponse
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.core.decimal_validation import multiply_decimals, sum_decimals
 from apps.core.csv_exports import sanitize_csv_row
 from apps.expired.models import Expired
 from apps.stock.models import Transaction
@@ -113,7 +114,7 @@ def _build_destroy_rows(filters):
             if funding_source and expired_item.stock.sumber_dana_id != funding_source.id:
                 continue
             unit_price = _safe_decimal(expired_item.stock.unit_price)
-            total_price = _safe_decimal(expired_item.quantity) * unit_price
+            total_price = multiply_decimals(expired_item.quantity, unit_price)
             rows.append(
                 {
                     "outcome_type": OUTCOME_DESTROY,
@@ -170,9 +171,13 @@ def build_expired_audit_report(filters):
         quantity = _safe_decimal(row["quantity"])
         total_price = _safe_decimal(row["total_price"])
         totals_by_outcome[row["outcome_type"]] += quantity
-        totals_value_by_outcome[row["outcome_type"]] += total_price
+        totals_value_by_outcome[row["outcome_type"]] = sum_decimals(
+            [totals_value_by_outcome[row["outcome_type"]], total_price]
+        )
         totals_by_item[row["nama_barang"]][row["outcome_type"]] += quantity
-        total_values_by_item[row["nama_barang"]][row["outcome_type"]] += total_price
+        total_values_by_item[row["nama_barang"]][row["outcome_type"]] = sum_decimals(
+            [total_values_by_item[row["nama_barang"]][row["outcome_type"]], total_price]
+        )
 
     summary_rows = []
     for item_name in sorted(totals_by_item.keys()):

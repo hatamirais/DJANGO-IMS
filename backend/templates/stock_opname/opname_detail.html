@@ -151,7 +151,7 @@
                             </td>
                             <td>{{ item.stock.batch_lot }}</td>
                             <td><code>{{ item.stock.source_document_number|default:"-" }}</code></td>
-                            <td class="text-end">{{ item.stock.unit_price|id_decimal:2 }}</td>
+                            <td class="text-end">{{ item.stock.unit_price|id_price_exact }}</td>
                             <td>{{ item.stock.item.satuan.name|default:"-" }}</td>
                             <td class="text-end">{{ item.system_quantity }}</td>
                             <td class="text-end">

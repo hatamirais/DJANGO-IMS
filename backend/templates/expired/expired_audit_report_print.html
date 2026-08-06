@@ -92,8 +92,8 @@
                 <td>{{ row.batch_lot }}</td>
                 <td>{% if row.expiry_date %}{{ row.expiry_date|date:"d/m/Y" }}{% else %}-{% endif %}</td>
                 <td class="text-right">{{ row.quantity|id_decimal:2 }}</td>
-                <td class="text-right">{{ row.unit_price|idr }}</td>
-                <td class="text-right">{{ row.total_price|idr }}</td>
+                <td class="text-right">Rp {{ row.unit_price|id_price_exact }}</td>
+                <td class="text-right">Rp {{ row.total_price|id_value_exact }}</td>
                 <td>{{ row.unit }}</td>
                 <td>{{ row.location }}</td>
                 <td>{{ row.funding_source|default:"-" }}</td>
@@ -111,7 +111,7 @@
     <div class="summary">
         <h3>Ringkasan</h3>
         <p>Barang di Musnahkan: {{ report_data.totals_by_outcome.DESTROY|id_decimal:2 }}</p>
-        <p>Total Nilai Barang di Musnahkan: {{ report_data.totals_value_by_outcome.DESTROY|idr }}</p>
+        <p>Total Nilai Barang di Musnahkan: Rp {{ report_data.totals_value_by_outcome.DESTROY|id_value_exact }}</p>
 
         {% if report_data.summary_rows %}
         <table>
@@ -127,7 +127,7 @@
                 <tr>
                     <td>{{ summary.item_name }}</td>
                     <td class="text-right">{{ summary.destroy_total|id_decimal:2 }}</td>
-                    <td class="text-right">{{ summary.destroy_total_value|idr }}</td>
+                    <td class="text-right">Rp {{ summary.destroy_total_value|id_value_exact }}</td>
                 </tr>
                 {% endfor %}
             </tbody>

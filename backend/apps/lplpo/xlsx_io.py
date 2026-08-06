@@ -7,7 +7,14 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from apps.core.decimal_validation import validate_finite_decimal
+from apps.core.decimal_validation import (
+    PRICE_DECIMAL_PLACES,
+    PRICE_MAX_DIGITS,
+    PRICE_QUANT,
+    format_price_exact,
+    validate_finite_decimal,
+    validate_decimal_precision,
+)
 from apps.core.xlsx_exports import escape_xlsx_formula
 from apps.lplpo.models import get_previous_lplpo, is_january_bootstrap_period
 
@@ -54,7 +61,8 @@ THIN_BORDER = Border(
     bottom=Side(style="thin"),
 )
 NUMBER_FORMAT = "#,##0"
-DECIMAL_FORMAT = "#,##0.00"
+DECIMAL_FORMAT = "#,##0.##########"
+TEXT_FORMAT = "@"
 
 
 def _cell_value(value):
@@ -200,16 +208,20 @@ def export_lplpo_workbook(lplpo_obj):
             line.permintaan_alasan,
         ]
         for column_index, value in enumerate(row_values, start=1):
+            cell_value = format_price_exact(value) if column_index == 7 else value
             cell = worksheet.cell(
                 row=row_index,
                 column=column_index,
-                value=_cell_value(value),
+                value=_cell_value(cell_value),
             )
             cell.border = THIN_BORDER
             if column_index in {5, 6, 8, 9, 10, 13, 14, 15}:
                 cell.number_format = NUMBER_FORMAT
                 cell.alignment = Alignment(horizontal="right")
-            elif column_index in {7, 11, 12}:
+            elif column_index == 7:
+                cell.number_format = TEXT_FORMAT
+                cell.alignment = Alignment(horizontal="right")
+            elif column_index in {11, 12}:
                 cell.number_format = DECIMAL_FORMAT
                 cell.alignment = Alignment(horizontal="right")
 
@@ -333,7 +345,17 @@ def apply_lplpo_workbook_import(*, uploaded_file, lplpo_obj):
         if harga_satuan < 0:
             workbook.close()
             raise ValidationError(f"Baris {row_num}: harga_satuan tidak boleh negatif.")
-        line.harga_satuan = harga_satuan.quantize(Decimal("0.01"))
+        try:
+            validate_decimal_precision(
+                harga_satuan,
+                max_digits=PRICE_MAX_DIGITS,
+                decimal_places=PRICE_DECIMAL_PLACES,
+                field_label=f"Baris {row_num} harga_satuan",
+            )
+        except ValidationError:
+            workbook.close()
+            raise
+        line.harga_satuan = harga_satuan.quantize(PRICE_QUANT)
         line.stock_gudang_puskesmas = _parse_integer_from_cell(
             row_cells[12].value,
             field_label=f"Baris {row_num} stock_gudang_puskesmas",

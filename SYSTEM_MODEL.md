@@ -174,7 +174,7 @@ This section reflects model code in `backend/apps/*/models.py`.
 
 - `stock.Stock` (`stock`):
   - FKs: `item`, `location`, `sumber_dana`, `receiving_ref` (nullable)
-  - Fields: `batch_lot`, `source_document_number`, `expiry_date` (nullable for non-expiring stock), `quantity`, `reserved`, `unit_price`
+  - Fields: `batch_lot`, `source_document_number`, `expiry_date` (nullable for non-expiring stock), `quantity`, `reserved`, `unit_price` (`max_digits=23`, `decimal_places=10`)
   - Semantics: `quantity` is physical stock, `reserved` is outbound stock already booked by active distribution documents, and `available_quantity = quantity - reserved` is the allocatable balance shown on LPLPO review, allocation, special-request, and stock summary surfaces
   - Unique: `uq_stock_batch` on `(item, location, batch_lot, sumber_dana, source_document_number)`
   - Checks: `quantity >= 0`, `reserved >= 0`
@@ -185,7 +185,7 @@ This section reflects model code in `backend/apps/*/models.py`.
   - Types: `IN`, `OUT`, `ADJUST`, `RETURN`
   - Reference types: `RECEIVING`, `DISTRIBUTION`, `ADJUSTMENT`, `INITIAL_IMPORT`, `RECALL`, `EXPIRED`, `TRANSFER`, `ALLOCATION`
   - FKs: `item`, `location`, `sumber_dana` (nullable), `user`
-  - Fields: `batch_lot`, `source_document_number`, `quantity`, `unit_price` (nullable), `reference_type`, `reference_id`, `notes`, `created_at`
+  - Fields: `batch_lot`, `source_document_number`, `quantity`, `unit_price` (`max_digits=23`, `decimal_places=10`, nullable), `reference_type`, `reference_id`, `notes`, `created_at`
   - Indexes: `idx_trans_item_date`, `idx_trans_reference`, `idx_trans_source_doc`, `idx_trans_created`
   - Current workflows write `IN` and `OUT`; `RETURN` remains available in the enum but is not emitted by the main document flows verified on 2026-04-10
 
@@ -202,7 +202,7 @@ This section reflects model code in `backend/apps/*/models.py`.
 
 - `stock.OpeningBalanceImportItem` (`opening_balance_import_items`):
   - FKs: `opening_balance`, `item`, `location`, `sumber_dana`
-  - Fields: `batch_lot`, `expiry_date`, `quantity`, `unit_price`, `created_at`
+  - Fields: `batch_lot`, `expiry_date`, `quantity`, `unit_price` (`max_digits=23`, `decimal_places=10`), `created_at`
   - Created only by the Stock Admin opening-balance CSV import; rows are treated as immutable audit detail
 
 - `stock.StockTransfer` (`stock_transfers`):
@@ -231,7 +231,7 @@ This section reflects model code in `backend/apps/*/models.py`.
 
 - `procurement.ProcurementContractLine` (`procurement_contract_lines`):
   - FKs: `contract`, `item`
-  - Fields: `original_quantity`, `original_unit_price`, `notes`
+  - Fields: `original_quantity`, `original_unit_price` (`max_digits=23`, `decimal_places=10`), `notes`
   - Unique: `(contract, item)`
 
 - `procurement.ProcurementAmendment` (`procurement_amendments`):
@@ -244,7 +244,7 @@ This section reflects model code in `backend/apps/*/models.py`.
 
 - `procurement.ProcurementAmendmentLine` (`procurement_amendment_lines`):
   - FKs: `amendment`, `contract_line`
-  - Fields: `revised_quantity`, `revised_unit_price`, `notes`
+  - Fields: `revised_quantity`, `revised_unit_price` (`max_digits=23`, `decimal_places=10`), `notes`
   - Unique: `(amendment, contract_line)`
 
 ### 4.6 Receiving
@@ -264,7 +264,7 @@ This section reflects model code in `backend/apps/*/models.py`.
 
 - `receiving.ReceivingItem` (`receiving_items`):
   - FKs: `receiving`, `order_item` (nullable), `item`, `location` (nullable), `settlement_distribution_item` (nullable), `received_by` (nullable)
-  - Fields: `quantity`, `batch_lot`, `expiry_date` (nullable only when `item.requires_expiry_date=False`), `unit_price`, `received_at`, `created_at`
+  - Fields: `quantity`, `batch_lot`, `expiry_date` (nullable only when `item.requires_expiry_date=False`), `unit_price` (`max_digits=23`, `decimal_places=10`), `received_at`, `created_at`
   - Property: `total_price`
 
 - `receiving.ReceivingDocument` (`receiving_documents`):
@@ -274,7 +274,7 @@ This section reflects model code in `backend/apps/*/models.py`.
 
 - `receiving.ReceivingOrderItem` (`receiving_order_items`):
   - FKs: `receiving`, `item`, `contract_line` (nullable FK to `procurement.ProcurementContractLine`)
-  - Fields: `planned_quantity`, `received_quantity`, `unit_price`, `notes`, `is_cancelled`, `cancel_reason`
+  - Fields: `planned_quantity`, `received_quantity`, `unit_price` (`max_digits=23`, `decimal_places=10`), `notes`, `is_cancelled`, `cancel_reason`
   - Property: `remaining_quantity`
 
 ### 4.6 Distribution
@@ -295,7 +295,7 @@ This section reflects model code in `backend/apps/*/models.py`.
 
 - `distribution.DistributionItem` (`distribution_items`):
   - FKs: `distribution`, `item`, `stock` (nullable)
-  - Fields: `quantity_requested`, `quantity_approved` (nullable), `reserved_quantity`, `issued_batch_lot`, `issued_expiry_date`, `issued_unit_price`, `notes`, `created_at`
+  - Fields: `quantity_requested`, `quantity_approved` (nullable), `reserved_quantity`, `issued_batch_lot`, `issued_expiry_date`, `issued_unit_price` (`max_digits=23`, `decimal_places=10`, nullable), `notes`, `created_at`
   - `reserved_quantity` stores how much stock is currently booked for that row so reservation release/reapply remains deterministic across edits, standalone reset/step-back, allocation step-back, delete, and final fulfillment
   - FKs also include `issued_sumber_dana` (nullable) to preserve the book-value source used when stock is distributed
 
@@ -396,7 +396,7 @@ This section reflects model code in `backend/apps/*/models.py`.
 
 - `puskesmas.PuskesmasReceiptConfirmationItem` (`puskesmas_sbbk_items`):
   - FKs: `sbbk`, `item`, `distribution_item` (nullable FK to `distribution.DistributionItem`)
-  - Fields: `quantity`, `unit_price`, `batch_lot`, `expiry_date`, `notes`, `created_at`
+  - Fields: `quantity`, `unit_price` (`max_digits=23`, `decimal_places=10`), `batch_lot`, `expiry_date`, `notes`, `created_at`
   - Behavior: linked operational rows are now copied directly from checked `distribution_item` source rows, one stored row per confirmed source line; duplicate/manual split rows remain possible only on legacy compatibility edits
   - Compatibility: legacy migrated rows may remain `distribution_item=NULL`; new operational rows are expected to carry source linkage
   - Derived usage: same-facility/month aggregates from `sbbk.status='CONFIRMED'` feed LPLPO `penerimaan` totals and weighted-average `harga_satuan` autofill
@@ -452,7 +452,7 @@ Puskesmas stock self-check:
 
 - `lplpo.LPLPOItem` (`lplpo_items`):
   - FKs: `lplpo`, `item`
-  - Puskesmas fields: `stock_awal`, `penerimaan`, `harga_satuan`, `pemakaian`, `stock_gudang_puskesmas`, `waktu_kosong`, `permintaan_jumlah`, `permintaan_alasan`
+  - Puskesmas fields: `stock_awal`, `penerimaan`, `harga_satuan` (`max_digits=23`, `decimal_places=10`), `pemakaian`, `stock_gudang_puskesmas`, `waktu_kosong`, `permintaan_jumlah`, `permintaan_alasan`
   - Computed fields (auto): `persediaan` (`stock_awal + penerimaan`), `stock_keseluruhan`, `stock_optimum`, `jumlah_kebutuhan`
   - IF fields: `pemberian_jumlah` (nullable), `pemberian_alasan`
   - Audit: `penerimaan_auto_filled`
@@ -486,7 +486,7 @@ Operational mutation points (from app behavior and admin import logic):
   - `OpeningBalanceImportItem`
   - `Stock(source_document_number=OpeningBalanceImport.document_number, receiving_ref=NULL)` update/create
   - `Transaction(IN, source_document_number=OpeningBalanceImport.document_number, reference_type=INITIAL_IMPORT, reference_id=OpeningBalanceImport.pk)`
-- Opening balance CSV template download (`/admin/stock/stock/opening-balance/export-csv-template/`) returns `opening_balance_template.csv`. The importer accepts comma or semicolon delimiters, uses one consistent non-future `effective_date` per `document_number` for report classification, accepts `receiving_date` only as a compatibility alias, rejects populated `receiving_type` / `supplier_code` columns, rejects or serializes `document_number` collisions with posted opening-balance imports, receiving documents, or existing source-document claims, validates destination decimal precision before preview, rejects negative `unit_price`, generates blank batches with document identity, and rejects same-source-document collisions with different `expiry_date` or `unit_price`.
+- Opening balance CSV template download (`/admin/stock/stock/opening-balance/export-csv-template/`) returns `opening_balance_template.csv`. The importer accepts comma or semicolon delimiters, uses one consistent non-future `effective_date` per `document_number` for report classification, accepts `receiving_date` only as a compatibility alias, rejects populated `receiving_type` / `supplier_code` columns, rejects or serializes `document_number` collisions with posted opening-balance imports, receiving documents, or existing source-document claims, validates destination decimal precision before preview, rejects negative `unit_price`, accepts decimal-comma prices such as `8893,31985` and preserves up to 10 decimal places, generates blank batches with document identity, and rejects same-source-document collisions with different `expiry_date` or exact `unit_price`.
 - Reports classify dedicated opening-balance `INITIAL_IMPORT` rows by `effective_date`: rows effective on/before the report start count as `saldo_awal`, while rows effective after the start and within the report period count as `nilai_terima` so ending stock stays aligned with posted stock. Later-year opening balance is derived from the prior ledger balance and does not require re-import. Legacy unlinked `INITIAL_IMPORT` rows still use compatibility behavior: rows up to the report start date count as opening balance, and rows after the start date count as in-period received stock.
 - LPLPO approval/finalize creates a Distribution document mapped 1:1, marks the LPLPO `APPROVED`, and closes the LPLPO once the linked Distribution reaches `DISTRIBUTED`.
 - For generated LPLPO draft distributions, the preparation edit UI displays both requested and approved quantities for reference but locks those values and rejects added/deleted rows; users only assign batches and preparation metadata there.

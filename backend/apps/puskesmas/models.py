@@ -10,6 +10,11 @@ from django.db.models import Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
+from apps.core.decimal_validation import (
+    PRICE_DECIMAL_PLACES,
+    PRICE_MAX_DIGITS,
+    multiply_decimals,
+)
 from apps.core.models import TimeStampedModel
 
 
@@ -221,8 +226,8 @@ class PuskesmasReceiptConfirmationItem(models.Model):
         help_text="Jumlah diterima dalam satuan utuh",
     )
     unit_price = models.DecimalField(
-        max_digits=15,
-        decimal_places=2,
+        max_digits=PRICE_MAX_DIGITS,
+        decimal_places=PRICE_DECIMAL_PLACES,
         help_text="Harga satuan aktual yang diterima Puskesmas",
     )
     batch_lot = models.CharField(max_length=100, blank=True)
@@ -239,7 +244,7 @@ class PuskesmasReceiptConfirmationItem(models.Model):
 
     @property
     def total_price(self):
-        return _safe_decimal(self.quantity) * _safe_decimal(self.unit_price)
+        return multiply_decimals(self.quantity, self.unit_price)
 
     def clean(self):
         super().clean()

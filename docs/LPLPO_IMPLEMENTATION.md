@@ -239,8 +239,8 @@ class LPLPOItem(models.Model):
         help_text='Auto-filled from Distribution records, confirmable by Puskesmas'
     )
     harga_satuan = models.DecimalField(
-        max_digits=15, decimal_places=2, default=0,
-        help_text='Manual for January bootstrap; later periods auto-fill from distributed batch values or carry forward the previous month'
+        max_digits=23, decimal_places=10, default=0,
+        help_text='Manual for January bootstrap; later periods auto-fill from same-month weighted-average receipt prices or carry forward the previous month'
     )
     pemakaian = models.PositiveIntegerField(
         default=0,

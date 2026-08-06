@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load number_format %}
 
 {% block title %}Detail Penerimaan {{ receiving.document_number }} — Healthcare IMS{% endblock %}
 {% block page_title %}Detail Penerimaan{% endblock %}
@@ -79,8 +80,8 @@
                                 <td>{{ ri.batch_lot|default:"-" }}</td>
                                 <td>{% if ri.expiry_date %}{{ ri.expiry_date|date:"d/m/Y" }}{% else %}Tanpa kedaluwarsa{% endif %}</td>
                                 <td class="text-end">{{ ri.quantity }}</td>
-                                <td class="text-end">{{ ri.unit_price|floatformat:0 }}</td>
-                                <td class="text-end fw-semibold">{{ ri.total_price|floatformat:0 }}</td>
+                                <td class="text-end">{{ ri.unit_price_display }}</td>
+                                <td class="text-end fw-semibold">{{ ri.total_price|id_value_exact }}</td>
                             </tr>
                             {% endfor %}
                         </tbody>

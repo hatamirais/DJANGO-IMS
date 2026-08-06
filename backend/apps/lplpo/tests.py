@@ -510,6 +510,28 @@ class LPLPOWorkflowTests(LPLPOTestCase):
 		item_a_line = lplpo.items.get(item=self.item_a)
 		self.assertEqual(item_a_line.harga_satuan, Decimal("1060.00"))
 
+	def test_harga_satuan_weighted_average_preserves_price_precision(self):
+		self.create_lplpo(bulan=1, tahun=2026, status=LPLPO.Status.CLOSED)
+		self.create_sbbk(
+			facility=self.facility,
+			received_date=date(2026, 2, 10),
+			item_quantities=[(self.item_a, Decimal("7.00"))],
+			item_unit_prices={self.item_a.pk: Decimal("1000.1234567890")},
+		)
+		self.create_sbbk(
+			facility=self.facility,
+			received_date=date(2026, 2, 20),
+			item_quantities=[(self.item_a, Decimal("3.00"))],
+			item_unit_prices={self.item_a.pk: Decimal("1200.9876543210")},
+		)
+
+		self.client.force_login(self.puskesmas_user)
+		self.client.post(reverse("lplpo:lplpo_create"), {"bulan": "2", "tahun": "2026"})
+
+		lplpo = LPLPO.objects.get(facility=self.facility, bulan=2, tahun=2026)
+		item_a_line = lplpo.items.get(item=self.item_a)
+		self.assertEqual(item_a_line.harga_satuan, Decimal("1060.3827160486"))
+
 	def test_january_bootstrap_create_auto_suggests_receipt_totals_and_weighted_prices(self):
 		self.create_sbbk(
 			facility=self.facility,
@@ -1366,6 +1388,28 @@ class LPLPOWorkflowTests(LPLPOTestCase):
 		self.assertContains(response, 'id="submit-btn"')
 		self.assertContains(response, 'id="delete-btn"')
 
+	def test_detail_displays_exact_high_precision_harga_satuan(self):
+		lplpo = self.create_lplpo()
+		LPLPOItem.objects.create(
+			lplpo=lplpo,
+			item=self.item_a,
+			stock_awal=10,
+			penerimaan=3,
+			harga_satuan=Decimal("1060.3827160486"),
+			pemakaian=2,
+		)
+
+		self.client.force_login(self.puskesmas_user)
+		response = self.client.get(reverse("lplpo:lplpo_detail", args=[lplpo.pk]))
+
+		self.assertEqual(response.status_code, 200)
+		self.assertContains(response, "Rp 1.060,3827160486")
+		self.assertNotContains(
+			response,
+			'<td class="text-end">Rp 1.060,38</td>',
+			html=True,
+		)
+
 	def test_non_puskesmas_cannot_delete_draft_lplpo(self):
 		lplpo = self.create_lplpo()
 
@@ -2208,6 +2252,26 @@ class LPLPOWorkflowTests(LPLPOTestCase):
 		self.assertEqual(
 			response.json()["unit_prices"][str(self.item_a.pk)],
 			"1400.00",
+		)
+
+	def test_api_prefill_penerimaan_returns_high_precision_unit_prices(self):
+		self.create_sbbk(
+			facility=self.facility,
+			received_date=date(2026, 2, 11),
+			item_quantities=[(self.item_a, Decimal("4.00"))],
+			item_unit_prices={self.item_a.pk: Decimal("1400.1234567890")},
+		)
+		self.client.force_login(self.puskesmas_user)
+
+		response = self.client.get(
+			reverse("lplpo:api_prefill_penerimaan"),
+			{"bulan": 2, "tahun": 2026},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(
+			response.json()["unit_prices"][str(self.item_a.pk)],
+			"1400.123456789",
 		)
 
 	def test_non_superuser_prefill_uses_linked_facility_even_with_other_facility_param(self):

@@ -6,6 +6,11 @@ from django.db.models import DecimalField, ExpressionWrapper, F, Sum, Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
+from apps.core.decimal_validation import (
+    PRICE_DECIMAL_PLACES,
+    PRICE_MAX_DIGITS,
+    PRICE_QUANT,
+)
 from apps.core.models import TimeStampedModel
 
 
@@ -248,8 +253,8 @@ class LPLPOItem(models.Model):
         ),
     )
     harga_satuan = models.DecimalField(
-        max_digits=15,
-        decimal_places=2,
+        max_digits=PRICE_MAX_DIGITS,
+        decimal_places=PRICE_DECIMAL_PLACES,
         default=0,
         help_text=(
             "January may be suggested from same-month confirmed receipt "
@@ -406,7 +411,7 @@ def get_penerimaan_unit_prices_for_facility_period(facility, bulan, tahun):
     value_expression = ExpressionWrapper(
         Coalesce(F("quantity"), Value(0))
         * Coalesce(F("unit_price"), Value(0)),
-        output_field=DecimalField(max_digits=18, decimal_places=2),
+        output_field=DecimalField(max_digits=38, decimal_places=12),
     )
     rows = (
         PuskesmasReceiptConfirmationItem.objects.filter(
@@ -423,7 +428,7 @@ def get_penerimaan_unit_prices_for_facility_period(facility, bulan, tahun):
             ),
             total_value=Coalesce(
                 Sum(value_expression),
-                Value(0, output_field=DecimalField(max_digits=18, decimal_places=2)),
+                Value(0, output_field=DecimalField(max_digits=38, decimal_places=12)),
             ),
         )
     )
@@ -435,7 +440,7 @@ def get_penerimaan_unit_prices_for_facility_period(facility, bulan, tahun):
             continue
         result[row["item_id"]] = (
             (row["total_value"] or Decimal("0")) / total_quantity
-        ).quantize(Decimal("0.01"))
+        ).quantize(PRICE_QUANT)
     return result
 
 

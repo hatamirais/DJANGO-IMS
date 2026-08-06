@@ -6,6 +6,7 @@ from django.db.models import Sum, Q, F, Case, When, OuterRef, Subquery, Count, E
 from django.db.models.functions import Coalesce, TruncDate
 from django.urls import reverse
 
+from apps.core.decimal_validation import multiply_decimals, sum_decimals
 from .forms import InventoryReportFilterForm, NumberingHistoryFilterForm
 from .exports import (
     export_numbering_history_excel,
@@ -422,6 +423,7 @@ def reports_rekap(request):
         base_qs = Transaction.objects.all()
         if selected_sd_ids:
             base_qs = base_qs.filter(sumber_dana_id__in=selected_sd_ids)
+        money_field = models.DecimalField(max_digits=38, decimal_places=12)
 
         # Aggregate by sumber_dana + kategori
         qs = base_qs.annotate(
@@ -486,10 +488,10 @@ def reports_rekap(request):
                         When(created_at__date__lt=start_date, transaction_type='OUT',
                              then=-F('quantity') * F('unit_price')),
                         default=0,
-                        output_field=models.DecimalField()
+                        output_field=money_field
                     )
                 ),
-                0, output_field=models.DecimalField()
+                0, output_field=money_field
             ),
             nilai_terima=Coalesce(
                 Sum(
@@ -505,10 +507,10 @@ def reports_rekap(request):
                             then=F('quantity') * F('unit_price')
                         ),
                         default=0,
-                        output_field=models.DecimalField()
+                        output_field=money_field
                     )
                 ),
-                0, output_field=models.DecimalField()
+                0, output_field=money_field
             ),
             nilai_distribusi=Coalesce(
                 Sum(
@@ -520,10 +522,10 @@ def reports_rekap(request):
                             then=F('quantity') * F('unit_price')
                         ),
                         default=0,
-                        output_field=models.DecimalField()
+                        output_field=money_field
                     )
                 ),
-                0, output_field=models.DecimalField()
+                0, output_field=money_field
             ),
             nilai_ed=Coalesce(
                 Sum(
@@ -535,10 +537,10 @@ def reports_rekap(request):
                             then=F('quantity') * F('unit_price')
                         ),
                         default=0,
-                        output_field=models.DecimalField()
+                        output_field=money_field
                     )
                 ),
-                0, output_field=models.DecimalField()
+                0, output_field=money_field
             ),
         ).order_by('sumber_dana__name', 'item__kategori__sort_order', 'item__kategori__name')
 
@@ -563,7 +565,13 @@ def reports_rekap(request):
             nilai_terima = row['nilai_terima'] or Decimal('0')
             nilai_distribusi = row['nilai_distribusi'] or Decimal('0')
             nilai_ed = row['nilai_ed'] or Decimal('0')
-            saldo_akhir = saldo_awal + nilai_terima - nilai_distribusi - nilai_ed
+            negative_nilai_distribusi = multiply_decimals(
+                nilai_distribusi, Decimal("-1")
+            )
+            negative_nilai_ed = multiply_decimals(nilai_ed, Decimal("-1"))
+            saldo_akhir = sum_decimals(
+                [saldo_awal, nilai_terima, negative_nilai_distribusi, negative_nilai_ed]
+            )
 
             # Skip zero rows
             if saldo_awal == 0 and nilai_terima == 0 and nilai_distribusi == 0 and nilai_ed == 0:
@@ -580,21 +588,41 @@ def reports_rekap(request):
             sd_groups[sd_name]['categories'].append(category_row)
 
             # Accumulate subtotals
-            sd_groups[sd_name]['subtotal_saldo_awal'] += saldo_awal
-            sd_groups[sd_name]['subtotal_nilai_terima'] += nilai_terima
-            sd_groups[sd_name]['subtotal_nilai_distribusi'] += nilai_distribusi
-            sd_groups[sd_name]['subtotal_nilai_ed'] += nilai_ed
-            sd_groups[sd_name]['subtotal_saldo_akhir'] += saldo_akhir
+            sd_groups[sd_name]['subtotal_saldo_awal'] = sum_decimals(
+                [sd_groups[sd_name]['subtotal_saldo_awal'], saldo_awal]
+            )
+            sd_groups[sd_name]['subtotal_nilai_terima'] = sum_decimals(
+                [sd_groups[sd_name]['subtotal_nilai_terima'], nilai_terima]
+            )
+            sd_groups[sd_name]['subtotal_nilai_distribusi'] = sum_decimals(
+                [sd_groups[sd_name]['subtotal_nilai_distribusi'], nilai_distribusi]
+            )
+            sd_groups[sd_name]['subtotal_nilai_ed'] = sum_decimals(
+                [sd_groups[sd_name]['subtotal_nilai_ed'], nilai_ed]
+            )
+            sd_groups[sd_name]['subtotal_saldo_akhir'] = sum_decimals(
+                [sd_groups[sd_name]['subtotal_saldo_akhir'], saldo_akhir]
+            )
 
         # Build final list and grand totals
         for sd_name, group in sd_groups.items():
             if group['categories']:
                 rekap_data.append(group)
-                grand_totals['saldo_awal'] += group['subtotal_saldo_awal']
-                grand_totals['nilai_terima'] += group['subtotal_nilai_terima']
-                grand_totals['nilai_distribusi'] += group['subtotal_nilai_distribusi']
-                grand_totals['nilai_ed'] += group['subtotal_nilai_ed']
-                grand_totals['saldo_akhir'] += group['subtotal_saldo_akhir']
+                grand_totals['saldo_awal'] = sum_decimals(
+                    [grand_totals['saldo_awal'], group['subtotal_saldo_awal']]
+                )
+                grand_totals['nilai_terima'] = sum_decimals(
+                    [grand_totals['nilai_terima'], group['subtotal_nilai_terima']]
+                )
+                grand_totals['nilai_distribusi'] = sum_decimals(
+                    [grand_totals['nilai_distribusi'], group['subtotal_nilai_distribusi']]
+                )
+                grand_totals['nilai_ed'] = sum_decimals(
+                    [grand_totals['nilai_ed'], group['subtotal_nilai_ed']]
+                )
+                grand_totals['saldo_akhir'] = sum_decimals(
+                    [grand_totals['saldo_akhir'], group['subtotal_saldo_akhir']]
+                )
 
     # Excel export path
     if request.GET.get('format') == 'excel' and rekap_data:
@@ -648,14 +676,14 @@ def reports_penerimaan_hibah(request):
                 'expiry_date': ri.expiry_date,
                 'unit_price': ri.unit_price,
                 'quantity': ri.quantity,
-                'total_price': ri.quantity * ri.unit_price,
+                'total_price': multiply_decimals(ri.quantity, ri.unit_price),
             })
 
         if request.GET.get('format') == 'excel' and report_data:
             return export_penerimaan_hibah_excel(report_data, start_date, end_date)
 
     total_quantity = sum(r['quantity'] for r in report_data)
-    total_value = sum(r['total_price'] for r in report_data)
+    total_value = sum_decimals(r['total_price'] for r in report_data)
 
     context = {
         'form': form,
@@ -709,14 +737,14 @@ def reports_pengadaan(request):
                 'expiry_date': ri.expiry_date,
                 'unit_price': ri.unit_price,
                 'quantity': ri.quantity,
-                'total_price': ri.quantity * ri.unit_price,
+                'total_price': multiply_decimals(ri.quantity, ri.unit_price),
             })
 
         if request.GET.get('format') == 'excel' and report_data:
             return export_pengadaan_excel(report_data, start_date, end_date)
 
     total_quantity = sum(r['quantity'] for r in report_data)
-    total_value = sum(r['total_price'] for r in report_data)
+    total_value = sum_decimals(r['total_price'] for r in report_data)
 
     context = {
         'form': form,
@@ -760,7 +788,7 @@ def reports_kadaluarsa(request):
                 'sumber_dana': ei.stock.sumber_dana.name if ei.stock and ei.stock.sumber_dana else '-',
                 'unit_price': unit_price,
                 'quantity': ei.quantity,
-                'total_price': ei.quantity * unit_price,
+                'total_price': multiply_decimals(ei.quantity, unit_price),
                 'notes': ei.notes,
             })
 
@@ -768,7 +796,7 @@ def reports_kadaluarsa(request):
             return export_kadaluarsa_excel(report_data, start_date, end_date)
 
     total_quantity = sum(r['quantity'] for r in report_data)
-    total_value = sum(r['total_price'] for r in report_data)
+    total_value = sum_decimals(r['total_price'] for r in report_data)
 
     context = {
         'form': form,
@@ -853,7 +881,7 @@ def render_pengeluaran_report(
                 'sumber_dana': di.stock.sumber_dana.name if di.stock and di.stock.sumber_dana else '-',
                 'unit_price': unit_price,
                 'quantity': qty,
-                'total_price': qty * unit_price,
+                'total_price': multiply_decimals(qty, unit_price),
             })
 
         if request.GET.get('format') == 'excel' and report_data:
@@ -891,7 +919,7 @@ def render_pengeluaran_report(
         )
 
     total_quantity = sum(r['quantity'] for r in report_data)
-    total_value = sum(r['total_price'] for r in report_data)
+    total_value = sum_decimals(r['total_price'] for r in report_data)
 
     context = {
         'form': form,

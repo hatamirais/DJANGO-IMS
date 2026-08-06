@@ -204,7 +204,7 @@ Expected columns for admin-only opening balance import:
 - `quantity` (required; must be a finite decimal greater than `0`, with at most 12 digits and 2 decimal places)
 - `batch_lot` (optional; auto-generated with document identity if blank)
 - `expiry_date` (optional only for items with `requires_expiry_date=0`; stored as `NULL` when blank for those items)
-- `unit_price` (optional; default `0`; cannot be negative, with at most 15 digits and 2 decimal places)
+- `unit_price` (optional; default `0`; cannot be negative, with at most 23 digits and 10 decimal places)
 
 Compatibility note: `receiving_date` is accepted as an alias for `effective_date` when converting older draft files, but use `effective_date` for new files.
 
@@ -215,7 +215,7 @@ Opening balance import notes:
 - Every data row must match the header column count.
 - `document_number` must not already exist as a posted opening-balance import or receiving document. Receiving import enforces the reverse rule as well.
 - The stock layer key is `item_code + location_code + batch_lot + sumber_dana_code + document_number`.
-- Rows for the same stock layer must use the same `expiry_date` and `unit_price`; mismatches are rejected instead of merged. The same batch from a different `document_number` is kept as a separate layer and prices are not averaged.
+- Rows for the same stock layer must use the same `expiry_date` and exact `unit_price`; mismatches are rejected instead of merged. The same batch from a different `document_number` is kept as a separate layer and prices are not averaged. Decimal-comma unit prices such as `8893,31985` are accepted by the dedicated opening-balance importer and normalized internally.
 - Import creates one `OpeningBalanceImport` header plus `OpeningBalanceImportItem` rows.
 - Stock rows are updated/created with `source_document_number=document_number` and `receiving_ref=NULL`.
 - Transactions use `source_document_number=document_number`, `reference_type=INITIAL_IMPORT`, and `reference_id` pointing to the `OpeningBalanceImport`.

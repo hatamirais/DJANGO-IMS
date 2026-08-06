@@ -46,6 +46,33 @@ from apps.puskesmas.models import PuskesmasReceiptConfirmation, PuskesmasReceipt
 
 
 class StockPickerLabelTests(TestCase):
+    def test_total_value_uses_widened_decimal_precision(self):
+        unit = Unit.objects.create(code="VAL-UNT", name="Value Unit")
+        category = Category.objects.create(code="VAL-CAT", name="Value Category")
+        item = Item.objects.create(
+            kode_barang="VAL-ITEM",
+            nama_barang="Value Item",
+            satuan=unit,
+            kategori=category,
+        )
+        location = Location.objects.create(code="VAL-LOC", name="Value Location")
+        funding = FundingSource.objects.create(code="VAL-FUND", name="Value Funding")
+        stock = Stock.objects.create(
+            item=item,
+            location=location,
+            batch_lot="BATCH-VALUE",
+            source_document_number="RCV-VALUE-001",
+            expiry_date=date(2030, 1, 31),
+            quantity=Decimal("9999999999.99"),
+            unit_price=Decimal("9999999999999.1234567891"),
+            sumber_dana=funding,
+        )
+
+        self.assertEqual(
+            stock.total_value,
+            Decimal("99999999999891234567891.008765432109"),
+        )
+
     def test_picker_label_includes_source_layer_context(self):
         unit = Unit.objects.create(code="LBL-UNT", name="Label Unit")
         category = Category.objects.create(code="LBL-CAT", name="Label Category")
@@ -435,7 +462,7 @@ class OpeningBalanceImportAdminTests(TestCase):
             "document_number;effective_date;sumber_dana_code;location_code;item_code;"
             "quantity;batch_lot;expiry_date;unit_price\n"
             f"SALDO-AWAL-2026;01/01/2026;{self.funding.code};{self.location.code};"
-            f"{self.item.kode_barang};10;BATCH-001;01/01/2028;2500,25\n"
+            f"{self.item.kode_barang};10;BATCH-001;01/01/2028;8893,31985\n"
         )
 
         response = self.client.post(
@@ -446,14 +473,22 @@ class OpeningBalanceImportAdminTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "CONFIRM IMPORT")
         self.assertContains(response, "CSV semicolon")
+        self.assertContains(response, "8.893,31985")
         response = self.client.post(
             reverse("admin:stock_opening_balance_import_csv"),
             {"action": "confirm", "preview_token": response.context["preview_token"]},
         )
 
         self.assertEqual(response.status_code, 302)
+        import_item = OpeningBalanceImportItem.objects.get()
+        self.assertEqual(import_item.unit_price, Decimal("8893.31985"))
         stock = Stock.objects.get(source_document_number="SALDO-AWAL-2026")
-        self.assertEqual(stock.unit_price, Decimal("2500.25"))
+        self.assertEqual(stock.unit_price, Decimal("8893.31985"))
+        transaction = Transaction.objects.get(
+            reference_type=Transaction.ReferenceType.INITIAL_IMPORT,
+            reference_id=OpeningBalanceImport.objects.get().pk,
+        )
+        self.assertEqual(transaction.unit_price, Decimal("8893.31985"))
 
     def test_opening_balance_import_reports_multiple_preflight_errors(self):
         self.client.force_login(self.admin_user)
@@ -723,7 +758,7 @@ class OpeningBalanceImportAdminTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "unit_price maksimal 15 digit dan 2 angka desimal")
+        self.assertContains(response, "unit_price maksimal 23 digit dan 10 angka desimal")
         self.assertFalse(OpeningBalanceImport.objects.exists())
 
     def test_opening_balance_import_rejects_existing_stock_unit_price_mismatch(self):
@@ -796,6 +831,27 @@ class OpeningBalanceImportAdminTests(TestCase):
             f"{self.item.kode_barang},10,BATCH-001,01/01/2028,100\n"
             f"SALDO-AWAL-2026,01/01/2026,{self.funding.code},{self.location.code},"
             f"{self.item.kode_barang},5,BATCH-001,01/01/2028,200\n"
+        )
+
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(csv_content)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "harga satuan berbeda")
+        self.assertFalse(OpeningBalanceImport.objects.exists())
+        self.assertFalse(Stock.objects.exists())
+
+    def test_opening_balance_preview_rejects_same_source_price_conflict_beyond_cents(self):
+        self.client.force_login(self.admin_user)
+        csv_content = (
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price\n"
+            f"SALDO-AWAL-2026,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},10,BATCH-001,01/01/2028,1000.1234567890\n"
+            f"SALDO-AWAL-2026,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},5,BATCH-001,01/01/2028,1000.1234567891\n"
         )
 
         response = self.client.post(
@@ -3633,6 +3689,44 @@ class StockCardTest(TestCase):
         self.assertContains(response, 'Dokumen Sumber: RCV-PRICE-A')
         self.assertContains(response, 'Dokumen Sumber: RCV-PRICE-B')
 
+    def test_stock_card_displays_exact_high_precision_unit_price(self):
+        precise_price = Decimal('5000.1234567890')
+        source_document_number = 'RCV-PRECISE-STOCK-CARD'
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot='PRECISE-CARD',
+            source_document_number=source_document_number,
+            expiry_date=date(2031, 5, 1),
+            quantity=Decimal('10'),
+            reserved=Decimal('0'),
+            unit_price=precise_price,
+            sumber_dana=self.funding,
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot='PRECISE-CARD',
+            source_document_number=source_document_number,
+            quantity=Decimal('10'),
+            unit_price=precise_price,
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=9001,
+            user=self.user,
+        )
+
+        response = self.client.get(reverse('stock:stock_card_detail', args=[self.item.id]))
+        print_response = self.client.get(reverse('stock:stock_card_print', args=[self.item.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(print_response.status_code, 200)
+        self.assertContains(response, 'Harga Satuan: Rp 5.000,123456789')
+        self.assertContains(print_response, 'Harga Satuan: Rp 5.000,123456789')
+        self.assertNotContains(response, 'Harga Satuan: Rp 5.000,12</div>', html=False)
+        self.assertNotContains(print_response, 'Harga Satuan: Rp 5.000,12<br>', html=False)
+
     def test_stock_card_filter_includes_quiet_opening_balance_layers(self):
         old_timestamp = timezone.make_aware(datetime(2026, 1, 1, 9, 0))
         active_timestamp = timezone.make_aware(datetime(2026, 1, 2, 9, 0))
@@ -5317,6 +5411,21 @@ class PuskesmasStockViewTests(TestCase):
         self.assertEqual(row['total_received'], 7)
         self.assertNotContains(response, 'DRAFT-A')
         self.assertEqual(response.context['receiving_stats']['total_received'], 7)
+
+    def test_puskesmas_stock_receiving_displays_exact_high_precision_prices(self):
+        PuskesmasReceiptConfirmationItem.objects.filter(
+            sbbk__facility=self.facility_a,
+            batch_lot='RCV-A1',
+        ).update(unit_price=Decimal('1000.1234567890'))
+
+        response = self.client.get(
+            reverse('stock:puskesmas_stock'),
+            {'year': str(self.year), 'tab': 'receiving', 'facility': str(self.facility_a.pk)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Rp 1.000,123456789')
+        self.assertNotContains(response, 'Rp 1.000,12</td>', html=False)
 
     def test_puskesmas_stock_consumption_aggregates_yearly_totals(self):
         response = self.client.get(

@@ -359,8 +359,8 @@
                                     <small class="text-muted">{{ row.line.item.kode_barang }} • {{ row.line.item.satuan.code }} • Batch {{ row.line.stock.batch_lot|default:"-" }}</small>
                                 </td>
                                 <td class="text-end">{{ row.quantity|id_decimal:2 }}</td>
-                                <td class="text-end">{% if row.unit_price is not None %}{{ row.unit_price|id_decimal:2 }}{% else %}-{% endif %}</td>
-                                <td class="text-end fw-semibold">{% if row.line_total is not None %}{{ row.line_total|id_decimal:2 }}{% else %}-{% endif %}</td>
+                                <td class="text-end">{% if row.unit_price is not None %}{{ row.unit_price|id_price_exact }}{% else %}-{% endif %}</td>
+                                <td class="text-end fw-semibold">{% if row.line_total is not None %}{{ row.line_total|id_value_exact }}{% else %}-{% endif %}</td>
                             </tr>
                             {% empty %}
                             <tr>
@@ -497,10 +497,10 @@
                     {% if row.line.stock %}{{ row.line.stock.expiry_date_display }}{% else %}-{% endif %}
                 </td>
                 <td class="text-end">
-                    {% if row.unit_price is not None %}{{ row.unit_price|id_decimal:2 }}{% else %}-{% endif %}
+                    {% if row.unit_price is not None %}{{ row.unit_price|id_price_exact }}{% else %}-{% endif %}
                 </td>
                 <td class="text-end">
-                    {% if row.line_total is not None %}{{ row.line_total|id_decimal:2 }}{% else %}-{% endif %}
+                    {% if row.line_total is not None %}{{ row.line_total|id_value_exact }}{% else %}-{% endif %}
                 </td>
             </tr>
             {% endfor %}
@@ -510,7 +510,7 @@
                 <td></td>
                 <td></td>
                 <td></td>
-                <td class="text-end fw-semibold">{{ grand_total|id_decimal:2 }}</td>
+                <td class="text-end fw-semibold">{{ grand_total|id_value_exact }}</td>
             </tr>
         </tbody>
     </table>

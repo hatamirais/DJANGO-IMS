@@ -240,7 +240,7 @@ def dashboard(request):
     today = timezone.now().date()
     three_months_later = today + timedelta(days=90)
     thirty_days_ago = today - timedelta(days=29)
-    zero_decimal = Value(Decimal("0"), output_field=DecimalField(max_digits=18, decimal_places=2))
+    zero_decimal = Value(Decimal("0"), output_field=DecimalField(max_digits=38, decimal_places=12))
     available_stock_expression = ExpressionWrapper(
         F("quantity") - F("reserved"),
         output_field=DecimalField(max_digits=18, decimal_places=2),
@@ -253,7 +253,7 @@ def dashboard(request):
             Sum(
                 ExpressionWrapper(
                     F("quantity") * F("unit_price"),
-                    output_field=DecimalField(max_digits=18, decimal_places=2),
+                    output_field=DecimalField(max_digits=38, decimal_places=12),
                 )
             ),
             zero_decimal,

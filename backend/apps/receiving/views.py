@@ -15,6 +15,7 @@ from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 
 from apps.core.decorators import module_scope_required, perm_required
+from apps.core.decimal_validation import format_price_exact
 from apps.core.rate_limits import item_mutation_ratelimit
 from apps.core.upload_validation import sanitize_uploaded_filename
 from apps.stock.models import Stock, Transaction
@@ -333,7 +334,9 @@ def receiving_detail(request, pk):
         pk=pk,
         is_planned=False,
     )
-    items = receiving.items.select_related("item", "item__satuan")
+    items = list(receiving.items.select_related("item", "item__satuan"))
+    for item in items:
+        item.unit_price_display = format_price_exact(item.unit_price)
     documents = receiving.documents.all()
 
     return render(
