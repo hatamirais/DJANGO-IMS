@@ -535,7 +535,7 @@ class StockOpnamePresentationAndAuditTests(StockOpnameTestMixin, TestCase):
 
     def test_opname_surfaces_show_source_layer_and_unit_price(self):
         self.stock.source_document_number = "RCV-OPNAME-LAYER"
-        self.stock.unit_price = Decimal("1234.50")
+        self.stock.unit_price = Decimal("1234.1234567890")
         self.stock.save(
             update_fields=["source_document_number", "unit_price", "updated_at"]
         )
@@ -557,7 +557,12 @@ class StockOpnamePresentationAndAuditTests(StockOpnameTestMixin, TestCase):
 
                 self.assertEqual(response.status_code, 200)
                 self.assertContains(response, "RCV-OPNAME-LAYER")
-                self.assertContains(response, "1.234,50")
+                self.assertContains(response, "1.234,123456789")
+                self.assertNotContains(
+                    response,
+                    '<td class="text-end">1.234,12</td>',
+                    html=True,
+                )
 
     def test_delete_completed_opname_returns_404(self):
         opname = self.create_opname(status=StockOpname.Status.COMPLETED)
