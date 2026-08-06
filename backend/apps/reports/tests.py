@@ -249,6 +249,14 @@ class RekapOpeningBalanceReportTests(TestCase):
 		self.assertEqual(group["subtotal_saldo_akhir"], precise_total)
 		self.assertEqual(response.context["grand_totals"]["saldo_awal"], precise_total)
 		self.assertEqual(response.context["grand_totals"]["saldo_akhir"], precise_total)
+		self.assertContains(
+			response,
+			"Rp 99.999.999.999.891.234.567.891,008765432109",
+		)
+		self.assertNotContains(
+			response,
+			"Rp 99.999.999.999.891.234.567.891,01",
+		)
 
 	def test_rekap_negates_large_precise_outbound_values_without_rounding(self):
 		precise_total = Decimal("99999999999891234567891.008765432109")
@@ -578,6 +586,44 @@ class RekapOpeningBalanceReportTests(TestCase):
 		}
 		self.assertIn("SALDO-AWAL-SOURCE-A", source_values)
 		self.assertIn("SALDO-AWAL-SOURCE-B", source_values)
+
+	def test_detailed_report_displays_exact_high_precision_unit_prices(self):
+		Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.IN,
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-EXACT-PRICE",
+			source_document_number="RCV-EXACT-PRICE-A",
+			quantity=Decimal("5"),
+			unit_price=Decimal("1000.1234567890"),
+			sumber_dana=self.funding,
+			reference_type=Transaction.ReferenceType.RECEIVING,
+			reference_id=21,
+			user=self.user,
+		)
+		Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.IN,
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-EXACT-PRICE",
+			source_document_number="RCV-EXACT-PRICE-B",
+			quantity=Decimal("7"),
+			unit_price=Decimal("1000.1240000000"),
+			sumber_dana=self.funding,
+			reference_type=Transaction.ReferenceType.RECEIVING,
+			reference_id=22,
+			user=self.user,
+		)
+
+		response = self.client.get(
+			reverse("reports:index"),
+			{"start_date": "2026-01-01", "end_date": "2026-12-31"},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertContains(response, "1.000,123456789")
+		self.assertContains(response, "1.000,124")
+		self.assertNotContains(response, "1000.12")
 
 	def test_detailed_report_separates_same_source_batch_by_location_expiry(self):
 		other_location = Location.objects.create(

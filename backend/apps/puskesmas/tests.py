@@ -3297,7 +3297,7 @@ class PuskesmasReportViewTests(SecureClientDefaultsMixin, TestCase):
 		self.assertEqual(response.context["totals"]["saldo_akhir"], Decimal("24900.00"))
 		self.assertContains(response, "URAIAN")
 		self.assertContains(response, "SALDO AWAL 2026")
-		self.assertContains(response, "Rp 22.100,00")
+		self.assertContains(response, "Rp 22.100")
 		self.assertContains(response, "Triwulan I")
 
 	def test_rekap_persediaan_preserves_large_precise_values_in_aggregation(self):
@@ -3333,6 +3333,15 @@ class PuskesmasReportViewTests(SecureClientDefaultsMixin, TestCase):
 		self.assertEqual(row["saldo_akhir"], expected_total)
 		self.assertEqual(response.context["totals"]["saldo_awal"], expected_total)
 		self.assertEqual(response.context["totals"]["saldo_akhir"], expected_total)
+		self.assertContains(
+			response,
+			"Rp 21.474.836.469.998.117.637.788,7033778477",
+		)
+		self.assertNotContains(
+			response,
+			'<td class="text-end">Rp 21.474.836.469.998.117.637.788,70</td>',
+			html=True,
+		)
 
 	def test_rekap_persediaan_admin_aggregates_across_facilities(self):
 		from apps.lplpo.models import LPLPO, LPLPOItem
