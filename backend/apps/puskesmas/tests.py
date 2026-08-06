@@ -1698,7 +1698,7 @@ class PuskesmasSBBKViewTests(SecureClientDefaultsMixin, TestCase):
 		PuskesmasSBBKItem.objects.create(
 			sbbk=sbbk,
 			item=self.item,
-			quantity=Decimal("4"),
+			quantity=Decimal("1"),
 			unit_price=Decimal("1000.1234567890"),
 			batch_lot="DETAIL-PRECISE",
 		)
@@ -1708,7 +1708,17 @@ class PuskesmasSBBKViewTests(SecureClientDefaultsMixin, TestCase):
 
 		self.assertEqual(response.status_code, 200)
 		self.assertContains(response, "Rp 1.000,123456789")
+		self.assertContains(
+			response,
+			'<td class="text-end">Rp 1.000,123456789</td>',
+			html=True,
+		)
 		self.assertNotContains(response, "Rp 1.000,12</td>", html=False)
+		self.assertNotContains(
+			response,
+			'<td class="text-end">Rp 1.000</td>',
+			html=True,
+		)
 
 
 class PuskesmasRequestCreateViewTests(SecureClientDefaultsMixin, TestCase):

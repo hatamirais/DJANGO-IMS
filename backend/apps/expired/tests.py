@@ -773,10 +773,16 @@ class ExpiredWorkflowTest(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Rp 49.999.999.999.995,6172839455")
         self.assertContains(response, "Rp 9.999.999.999.999,1234567891")
         self.assertNotContains(
             response,
             '<td class="text-right">Rp 9.999.999.999.999,12</td>',
+            html=True,
+        )
+        self.assertNotContains(
+            response,
+            '<td class="text-right">Rp 49.999.999.999.996</td>',
             html=True,
         )
 
