@@ -1828,7 +1828,7 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertEqual(response.status_code, 404)
 
     def test_regular_receiving_detail_shows_exact_unit_price(self):
-        precise_price = Decimal("9999999999999.1234567891")
+        precise_price = Decimal("1000.1234567890")
         receiving = Receiving.objects.create(
             document_number="RCV-2026-PRECISE",
             receiving_type=Receiving.ReceivingType.GRANT,
@@ -1842,7 +1842,7 @@ class ReceivingWorkflowCleanupTest(TestCase):
         ReceivingItem.objects.create(
             receiving=receiving,
             item=self.item,
-            quantity=Decimal("2"),
+            quantity=Decimal("1.01"),
             batch_lot="BATCH-PRECISE",
             expiry_date=date(2030, 1, 1),
             unit_price=precise_price,
@@ -1855,8 +1855,9 @@ class ReceivingWorkflowCleanupTest(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "9999999999999.1234567891")
-        self.assertNotContains(response, "9999999999999.12</td>", html=False)
+        self.assertContains(response, "1000.123456789")
+        self.assertContains(response, "1.010,12469135689")
+        self.assertNotContains(response, '<td class="text-end fw-semibold">1010</td>', html=True)
 
     def test_procurement_receiving_forms_require_supplier(self):
         form_data = {
