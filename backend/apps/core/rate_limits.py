@@ -20,6 +20,13 @@ def _setting_rate(name, default):
     return _rate
 
 
+def login_username_or_ip_key(group, request):
+    username = (request.POST.get("username") or "").strip().casefold()
+    if username:
+        return f"username:{username}"
+    return f"ip:{request.META.get('REMOTE_ADDR', '')}"
+
+
 def _receipt_confirmation_rate(group, request):
     return getattr(
         settings,
@@ -33,7 +40,7 @@ def _receipt_confirmation_rate(group, request):
 
 
 login_ratelimit = ratelimit(
-    key="user_or_ip",
+    key=login_username_or_ip_key,
     method="POST",
     rate=_setting_rate(
         "LOGIN_RATE_LIMIT",

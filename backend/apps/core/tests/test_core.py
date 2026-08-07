@@ -1157,6 +1157,21 @@ class LoginRateLimitTests(TestCase):
         self.assertEqual(first_response.status_code, 200)
         self.assertEqual(second_response.status_code, 429)
 
+    def test_login_rate_limit_uses_submitted_username_not_shared_ip(self):
+        first_response = self.client.post(
+            reverse("login"),
+            {"username": "shared-ip-user-one", "password": "WrongPassword123!"},
+            REMOTE_ADDR="10.2.0.20",
+        )
+        second_response = self.client.post(
+            reverse("login"),
+            {"username": "shared-ip-user-two", "password": "WrongPassword123!"},
+            REMOTE_ADDR="10.2.0.20",
+        )
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 200)
+
 
 @override_settings(
     SECURE_SSL_REDIRECT=False,
