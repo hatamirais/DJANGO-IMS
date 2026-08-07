@@ -9,6 +9,7 @@ from import_export.formats import base_formats
 from tablib import Dataset
 
 from django.contrib.auth.models import AnonymousUser
+from django.core.cache import cache
 from django.core.exceptions import PermissionDenied
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import ProgrammingError
@@ -928,10 +929,11 @@ class ErrorPageTemplateTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "registration/login.html")
-        self.assertContains(response, '<form method="post" action="/login/" class="auth-form" autocomplete="off">', status_code=200)
+        self.assertContains(response, '<form method="post" action="/login/" class="auth-form" autocomplete="on">', status_code=200)
         self.assertIsInstance(response.context["form"], CrispyAuthenticationForm)
-        self.assertContains(response, 'autocomplete="off"', status_code=200)
+        self.assertContains(response, 'autocomplete="username"', status_code=200)
         self.assertContains(response, 'autocomplete="current-password"', status_code=200)
+        self.assertContains(response, 'name="csrfmiddlewaretoken"', status_code=200)
         self.assertContains(response, 'name="next"', status_code=200)
         self.assertNotContains(response, "auth-showcase")
         self.assertContains(response, 'class="auth-layout auth-layout-centered"', status_code=200)
@@ -965,12 +967,13 @@ class ErrorPageTemplateTests(TestCase):
         self.assertTemplateUsed(known_response, "registration/login.html")
         self.assertContains(
             known_response,
-            '<div class="alert alert-danger auth-alert" role="alert">',
+            '<div class="alert alert-danger auth-alert" role="alert" aria-live="polite">',
             status_code=200,
             html=False,
         )
-        self.assertContains(known_response, "Autentikasi gagal.", status_code=200)
-        self.assertContains(known_response, "<ul", status_code=200)
+        self.assertContains(known_response, "Invalid username or password", status_code=200)
+        self.assertContains(known_response, "is-invalid", status_code=200)
+        self.assertContains(known_response, "invalid-feedback", status_code=200)
         self.assertTrue(known_response.context["form"].non_field_errors())
         self.assertEqual(
             list(known_response.context["form"].non_field_errors()),
@@ -1097,10 +1100,11 @@ class LoginLockoutTests(TestCase):
         self.assertTemplateUsed(response, "registration/lockout.html")
         self.assertContains(
             response,
-            '<div class="alert alert-warning auth-alert auth-alert-lockout" role="alert">',
+            '<div class="alert alert-warning auth-alert auth-alert-lockout" role="alert" aria-live="polite">',
             status_code=429,
             html=False,
         )
+        self.assertContains(response, "Account locked, try again in 60 minutes.", status_code=429)
 
     def test_shared_source_ip_does_not_lock_unrelated_usernames(self):
         for index in range(3):
@@ -1119,8 +1123,39 @@ class LoginLockoutTests(TestCase):
         response = self.client.get(reverse("login"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "terlalu banyak percobaan gagal")
+        self.assertNotContains(response, "terlalu banyak percobaan gagal")
         self.assertNotContains(response, "5 percobaan gagal")
+
+
+@override_settings(
+    SECURE_SSL_REDIRECT=False,
+    LOGIN_RATE_LIMIT="1/m",
+    AXES_FAILURE_LIMIT=100,
+    AXES_LOCKOUT_PARAMETERS=["username"],
+)
+class LoginRateLimitTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        AccessAttempt.objects.all().delete()
+
+    def tearDown(self):
+        cache.clear()
+        AccessAttempt.objects.all().delete()
+
+    def test_login_post_is_rate_limited(self):
+        first_response = self.client.post(
+            reverse("login"),
+            {"username": "rate-limit-user", "password": "WrongPassword123!"},
+            REMOTE_ADDR="10.2.0.10",
+        )
+        second_response = self.client.post(
+            reverse("login"),
+            {"username": "rate-limit-user", "password": "WrongPassword123!"},
+            REMOTE_ADDR="10.2.0.10",
+        )
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 429)
 
 
 @override_settings(

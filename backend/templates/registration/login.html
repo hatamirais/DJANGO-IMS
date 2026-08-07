@@ -3,7 +3,7 @@
 {% load number_format %}
 {% load static %}
 
-{% block title %}Masuk — Healthcare IMS{% endblock %}
+{% block title %}Masuk — {{ system_settings.facility_name|default:"Healthcare IMS" }}{% endblock %}
 
 {% block public_content %}
 <section class="auth-shell">
@@ -19,46 +19,34 @@
                         {% if system_settings and system_settings.logo %}
                         {% with logo_url=system_settings.logo.url|safe_media_url %}
                         {% if logo_url %}
-                        <img src="{{ logo_url }}" alt="Logo {{ system_settings.facility_name|default:'Healthcare IMS'|escape }}">
+                        <img src="{{ logo_url }}" alt="Logo {{ system_settings.facility_name|default:'Healthcare IMS'|escape }}" class="auth-brand-logo">
                         {% else %}
-                        <i class="bi bi-hospital"></i>
+                        <img src="{% static 'img/default-logo.svg' %}" alt="" class="auth-brand-logo" aria-hidden="true">
                         {% endif %}
                         {% endwith %}
                         {% else %}
-                        <i class="bi bi-hospital"></i>
+                        <img src="{% static 'img/default-logo.svg' %}" alt="" class="auth-brand-logo" aria-hidden="true">
                         {% endif %}
                     </div>
-                    <span class="auth-eyebrow auth-eyebrow-card">{{ system_settings.platform_label|default:"Healthcare Inventory Platform" }}</span>
+                    <span class="auth-eyebrow auth-eyebrow-card">{{ system_settings.platform_label|default:system_settings.facility_name|default:"Healthcare Inventory Management System" }}</span>
                 </div>
 
                 <div class="auth-card-header">
-                    <span class="auth-badge">
-                        <i class="bi bi-person-lock"></i>
-                        Portal Masuk
-                    </span>
                     <h2>Masuk ke sistem</h2>
-                    <p>Gunakan akun petugas yang telah diberikan administrator untuk mengakses modul inventaris.</p>
+                    <p>Portal masuk petugas untuk mengakses modul inventaris.</p>
                 </div>
 
                 {% if form.errors %}
-                <div class="alert alert-danger auth-alert" role="alert">
+                <div class="alert alert-danger auth-alert" role="alert" aria-live="polite">
                     <i class="bi bi-exclamation-circle"></i>
                     <div>
-                        <strong>Autentikasi gagal.</strong>
-                        {% if form.non_field_errors %}
-                        <ul class="mb-0 ps-3">
-                            {% for error in form.non_field_errors %}
-                            <li>{{ error }}</li>
-                            {% endfor %}
-                        </ul>
-                        {% else %}
-                        <span>Periksa kembali nama pengguna dan kata sandi Anda.</span>
-                        {% endif %}
+                        <strong>Invalid username or password</strong>
+                        <span>Periksa kembali kredensial Anda lalu coba lagi.</span>
                     </div>
                 </div>
                 {% endif %}
 
-                <form method="post" action="{% url 'login' %}" class="auth-form" autocomplete="off">
+                <form method="post" action="{% url 'login' %}" class="auth-form" autocomplete="on">
                     {% csrf_token %}
                     {% crispy form %}
 
@@ -69,9 +57,10 @@
                         </div>
                     </div>
 
-                    <button type="submit" class="btn btn-primary btn-lg auth-submit-btn">
+                    <button type="submit" class="btn btn-primary btn-lg auth-submit-btn" data-submit-label="Masuk">
+                        <span class="spinner-border spinner-border-sm d-none" aria-hidden="true"></span>
                         <i class="bi bi-box-arrow-in-left"></i>
-                        Masuk
+                        <span class="auth-submit-label">Masuk</span>
                     </button>
                     <input type="hidden" name="next" value="{{ next }}">
                 </form>
@@ -80,10 +69,6 @@
                     <div class="auth-footer-item">
                         <i class="bi bi-clock-history"></i>
                         Sesi akan berakhir otomatis demi keamanan.
-                    </div>
-                    <div class="auth-footer-item">
-                        <i class="bi bi-shield-lock"></i>
-                        Akun dikunci sementara setelah terlalu banyak percobaan gagal.
                     </div>
                 </div>
             </div>

@@ -943,10 +943,9 @@ body {
 }
 
 .auth-brand-mark img {
-    max-width: 48px;
-    max-height: 48px;
-    width: auto;
-    height: auto;
+    width: 48px;
+    height: 48px;
+    object-fit: contain;
 }
 
 .auth-brand-mark i {
@@ -972,8 +971,9 @@ body {
 }
 
 .auth-brand-mark-card img {
-    max-width: 36px;
-    max-height: 36px;
+    width: 36px;
+    height: 36px;
+    object-fit: contain;
 }
 
 .auth-brand-mark-card i {
@@ -1268,7 +1268,7 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    color: #64748b;
+    color: #475569;
     font-size: 0.78rem;
     line-height: 1.45;
 }

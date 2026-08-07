@@ -4,6 +4,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib.auth import views as auth_views
 
+from apps.core.rate_limits import login_ratelimit
 from apps.core.forms import CrispyAuthenticationForm
 from apps.users.views import RateLimitedPasswordChangeView
 from apps.core.views import (
@@ -26,7 +27,9 @@ urlpatterns = [
     # Auth
     path(
         "login/",
-        auth_views.LoginView.as_view(authentication_form=CrispyAuthenticationForm),
+        login_ratelimit(
+            auth_views.LoginView.as_view(authentication_form=CrispyAuthenticationForm)
+        ),
         name="login",
     ),
     path("logout/", auth_views.LogoutView.as_view(), name="logout"),

@@ -351,6 +351,7 @@ CACHES = {
 # ─── django-ratelimit: Sensitive POST Protection ────────────────────
 RATELIMIT_USE_CACHE = "default"
 RATELIMIT_FAIL_OPEN = os.getenv("RATELIMIT_FAIL_OPEN", "True") == "True"
+LOGIN_RATE_LIMIT = os.getenv("LOGIN_RATE_LIMIT", "10/m")
 USER_BULK_ACTION_RATE_LIMIT = os.getenv("USER_BULK_ACTION_RATE_LIMIT", "10/m")
 USER_MUTATION_RATE_LIMIT = os.getenv("USER_MUTATION_RATE_LIMIT", "20/m")
 ITEM_MUTATION_RATE_LIMIT = os.getenv("ITEM_MUTATION_RATE_LIMIT", "20/m")
