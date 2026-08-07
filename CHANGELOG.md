@@ -7,6 +7,28 @@ The format is based on Keep a Changelog and follows Semantic Versioning (`MAJOR.
 
 ## [Unreleased]
 
+## [1.31.1] - 2026-08-07
+
+### Changed
+
+- Login page branding now uses configurable system settings for the platform label and logo, with a static default logo fallback when no tenant logo is configured.
+- Login and lockout pages now use fixed logo containers with contained image rendering for more consistent presentation.
+
+### Fixed
+
+- Login form rendering now uses correct browser autocomplete hints for username and current password without prefilled privileged usernames.
+- Failed login attempts now render a generic visible Bootstrap error state with per-field invalid styling and accessible live-region behavior.
+- Password policy copy is now persistent helper text, the password visibility toggle uses vanilla event listeners, and submit disables with a spinner to prevent duplicate POSTs.
+- django-axes lockout copy now reflects the configured cooldown duration instead of hardcoded timing.
+
+### Security
+
+- Login POST requests are now covered by `django-ratelimit` through `LOGIN_RATE_LIMIT` while keying attempts by submitted username to avoid collapsing shared-address staff logins into one anonymous IP bucket.
+
+### Documentation
+
+- Documented the `LOGIN_RATE_LIMIT` setting in environment, system model, developer, README, and agent guidance.
+
 ## [1.31.0] - 2026-08-06
 
 ### Added

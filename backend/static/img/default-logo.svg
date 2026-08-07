@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Healthcare IMS default logo</title>
+  <desc id="desc">A simple medical inventory building mark.</desc>
+  <rect width="64" height="64" rx="16" fill="#e8f0ff"/>
+  <path d="M20 52V22a4 4 0 0 1 4-4h16a4 4 0 0 1 4 4v30" fill="#ffffff" stroke="#4f8cff" stroke-width="3"/>
+  <path d="M16 52h32" stroke="#2453b8" stroke-width="3" stroke-linecap="round"/>
+  <path d="M32 25v14M25 32h14" stroke="#2453b8" stroke-width="4" stroke-linecap="round"/>
+  <path d="M24 52v-8h6v8M34 52v-8h6v8" stroke="#4f8cff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
