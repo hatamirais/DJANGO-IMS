@@ -234,7 +234,7 @@
                 <tr>
                     <td><code>batch_lot</code></td>
                     <td><span class="opening-balance-optional">×</span></td>
-                    <td>Opsional; otomatis dibuat dengan identitas dokumen jika kosong</td>
+                    <td>Opsional hanya untuk import pertama; otomatis dibuat dengan identitas dokumen jika kosong. Wajib diisi saat reimport <code>document_number</code> saldo awal yang sudah diposting.</td>
                 </tr>
                 <tr>
                     <td><code>expiry_date</code></td>
@@ -283,7 +283,8 @@
     {% if preview %}
     <p class="opening-balance-confirm-copy">
         Below is a preview of data to be imported. If you are satisfied with the results, click 'Confirm import'.
-        This will create {{ preview.total_documents }} opening balance document and {{ preview.total_rows }} transaction rows.
+        This will process {{ preview.total_documents }} opening balance document and {{ preview.total_rows }} CSV rows.
+        Existing matching stock layers are skipped.
         Format terdeteksi: {{ preview.format_label }} (delimiter {{ preview.delimiter }}).
     </p>
 
@@ -321,7 +322,7 @@
                 <tbody>
                     {% for row in document.rows %}
                     <tr>
-                        <td class="opening-balance-status">New</td>
+                        <td class="opening-balance-status">{% if row.is_existing %}Skipped{% else %}New{% endif %}</td>
                         <td>{{ row.row_num }}</td>
                         <td><code>{{ row.item_code }}</code></td>
                         <td>{{ row.item_name }}</td>

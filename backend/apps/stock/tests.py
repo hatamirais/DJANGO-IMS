@@ -430,6 +430,324 @@ class OpeningBalanceImportAdminTests(TestCase):
         self.assertEqual(stock.quantity, Decimal("15"))
         self.assertIsNone(stock.receiving_ref)
 
+    def test_opening_balance_reimport_skips_existing_rows_and_imports_new_rows(self):
+        opening_balance = OpeningBalanceImport.objects.create(
+            document_number="SALDO-AWAL-2026",
+            effective_date=date(2026, 1, 1),
+            created_by=self.admin_user,
+            posted_at=timezone.now(),
+        )
+        SourceDocumentNumberClaim.objects.create(
+            document_number="SALDO-AWAL-2026",
+            source_type=SourceDocumentNumberClaim.SourceType.OPENING_BALANCE,
+            source_id=opening_balance.pk,
+        )
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot="BATCH-001",
+            expiry_date=date(2028, 1, 1),
+            quantity=Decimal("10"),
+            unit_price=Decimal("2500"),
+            sumber_dana=self.funding,
+            source_document_number="SALDO-AWAL-2026",
+        )
+        OpeningBalanceImportItem.objects.create(
+            opening_balance=opening_balance,
+            item=self.item,
+            location=self.location,
+            batch_lot="BATCH-001",
+            expiry_date=date(2028, 1, 1),
+            quantity=Decimal("10"),
+            unit_price=Decimal("2500"),
+            sumber_dana=self.funding,
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot="BATCH-001",
+            quantity=Decimal("10"),
+            unit_price=Decimal("2500"),
+            source_document_number="SALDO-AWAL-2026",
+            sumber_dana=self.funding,
+            reference_type=Transaction.ReferenceType.INITIAL_IMPORT,
+            reference_id=opening_balance.pk,
+            user=self.admin_user,
+        )
+        self.client.force_login(self.admin_user)
+        csv_content = (
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price\n"
+            f"SALDO-AWAL-2026,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},10,BATCH-001,01/01/2028,2500\n"
+            f"SALDO-AWAL-2026,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},5,BATCH-002,01/01/2028,2500\n"
+        )
+
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(csv_content)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Skipped")
+        self.assertContains(response, "New")
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"action": "confirm", "preview_token": response.context["preview_token"]},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(OpeningBalanceImport.objects.count(), 1)
+        self.assertEqual(SourceDocumentNumberClaim.objects.count(), 1)
+        self.assertEqual(OpeningBalanceImportItem.objects.count(), 2)
+        self.assertEqual(
+            Stock.objects.get(batch_lot="BATCH-001").quantity,
+            Decimal("10"),
+        )
+        self.assertEqual(
+            Stock.objects.get(batch_lot="BATCH-002").quantity,
+            Decimal("5"),
+        )
+        self.assertEqual(
+            Transaction.objects.filter(
+                reference_type=Transaction.ReferenceType.INITIAL_IMPORT
+            ).count(),
+            2,
+        )
+
+    def test_opening_balance_reimport_all_existing_rows_succeeds_without_new_ledger(self):
+        opening_balance = OpeningBalanceImport.objects.create(
+            document_number="SALDO-AWAL-2026",
+            effective_date=date(2026, 1, 1),
+            created_by=self.admin_user,
+            posted_at=timezone.now(),
+        )
+        SourceDocumentNumberClaim.objects.create(
+            document_number="SALDO-AWAL-2026",
+            source_type=SourceDocumentNumberClaim.SourceType.OPENING_BALANCE,
+            source_id=opening_balance.pk,
+        )
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot="BATCH-001",
+            expiry_date=date(2028, 1, 1),
+            quantity=Decimal("10"),
+            unit_price=Decimal("2500"),
+            sumber_dana=self.funding,
+            source_document_number="SALDO-AWAL-2026",
+        )
+        self.client.force_login(self.admin_user)
+        csv_content = (
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price\n"
+            f"SALDO-AWAL-2026,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},10,BATCH-001,01/01/2028,2500\n"
+        )
+
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(csv_content)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Skipped")
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"action": "confirm", "preview_token": response.context["preview_token"]},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(OpeningBalanceImport.objects.count(), 1)
+        self.assertFalse(OpeningBalanceImportItem.objects.exists())
+        self.assertFalse(Transaction.objects.exists())
+        self.assertEqual(Stock.objects.get().quantity, Decimal("10"))
+
+    def test_opening_balance_reimport_rejects_blank_batch_lot(self):
+        opening_balance = OpeningBalanceImport.objects.create(
+            document_number="SALDO-AWAL-2026",
+            effective_date=date(2026, 1, 1),
+            created_by=self.admin_user,
+            posted_at=timezone.now(),
+        )
+        SourceDocumentNumberClaim.objects.create(
+            document_number="SALDO-AWAL-2026",
+            source_type=SourceDocumentNumberClaim.SourceType.OPENING_BALANCE,
+            source_id=opening_balance.pk,
+        )
+        self.client.force_login(self.admin_user)
+        csv_content = (
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price\n"
+            f"SALDO-AWAL-2026,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},10,,01/01/2028,2500\n"
+        )
+
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(csv_content)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "batch_lot wajib diisi saat reimport")
+        self.assertFalse(Stock.objects.exists())
+
+    def test_opening_balance_confirm_rechecks_existing_stock_after_preview(self):
+        opening_balance = OpeningBalanceImport.objects.create(
+            document_number="SALDO-AWAL-2026",
+            effective_date=date(2026, 1, 1),
+            created_by=self.admin_user,
+            posted_at=timezone.now(),
+        )
+        SourceDocumentNumberClaim.objects.create(
+            document_number="SALDO-AWAL-2026",
+            source_type=SourceDocumentNumberClaim.SourceType.OPENING_BALANCE,
+            source_id=opening_balance.pk,
+        )
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot="BATCH-001",
+            expiry_date=date(2028, 1, 1),
+            quantity=Decimal("10"),
+            unit_price=Decimal("2500"),
+            sumber_dana=self.funding,
+            source_document_number="SALDO-AWAL-2026",
+        )
+        stock_admin = StockAdmin(Stock, AdminSite())
+        stale_preview = {
+            "documents": [
+                {
+                    "document_number": "SALDO-AWAL-2026",
+                    "effective_date": date(2026, 1, 1),
+                    "rows": [
+                        {
+                            "item": self.item,
+                            "location": self.location,
+                            "funding": self.funding,
+                            "batch_lot": "BATCH-001",
+                            "expiry_date": date(2028, 1, 1),
+                            "quantity": Decimal("10"),
+                            "unit_price": Decimal("2500"),
+                            "is_existing": False,
+                        }
+                    ],
+                }
+            ]
+        }
+
+        with (
+            patch.object(
+                stock_admin,
+                "_preflight_opening_balance_csv",
+                return_value={"errors": []},
+            ),
+            patch.object(
+                stock_admin,
+                "_parse_opening_balance_csv",
+                return_value=stale_preview,
+            ),
+        ):
+            result = stock_admin._process_opening_balance_csv("ignored", self.admin_user)
+
+        self.assertEqual(result["skipped"], 1)
+        self.assertEqual(result["items"], 0)
+        self.assertEqual(result["transactions"], 0)
+        self.assertFalse(OpeningBalanceImportItem.objects.exists())
+        self.assertFalse(Transaction.objects.exists())
+        self.assertEqual(Stock.objects.get().quantity, Decimal("10"))
+
+    def test_opening_balance_reimport_accumulates_duplicate_new_rows(self):
+        opening_balance = OpeningBalanceImport.objects.create(
+            document_number="SALDO-AWAL-2026",
+            effective_date=date(2026, 1, 1),
+            created_by=self.admin_user,
+            posted_at=timezone.now(),
+        )
+        SourceDocumentNumberClaim.objects.create(
+            document_number="SALDO-AWAL-2026",
+            source_type=SourceDocumentNumberClaim.SourceType.OPENING_BALANCE,
+            source_id=opening_balance.pk,
+        )
+        self.client.force_login(self.admin_user)
+        csv_content = (
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price\n"
+            f"SALDO-AWAL-2026,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},5,BATCH-NEW,01/01/2028,2500\n"
+            f"SALDO-AWAL-2026,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},7,BATCH-NEW,01/01/2028,2500\n"
+        )
+
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(csv_content)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "New", count=2)
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"action": "confirm", "preview_token": response.context["preview_token"]},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(OpeningBalanceImport.objects.count(), 1)
+        self.assertEqual(OpeningBalanceImportItem.objects.count(), 2)
+        self.assertEqual(Transaction.objects.count(), 2)
+        self.assertEqual(Stock.objects.get(batch_lot="BATCH-NEW").quantity, Decimal("12"))
+
+    def test_opening_balance_existing_header_locks_use_document_number_order(self):
+        first = OpeningBalanceImport.objects.create(
+            document_number="SALDO-AWAL-A",
+            effective_date=date(2026, 1, 1),
+            created_by=self.admin_user,
+            posted_at=timezone.now(),
+        )
+        second = OpeningBalanceImport.objects.create(
+            document_number="SALDO-AWAL-B",
+            effective_date=date(2026, 1, 1),
+            created_by=self.admin_user,
+            posted_at=timezone.now(),
+        )
+        documents = [
+            {"document_number": second.document_number},
+            {"document_number": first.document_number},
+        ]
+
+        locked = StockAdmin._lock_existing_opening_balance_imports(documents)
+
+        self.assertEqual(
+            list(locked),
+            ["SALDO-AWAL-A", "SALDO-AWAL-B"],
+        )
+
+    def test_opening_balance_reimport_rejects_existing_document_date_mismatch(self):
+        OpeningBalanceImport.objects.create(
+            document_number="SALDO-AWAL-2026",
+            effective_date=date(2026, 1, 1),
+            created_by=self.admin_user,
+            posted_at=timezone.now(),
+        )
+        self.client.force_login(self.admin_user)
+        csv_content = (
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price\n"
+            f"SALDO-AWAL-2026,02/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},10,BATCH-001,01/01/2028,2500\n"
+        )
+
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(csv_content)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "effective_date harus sama")
+        self.assertFalse(Stock.objects.exists())
+
     def test_opening_balance_import_rejects_receiving_document_number_collision(self):
         Receiving.objects.create(
             receiving_type=Receiving.ReceivingType.GRANT,
