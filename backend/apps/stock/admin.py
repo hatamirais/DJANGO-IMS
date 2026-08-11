@@ -384,6 +384,10 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
 
         for document in preview["documents"]:
             opening_balance = existing_opening_balances.get(document["document_number"])
+            source_document_number = document.get(
+                "source_document_number",
+                document["document_number"],
+            )
             if opening_balance:
                 existing_document = True
                 if opening_balance.effective_date != document["effective_date"]:
@@ -428,7 +432,7 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                     item=row["item"],
                     location=row["location"],
                     batch_lot=row["batch_lot"],
-                    source_document_number=document["document_number"],
+                    source_document_number=source_document_number,
                     sumber_dana=row["funding"],
                 )
                 existing_import = existing_import_layers.get(stock_key)
@@ -460,7 +464,7 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                     item=row["item"],
                     location=row["location"],
                     batch_lot=row["batch_lot"],
-                    source_document_number=document["document_number"],
+                    source_document_number=source_document_number,
                     sumber_dana=row["funding"],
                     expiry_date=row["expiry_date"],
                     quantity=row["quantity"],
@@ -475,7 +479,7 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                     batch_lot=row["batch_lot"],
                     quantity=row["quantity"],
                     unit_price=row["unit_price"],
-                    source_document_number=document["document_number"],
+                    source_document_number=source_document_number,
                     sumber_dana=row["funding"],
                     reference_type=Transaction.ReferenceType.INITIAL_IMPORT,
                     reference_id=opening_balance.pk,
@@ -638,7 +642,8 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
             location = location_cache.get(row.get("location_code", ""))
             doc_number = row.get("document_number", "")
             raw_batch_lot = row.get("batch_lot", "").strip()
-            if doc_number in imported_documents and not raw_batch_lot:
+            imported_document = imported_documents.get(doc_number)
+            if imported_document and not raw_batch_lot:
                 add_error(
                     row_num,
                     "batch_lot",
@@ -650,13 +655,17 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                 row_num,
             )
             if item and funding and location and doc_number:
+                source_document_number = self._opening_balance_source_document_number(
+                    doc_number,
+                    bool(imported_document and doc_number in receiving_documents),
+                )
                 stock_lookup_keys.add(
                     (
                         item.pk,
                         location.pk,
                         batch_lot,
                         funding.pk,
-                        doc_number,
+                        source_document_number,
                     )
                 )
 
@@ -716,7 +725,11 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                     )
                 except ValueError as exc:
                     add_error(row_num, "document_number", doc_number, str(exc))
-                if doc_number in receiving_documents:
+                imported_document = imported_documents.get(doc_number)
+                receiving_collision = bool(
+                    imported_document and doc_number in receiving_documents
+                )
+                if doc_number in receiving_documents and not imported_document:
                     add_error(
                         row_num,
                         "document_number",
@@ -724,11 +737,11 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                         f"Nomor dokumen '{doc_number}' sudah digunakan oleh dokumen penerimaan. Gunakan document_number saldo awal yang berbeda.",
                     )
                 claimed_document = claimed_documents.get(doc_number)
-                imported_document = imported_documents.get(doc_number)
                 if (
                     claimed_document
                     and claimed_document["source_type"]
                     != SourceDocumentNumberClaim.SourceType.OPENING_BALANCE
+                    and not receiving_collision
                 ):
                     add_error(
                         row_num,
@@ -736,9 +749,14 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                         doc_number,
                         f"Nomor dokumen '{doc_number}' sudah diklaim oleh dokumen sumber stok lain.",
                     )
-                elif claimed_document and (
-                    not imported_document
-                    or claimed_document["source_id"] != imported_document["id"]
+                elif (
+                    claimed_document
+                    and claimed_document["source_type"]
+                    == SourceDocumentNumberClaim.SourceType.OPENING_BALANCE
+                    and (
+                        not imported_document
+                        or claimed_document["source_id"] != imported_document["id"]
+                    )
                 ):
                     add_error(
                         row_num,
@@ -880,12 +898,19 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                 )
 
             if item and funding and location and unit_price is not None and doc_number:
+                source_document_number = self._opening_balance_source_document_number(
+                    doc_number,
+                    bool(
+                        imported_documents.get(doc_number)
+                        and doc_number in receiving_documents
+                    ),
+                )
                 stock_key = (
                     item.pk,
                     location.pk,
                     batch_lot,
                     funding.pk,
-                    doc_number,
+                    source_document_number,
                 )
                 existing_expiry = seen_stock_expiry.setdefault(stock_key, expiry_date)
                 if existing_expiry != expiry_date:
@@ -1058,7 +1083,10 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
             opening_balance = OpeningBalanceImport.objects.filter(
                 document_number=doc_number
             ).only("effective_date").first()
-            if Receiving.objects.filter(document_number=doc_number).exists():
+            receiving_collision = Receiving.objects.filter(
+                document_number=doc_number
+            ).exists()
+            if receiving_collision and not opening_balance:
                 raise ValueError(
                     f"Nomor dokumen '{doc_number}' sudah digunakan oleh dokumen penerimaan. Gunakan document_number saldo awal yang berbeda."
                 )
@@ -1069,16 +1097,27 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                 existing_claim
                 and existing_claim.source_type
                 != SourceDocumentNumberClaim.SourceType.OPENING_BALANCE
+                and not (receiving_collision and opening_balance)
             ):
                 raise ValueError(
                     f"Nomor dokumen '{doc_number}' sudah diklaim oleh dokumen sumber stok lain."
                 )
-            if existing_claim and (
-                not opening_balance or existing_claim.source_id != opening_balance.pk
+            if (
+                existing_claim
+                and existing_claim.source_type
+                == SourceDocumentNumberClaim.SourceType.OPENING_BALANCE
+                and (
+                    not opening_balance
+                    or existing_claim.source_id != opening_balance.pk
+                )
             ):
                 raise ValueError(
                     f"Nomor dokumen '{doc_number}' sudah diklaim oleh dokumen sumber stok lain."
                 )
+            source_document_number = self._opening_balance_source_document_number(
+                doc_number,
+                bool(receiving_collision and opening_balance),
+            )
 
             first_row_num, first_row = rows[0]
             effective_date_str = first_row.get("effective_date") or first_row.get("receiving_date")
@@ -1100,6 +1139,7 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
 
             document = {
                 "document_number": doc_number,
+                "source_document_number": source_document_number,
                 "effective_date": effective_date,
                 "rows": [],
             }
@@ -1195,7 +1235,13 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                 else:
                     expiry_date = None
 
-                stock_key = (item.pk, location.pk, batch_lot, funding.pk, doc_number)
+                stock_key = (
+                    item.pk,
+                    location.pk,
+                    batch_lot,
+                    funding.pk,
+                    source_document_number,
+                )
                 if stock_key in seen_stock_expiry and seen_stock_expiry[stock_key] != expiry_date:
                     raise ValueError(
                         f"Baris {row_num}: batch stok yang sama tidak boleh memiliki tanggal kedaluwarsa berbeda."
@@ -1211,7 +1257,7 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                     location=location,
                     batch_lot=batch_lot,
                     sumber_dana=funding,
-                    source_document_number=doc_number,
+                    source_document_number=source_document_number,
                 ).values("expiry_date", "unit_price").first()
                 if existing_stock and existing_stock["expiry_date"] != expiry_date:
                     raise ValueError(
@@ -1285,7 +1331,10 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                 item=row["item"],
                 location=row["location"],
                 batch_lot=row["batch_lot"],
-                source_document_number=document["document_number"],
+                source_document_number=document.get(
+                    "source_document_number",
+                    document["document_number"],
+                ),
                 sumber_dana=row["funding"],
             )
             for row in document["rows"]
@@ -1303,7 +1352,7 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                 import_item["location_id"],
                 import_item["batch_lot"],
                 import_item["sumber_dana_id"],
-                opening_balance.document_number,
+                document.get("source_document_number", document["document_number"]),
             ): import_item
             for import_item in OpeningBalanceImportItem.objects.select_for_update()
             .filter(
@@ -1453,6 +1502,16 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
     def _generate_opening_balance_batch_lot(document_number, row_num):
         document_hash = hashlib.sha1(document_number.encode("utf-8")).hexdigest()[:12]
         return f"SALDO-{document_hash}-{row_num:04d}"
+
+    @staticmethod
+    def _opening_balance_source_document_number(document_number, has_receiving_collision):
+        if not has_receiving_collision:
+            return document_number
+        digest = hashlib.sha1(
+            f"INITIAL_IMPORT:{document_number}".encode("utf-8")
+        ).hexdigest()[:8]
+        suffix_length = 100 - len("OBI") - len(digest) - 2
+        return f"OBI-{digest}-{document_number[:suffix_length]}"
 
     @staticmethod
     def _parse_opening_balance_date(value, row_num=None, field_name="tanggal"):

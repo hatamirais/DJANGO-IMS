@@ -543,6 +543,94 @@ class OpeningBalanceImportAdminTests(TestCase):
             2,
         )
 
+    def test_opening_balance_reimport_uses_migrated_collision_source_layer(self):
+        document_number = "SRC-COLLIDE"
+        source_document_number = StockAdmin._opening_balance_source_document_number(
+            document_number,
+            True,
+        )
+        receiving = Receiving.objects.create(
+            receiving_type=Receiving.ReceivingType.GRANT,
+            document_number=document_number,
+            receiving_date=date(2026, 1, 1),
+            sumber_dana=self.funding,
+            created_by=self.admin_user,
+        )
+        opening_balance = OpeningBalanceImport.objects.create(
+            document_number=document_number,
+            effective_date=date(2026, 1, 1),
+            created_by=self.admin_user,
+            posted_at=timezone.now(),
+        )
+        SourceDocumentNumberClaim.objects.update_or_create(
+            document_number=document_number,
+            defaults={
+                "source_type": SourceDocumentNumberClaim.SourceType.RECEIVING,
+                "source_id": receiving.pk,
+            },
+        )
+        SourceDocumentNumberClaim.objects.update_or_create(
+            document_number=source_document_number,
+            defaults={
+                "source_type": SourceDocumentNumberClaim.SourceType.OPENING_BALANCE,
+                "source_id": None,
+            },
+        )
+        OpeningBalanceImportItem.objects.create(
+            opening_balance=opening_balance,
+            item=self.item,
+            location=self.location,
+            batch_lot="BATCH-001",
+            expiry_date=date(2028, 1, 1),
+            quantity=Decimal("10"),
+            unit_price=Decimal("2500"),
+            sumber_dana=self.funding,
+        )
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot="BATCH-001",
+            expiry_date=date(2028, 1, 1),
+            quantity=Decimal("10"),
+            unit_price=Decimal("2500"),
+            sumber_dana=self.funding,
+            source_document_number=source_document_number,
+        )
+        self.client.force_login(self.admin_user)
+        csv_content = (
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price\n"
+            f"{document_number},01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},10,BATCH-001,01/01/2028,2500\n"
+            f"{document_number},01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},5,BATCH-002,01/01/2028,2500\n"
+        )
+
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(csv_content)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Skipped")
+        self.assertContains(response, "New")
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"action": "confirm", "preview_token": response.context["preview_token"]},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(OpeningBalanceImport.objects.count(), 1)
+        self.assertEqual(OpeningBalanceImportItem.objects.count(), 2)
+        self.assertEqual(
+            Stock.objects.get(batch_lot="BATCH-002").source_document_number,
+            source_document_number,
+        )
+        self.assertEqual(
+            Transaction.objects.get(batch_lot="BATCH-002").source_document_number,
+            source_document_number,
+        )
+
     def test_opening_balance_reimport_all_existing_rows_succeeds_without_new_ledger(self):
         opening_balance = OpeningBalanceImport.objects.create(
             document_number="SALDO-AWAL-2026",
