@@ -38,6 +38,7 @@ App-specific guidance for stock balances and ledger behavior.
 - It rejects negative unit prices.
 - It generates blank batches with document identity.
 - It rejects conflicts inside the same source document layer when `expiry_date` or `unit_price` differs.
+- It rejects duplicate stock-layer rows inside the same CSV; combine `quantity` into one row or use a different `batch_lot` / `document_number`.
 - Reimporting an already posted opening-balance `document_number` is allowed for partial completion: exact existing stock layers are skipped, and new rows under that document are posted to the existing import header. Reimport rows must provide `batch_lot` explicitly because generated blank-batch names include the CSV row number.
 - Confirmed imports create `OpeningBalanceImport` and `OpeningBalanceImportItem`, update stock with `source_document_number=document_number` and `receiving_ref=NULL`, and write `Transaction(IN, reference_type=INITIAL_IMPORT)`. Migrated historical receiving/opening-balance document-number collisions continue on their existing disambiguated `OBI-...` opening-balance source layer during reimport.
 - Rekap/yearly reports classify opening-balance rows as `saldo_awal` when effective on/before the report start, or as in-period received stock when effective after the start and within the selected period.

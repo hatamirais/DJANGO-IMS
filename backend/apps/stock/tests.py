@@ -898,7 +898,7 @@ class OpeningBalanceImportAdminTests(TestCase):
             Decimal("13"),
         )
 
-    def test_opening_balance_reimport_accumulates_duplicate_new_rows(self):
+    def test_opening_balance_reimport_rejects_duplicate_new_rows(self):
         opening_balance = OpeningBalanceImport.objects.create(
             document_number="SALDO-AWAL-2026",
             effective_date=date(2026, 1, 1),
@@ -926,17 +926,15 @@ class OpeningBalanceImportAdminTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "New", count=2)
-        response = self.client.post(
-            reverse("admin:stock_opening_balance_import_csv"),
-            {"action": "confirm", "preview_token": response.context["preview_token"]},
+        self.assertContains(response, "Validasi gagal")
+        self.assertContains(
+            response,
+            "Batch stok duplikat dalam CSV saldo awal",
         )
-
-        self.assertEqual(response.status_code, 302)
         self.assertEqual(OpeningBalanceImport.objects.count(), 1)
-        self.assertEqual(OpeningBalanceImportItem.objects.count(), 2)
-        self.assertEqual(Transaction.objects.count(), 2)
-        self.assertEqual(Stock.objects.get(batch_lot="BATCH-NEW").quantity, Decimal("12"))
+        self.assertFalse(OpeningBalanceImportItem.objects.exists())
+        self.assertFalse(Transaction.objects.exists())
+        self.assertFalse(Stock.objects.filter(batch_lot="BATCH-NEW").exists())
 
     def test_opening_balance_existing_header_locks_use_document_number_order(self):
         first = OpeningBalanceImport.objects.create(
@@ -1401,7 +1399,7 @@ class OpeningBalanceImportAdminTests(TestCase):
         self.assertEqual(report["errors"], [])
         self.assertLessEqual(len(captured_queries), 8)
 
-    def test_opening_balance_preview_rejects_duplicate_stock_key_unit_price_mismatch(self):
+    def test_opening_balance_preview_rejects_duplicate_stock_key_rows(self):
         self.client.force_login(self.admin_user)
         csv_content = (
             "document_number,effective_date,sumber_dana_code,location_code,item_code,"
@@ -1418,11 +1416,11 @@ class OpeningBalanceImportAdminTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "harga satuan berbeda")
+        self.assertContains(response, "Batch stok duplikat dalam CSV saldo awal")
         self.assertFalse(OpeningBalanceImport.objects.exists())
         self.assertFalse(Stock.objects.exists())
 
-    def test_opening_balance_preview_rejects_same_source_price_conflict_beyond_cents(self):
+    def test_opening_balance_preview_rejects_duplicate_stock_key_rows_before_price_conflict(self):
         self.client.force_login(self.admin_user)
         csv_content = (
             "document_number,effective_date,sumber_dana_code,location_code,item_code,"
@@ -1439,7 +1437,7 @@ class OpeningBalanceImportAdminTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "harga satuan berbeda")
+        self.assertContains(response, "Batch stok duplikat dalam CSV saldo awal")
         self.assertFalse(OpeningBalanceImport.objects.exists())
         self.assertFalse(Stock.objects.exists())
 

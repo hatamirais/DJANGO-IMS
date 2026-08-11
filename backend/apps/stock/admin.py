@@ -602,6 +602,7 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
             )
         }
         seen_doc_dates = {}
+        seen_stock_rows = {}
         seen_stock_expiry = {}
         seen_stock_price = {}
         posting_date = timezone.localdate()
@@ -912,6 +913,16 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                     funding.pk,
                     source_document_number,
                 )
+                first_stock_row = seen_stock_rows.setdefault(stock_key, row_num)
+                if first_stock_row != row_num:
+                    add_error(
+                        row_num,
+                        "batch_lot",
+                        batch_lot,
+                        "Batch stok duplikat dalam CSV saldo awal. "
+                        f"Gabungkan quantity dengan baris {first_stock_row} atau gunakan batch_lot/document_number berbeda.",
+                    )
+                    continue
                 existing_expiry = seen_stock_expiry.setdefault(stock_key, expiry_date)
                 if existing_expiry != expiry_date:
                     add_error(
@@ -1075,6 +1086,7 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
             "delimiter": dialect_info["delimiter_label"],
             "format_label": dialect_info["format_label"],
         }
+        seen_stock_rows = {}
         seen_stock_expiry = {}
         seen_stock_price = {}
         posting_date = timezone.localdate()
@@ -1242,6 +1254,12 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                     funding.pk,
                     source_document_number,
                 )
+                first_stock_row = seen_stock_rows.setdefault(stock_key, row_num)
+                if first_stock_row != row_num:
+                    raise ValueError(
+                        f"Baris {row_num}: batch stok duplikat dalam CSV saldo awal. "
+                        f"Gabungkan quantity dengan baris {first_stock_row} atau gunakan batch_lot/document_number berbeda."
+                    )
                 if stock_key in seen_stock_expiry and seen_stock_expiry[stock_key] != expiry_date:
                     raise ValueError(
                         f"Baris {row_num}: batch stok yang sama tidak boleh memiliki tanggal kedaluwarsa berbeda."
