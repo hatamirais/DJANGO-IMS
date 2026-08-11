@@ -602,7 +602,11 @@ class OpeningBalanceImportAdminTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "New")
+        self.assertContains(response, "Delta")
+        self.assertContains(response, "Qty Added")
+        self.assertContains(response, "Requested Total")
+        self.assertContains(response, "5")
+        self.assertContains(response, "15")
         response = self.client.post(
             reverse("admin:stock_opening_balance_import_csv"),
             {"action": "confirm", "preview_token": response.context["preview_token"]},
