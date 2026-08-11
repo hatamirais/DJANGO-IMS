@@ -234,7 +234,7 @@
                 <tr>
                     <td><code>batch_lot</code></td>
                     <td><span class="opening-balance-optional">×</span></td>
-                    <td>Opsional; otomatis dibuat dengan identitas dokumen jika kosong</td>
+                    <td>Opsional hanya untuk import pertama; otomatis dibuat dengan identitas dokumen jika kosong. Wajib diisi saat reimport <code>document_number</code> saldo awal yang sudah diposting.</td>
                 </tr>
                 <tr>
                     <td><code>expiry_date</code></td>
@@ -283,7 +283,8 @@
     {% if preview %}
     <p class="opening-balance-confirm-copy">
         Below is a preview of data to be imported. If you are satisfied with the results, click 'Confirm import'.
-        This will create {{ preview.total_documents }} opening balance document and {{ preview.total_rows }} transaction rows.
+        This will process {{ preview.total_documents }} opening balance document and {{ preview.total_rows }} CSV rows.
+        Existing matching stock layers are skipped.
         Format terdeteksi: {{ preview.format_label }} (delimiter {{ preview.delimiter }}).
     </p>
 
@@ -314,14 +315,17 @@
                         <th scope="col">Location</th>
                         <th scope="col">Batch</th>
                         <th scope="col">Expiry</th>
-                        <th scope="col">Qty</th>
+                        <th scope="col">Qty Added</th>
+                        <th scope="col">Requested Total</th>
                         <th scope="col">Unit Price</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for row in document.rows %}
                     <tr>
-                        <td class="opening-balance-status">New</td>
+                        <td class="opening-balance-status">
+                            {% if row.is_existing %}Skipped{% elif row.quantity_delta != row.quantity %}Delta{% else %}New{% endif %}
+                        </td>
                         <td>{{ row.row_num }}</td>
                         <td><code>{{ row.item_code }}</code></td>
                         <td>{{ row.item_name }}</td>
@@ -329,6 +333,7 @@
                         <td><code>{{ row.location_code }}</code></td>
                         <td><code>{{ row.batch_lot }}</code></td>
                         <td>{% if row.expiry_date %}{{ row.expiry_date|date:"d/m/Y" }}{% else %}Tanpa kedaluwarsa{% endif %}</td>
+                        <td>{{ row.quantity_delta }}</td>
                         <td>{{ row.quantity }}</td>
                         <td>{{ row.unit_price }}</td>
                     </tr>
