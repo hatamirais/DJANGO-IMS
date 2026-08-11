@@ -794,6 +794,28 @@ class OpeningBalanceImportAdminTests(TestCase):
             ["SALDO-AWAL-A", "SALDO-AWAL-B"],
         )
 
+    def test_opening_balance_new_claims_use_document_number_order(self):
+        documents = [
+            {"document_number": "SALDO-AWAL-B"},
+            {"document_number": "SALDO-AWAL-A"},
+        ]
+
+        claims = StockAdmin._claim_new_opening_balance_document_numbers(documents, {})
+
+        self.assertEqual(
+            list(claims),
+            ["SALDO-AWAL-A", "SALDO-AWAL-B"],
+        )
+        self.assertEqual(
+            list(
+                SourceDocumentNumberClaim.objects.order_by("id").values_list(
+                    "document_number",
+                    flat=True,
+                )
+            ),
+            ["SALDO-AWAL-A", "SALDO-AWAL-B"],
+        )
+
     def test_opening_balance_reimport_rejects_existing_document_date_mismatch(self):
         OpeningBalanceImport.objects.create(
             document_number="SALDO-AWAL-2026",

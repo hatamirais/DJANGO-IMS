@@ -377,6 +377,10 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
         existing_opening_balances = self._lock_existing_opening_balance_imports(
             preview["documents"]
         )
+        new_claims = self._claim_new_opening_balance_document_numbers(
+            preview["documents"],
+            existing_opening_balances,
+        )
 
         for document in preview["documents"]:
             opening_balance = existing_opening_balances.get(document["document_number"])
@@ -389,17 +393,7 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                     )
             else:
                 existing_document = False
-                try:
-                    claim = SourceDocumentNumberClaim.objects.create(
-                        document_number=document["document_number"],
-                        source_type=SourceDocumentNumberClaim.SourceType.OPENING_BALANCE,
-                    )
-                except IntegrityError as exc:
-                    raise ValueError(
-                        f"Nomor dokumen '{document['document_number']}' sudah diklaim "
-                        "oleh dokumen sumber stok lain."
-                    ) from exc
-
+                claim = new_claims[document["document_number"]]
                 opening_balance = OpeningBalanceImport.objects.create(
                     document_number=document["document_number"],
                     effective_date=document["effective_date"],
@@ -496,6 +490,29 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
             .filter(document_number__in=document_numbers)
             .order_by("document_number")
         }
+
+    @staticmethod
+    def _claim_new_opening_balance_document_numbers(documents, existing_opening_balances):
+        document_numbers = sorted(
+            {
+                document["document_number"]
+                for document in documents
+                if document["document_number"] not in existing_opening_balances
+            }
+        )
+        claims = {}
+        for document_number in document_numbers:
+            try:
+                claims[document_number] = SourceDocumentNumberClaim.objects.create(
+                    document_number=document_number,
+                    source_type=SourceDocumentNumberClaim.SourceType.OPENING_BALANCE,
+                )
+            except IntegrityError as exc:
+                raise ValueError(
+                    f"Nomor dokumen '{document_number}' sudah diklaim "
+                    "oleh dokumen sumber stok lain."
+                ) from exc
+        return claims
 
     def _preflight_opening_balance_csv(self, decoded):
         fieldnames, rows, dialect_info = self._read_opening_balance_csv(decoded)
