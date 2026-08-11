@@ -1724,16 +1724,7 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
             == SourceDocumentNumberClaim.SourceType.RECEIVING
         ):
             return True
-        source_document_number = StockAdmin._opening_balance_source_document_number(
-            document_number,
-            True,
-        )
-        source_claim = claimed_documents.get(source_document_number)
-        return bool(
-            source_claim
-            and source_claim["source_type"]
-            == SourceDocumentNumberClaim.SourceType.OPENING_BALANCE
-        )
+        return False
 
     @staticmethod
     def _parse_opening_balance_date(value, row_num=None, field_name="tanggal"):
