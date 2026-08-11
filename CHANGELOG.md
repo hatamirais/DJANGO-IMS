@@ -7,6 +7,24 @@ The format is based on Keep a Changelog and follows Semantic Versioning (`MAJOR.
 
 ## [Unreleased]
 
+## [1.31.2] - 2026-08-11
+
+### Changed
+
+- Opening-balance CSV reimports can now reuse a posted `document_number` to complete partial imports: exact existing stock-layer totals are skipped, higher cumulative totals post only the delta, and lower totals are rejected before confirmation.
+- Opening-balance reimport previews now distinguish `New`, `Skipped`, and `Delta` rows, and show both the posted quantity delta and requested cumulative total before admins confirm stock-changing writes.
+
+### Fixed
+
+- Opening-balance reimports no longer reject valid same-document updates solely because the `document_number` already exists on an opening-balance import or retained migrated receiving claim.
+- Migrated receiving/opening-balance document-number collisions continue to post new opening-balance rows onto their disambiguated `OBI-...` source layer, including cases where the original posted receiving header was later deleted but its receiving claim remains.
+- Duplicate stock-layer rows in one opening-balance CSV are rejected so repeated or split same-key quantities cannot be silently undercounted across partial reimports.
+- Opening-balance collision detection no longer treats an unrelated predictable `OBI-...` opening-balance claim as evidence that a normal document is a migrated receiving collision.
+
+### Documentation
+
+- Updated stock, system model, seed, and developer documentation for opening-balance partial reimport behavior, duplicate-row validation, and migrated source-layer compatibility.
+
 ## [1.31.1] - 2026-08-07
 
 ### Changed
