@@ -411,8 +411,11 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                 claim.save(update_fields=["source_id", "updated_at"])
                 counts["imports"] += 1
 
-            existing_stock_layers = (
-                self._lock_existing_opening_balance_stock_layers(document)
+            existing_import_layers = (
+                self._lock_existing_opening_balance_import_layers(
+                    opening_balance,
+                    document,
+                )
                 if existing_document
                 else {}
             )
@@ -424,13 +427,13 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                     source_document_number=document["document_number"],
                     sumber_dana=row["funding"],
                 )
-                existing_stock = existing_stock_layers.get(stock_key)
-                if existing_stock:
-                    if existing_stock["expiry_date"] != row["expiry_date"]:
+                existing_import = existing_import_layers.get(stock_key)
+                if existing_import:
+                    if existing_import["expiry_date"] != row["expiry_date"]:
                         raise ValueError(
                             "Batch stok yang sama tidak boleh memiliki tanggal kedaluwarsa berbeda."
                         )
-                    if existing_stock["unit_price"] != row["unit_price"]:
+                    if existing_import["unit_price"] != row["unit_price"]:
                         raise ValueError(
                             "Batch stok yang sama tidak boleh memiliki harga satuan berbeda."
                         )
@@ -1166,7 +1169,16 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                     raise ValueError(
                         f"Baris {row_num}: batch stok sudah ada dengan harga satuan berbeda."
                     )
-                is_existing = bool(opening_balance and existing_stock)
+                is_existing = bool(
+                    opening_balance
+                    and OpeningBalanceImportItem.objects.filter(
+                        opening_balance=opening_balance,
+                        item=item,
+                        location=location,
+                        batch_lot=batch_lot,
+                        sumber_dana=funding,
+                    ).exists()
+                )
 
                 document["rows"].append(
                     {
@@ -1214,7 +1226,7 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
         )
 
     @staticmethod
-    def _lock_existing_opening_balance_stock_layers(document):
+    def _lock_existing_opening_balance_import_layers(opening_balance, document):
         stock_keys = {
             StockAdmin._opening_balance_stock_key(
                 item=row["item"],
@@ -1232,29 +1244,27 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
         location_ids = {key[1] for key in stock_keys}
         batch_lots = {key[2] for key in stock_keys}
         funding_ids = {key[3] for key in stock_keys}
-        source_document_numbers = {key[4] for key in stock_keys}
         return {
             (
-                stock["item_id"],
-                stock["location_id"],
-                stock["batch_lot"],
-                stock["sumber_dana_id"],
-                stock["source_document_number"],
-            ): stock
-            for stock in Stock.objects.select_for_update()
+                import_item["item_id"],
+                import_item["location_id"],
+                import_item["batch_lot"],
+                import_item["sumber_dana_id"],
+                opening_balance.document_number,
+            ): import_item
+            for import_item in OpeningBalanceImportItem.objects.select_for_update()
             .filter(
+                opening_balance=opening_balance,
                 item_id__in=item_ids,
                 location_id__in=location_ids,
                 batch_lot__in=batch_lots,
                 sumber_dana_id__in=funding_ids,
-                source_document_number__in=source_document_numbers,
             )
             .values(
                 "item_id",
                 "location_id",
                 "batch_lot",
                 "sumber_dana_id",
-                "source_document_number",
                 "expiry_date",
                 "unit_price",
             )

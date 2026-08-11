@@ -442,16 +442,6 @@ class OpeningBalanceImportAdminTests(TestCase):
             source_type=SourceDocumentNumberClaim.SourceType.OPENING_BALANCE,
             source_id=opening_balance.pk,
         )
-        Stock.objects.create(
-            item=self.item,
-            location=self.location,
-            batch_lot="BATCH-001",
-            expiry_date=date(2028, 1, 1),
-            quantity=Decimal("10"),
-            unit_price=Decimal("2500"),
-            sumber_dana=self.funding,
-            source_document_number="SALDO-AWAL-2026",
-        )
         OpeningBalanceImportItem.objects.create(
             opening_balance=opening_balance,
             item=self.item,
@@ -461,6 +451,16 @@ class OpeningBalanceImportAdminTests(TestCase):
             quantity=Decimal("10"),
             unit_price=Decimal("2500"),
             sumber_dana=self.funding,
+        )
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot="BATCH-001",
+            expiry_date=date(2028, 1, 1),
+            quantity=Decimal("10"),
+            unit_price=Decimal("2500"),
+            sumber_dana=self.funding,
+            source_document_number="SALDO-AWAL-2026",
         )
         Transaction.objects.create(
             transaction_type=Transaction.TransactionType.IN,
@@ -529,6 +529,16 @@ class OpeningBalanceImportAdminTests(TestCase):
             source_type=SourceDocumentNumberClaim.SourceType.OPENING_BALANCE,
             source_id=opening_balance.pk,
         )
+        OpeningBalanceImportItem.objects.create(
+            opening_balance=opening_balance,
+            item=self.item,
+            location=self.location,
+            batch_lot="BATCH-001",
+            expiry_date=date(2028, 1, 1),
+            quantity=Decimal("10"),
+            unit_price=Decimal("2500"),
+            sumber_dana=self.funding,
+        )
         Stock.objects.create(
             item=self.item,
             location=self.location,
@@ -561,7 +571,7 @@ class OpeningBalanceImportAdminTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(OpeningBalanceImport.objects.count(), 1)
-        self.assertFalse(OpeningBalanceImportItem.objects.exists())
+        self.assertEqual(OpeningBalanceImportItem.objects.count(), 1)
         self.assertFalse(Transaction.objects.exists())
         self.assertEqual(Stock.objects.get().quantity, Decimal("10"))
 
@@ -605,6 +615,16 @@ class OpeningBalanceImportAdminTests(TestCase):
             document_number="SALDO-AWAL-2026",
             source_type=SourceDocumentNumberClaim.SourceType.OPENING_BALANCE,
             source_id=opening_balance.pk,
+        )
+        OpeningBalanceImportItem.objects.create(
+            opening_balance=opening_balance,
+            item=self.item,
+            location=self.location,
+            batch_lot="BATCH-001",
+            expiry_date=date(2028, 1, 1),
+            quantity=Decimal("10"),
+            unit_price=Decimal("2500"),
+            sumber_dana=self.funding,
         )
         Stock.objects.create(
             item=self.item,
@@ -655,9 +675,59 @@ class OpeningBalanceImportAdminTests(TestCase):
         self.assertEqual(result["skipped"], 1)
         self.assertEqual(result["items"], 0)
         self.assertEqual(result["transactions"], 0)
-        self.assertFalse(OpeningBalanceImportItem.objects.exists())
+        self.assertEqual(OpeningBalanceImportItem.objects.count(), 1)
         self.assertFalse(Transaction.objects.exists())
         self.assertEqual(Stock.objects.get().quantity, Decimal("10"))
+
+    def test_opening_balance_reimport_imports_transfer_created_stock_layer(self):
+        opening_balance = OpeningBalanceImport.objects.create(
+            document_number="SALDO-AWAL-2026",
+            effective_date=date(2026, 1, 1),
+            created_by=self.admin_user,
+            posted_at=timezone.now(),
+        )
+        SourceDocumentNumberClaim.objects.create(
+            document_number="SALDO-AWAL-2026",
+            source_type=SourceDocumentNumberClaim.SourceType.OPENING_BALANCE,
+            source_id=opening_balance.pk,
+        )
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot="BATCH-TRANSFER",
+            expiry_date=date(2028, 1, 1),
+            quantity=Decimal("3"),
+            unit_price=Decimal("2500"),
+            sumber_dana=self.funding,
+            source_document_number="SALDO-AWAL-2026",
+        )
+        self.client.force_login(self.admin_user)
+        csv_content = (
+            "document_number,effective_date,sumber_dana_code,location_code,item_code,"
+            "quantity,batch_lot,expiry_date,unit_price\n"
+            f"SALDO-AWAL-2026,01/01/2026,{self.funding.code},{self.location.code},"
+            f"{self.item.kode_barang},10,BATCH-TRANSFER,01/01/2028,2500\n"
+        )
+
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"csv_file": self._csv_upload(csv_content)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "New")
+        response = self.client.post(
+            reverse("admin:stock_opening_balance_import_csv"),
+            {"action": "confirm", "preview_token": response.context["preview_token"]},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(OpeningBalanceImportItem.objects.count(), 1)
+        self.assertEqual(Transaction.objects.count(), 1)
+        self.assertEqual(
+            Stock.objects.get(batch_lot="BATCH-TRANSFER").quantity,
+            Decimal("13"),
+        )
 
     def test_opening_balance_reimport_accumulates_duplicate_new_rows(self):
         opening_balance = OpeningBalanceImport.objects.create(
