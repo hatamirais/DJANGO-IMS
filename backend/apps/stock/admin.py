@@ -579,8 +579,9 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
             for location in Location.objects.all().only("id", "code")
         }
         imported_documents = {
-            document["document_number"]: document["effective_date"]
+            document["document_number"]: document
             for document in OpeningBalanceImport.objects.values(
+                "id",
                 "document_number",
                 "effective_date",
             )
@@ -589,10 +590,11 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
             Receiving.objects.values_list("document_number", flat=True)
         )
         claimed_documents = {
-            claim["document_number"]: claim["source_type"]
+            claim["document_number"]: claim
             for claim in SourceDocumentNumberClaim.objects.values(
                 "document_number",
                 "source_type",
+                "source_id",
             )
         }
         seen_doc_dates = {}
@@ -721,11 +723,22 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                         doc_number,
                         f"Nomor dokumen '{doc_number}' sudah digunakan oleh dokumen penerimaan. Gunakan document_number saldo awal yang berbeda.",
                     )
-                claimed_source_type = claimed_documents.get(doc_number)
+                claimed_document = claimed_documents.get(doc_number)
+                imported_document = imported_documents.get(doc_number)
                 if (
-                    claimed_source_type
-                    and claimed_source_type
+                    claimed_document
+                    and claimed_document["source_type"]
                     != SourceDocumentNumberClaim.SourceType.OPENING_BALANCE
+                ):
+                    add_error(
+                        row_num,
+                        "document_number",
+                        doc_number,
+                        f"Nomor dokumen '{doc_number}' sudah diklaim oleh dokumen sumber stok lain.",
+                    )
+                elif claimed_document and (
+                    not imported_document
+                    or claimed_document["source_id"] != imported_document["id"]
                 ):
                     add_error(
                         row_num,
@@ -753,7 +766,12 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                             f"effective_date tidak boleh melebihi tanggal posting ({posting_date:%d/%m/%Y}).",
                         )
                     if doc_number:
-                        imported_effective_date = imported_documents.get(doc_number)
+                        imported_document = imported_documents.get(doc_number)
+                        imported_effective_date = (
+                            imported_document["effective_date"]
+                            if imported_document
+                            else None
+                        )
                         if (
                             imported_effective_date is not None
                             and imported_effective_date != effective_date
@@ -1046,11 +1064,17 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                 )
             existing_claim = SourceDocumentNumberClaim.objects.filter(
                 document_number=doc_number
-            ).only("source_type").first()
+            ).only("source_type", "source_id").first()
             if (
                 existing_claim
                 and existing_claim.source_type
                 != SourceDocumentNumberClaim.SourceType.OPENING_BALANCE
+            ):
+                raise ValueError(
+                    f"Nomor dokumen '{doc_number}' sudah diklaim oleh dokumen sumber stok lain."
+                )
+            if existing_claim and (
+                not opening_balance or existing_claim.source_id != opening_balance.pk
             ):
                 raise ValueError(
                     f"Nomor dokumen '{doc_number}' sudah diklaim oleh dokumen sumber stok lain."
