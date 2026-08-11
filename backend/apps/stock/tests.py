@@ -679,6 +679,61 @@ class OpeningBalanceImportAdminTests(TestCase):
         self.assertFalse(Transaction.objects.exists())
         self.assertEqual(Stock.objects.get().quantity, Decimal("10"))
 
+    def test_opening_balance_confirm_rejects_stale_generated_batch_reimport(self):
+        opening_balance = OpeningBalanceImport.objects.create(
+            document_number="SALDO-AWAL-2026",
+            effective_date=date(2026, 1, 1),
+            created_by=self.admin_user,
+            posted_at=timezone.now(),
+        )
+        SourceDocumentNumberClaim.objects.create(
+            document_number="SALDO-AWAL-2026",
+            source_type=SourceDocumentNumberClaim.SourceType.OPENING_BALANCE,
+            source_id=opening_balance.pk,
+        )
+        stock_admin = StockAdmin(Stock, AdminSite())
+        stale_preview = {
+            "documents": [
+                {
+                    "document_number": "SALDO-AWAL-2026",
+                    "effective_date": date(2026, 1, 1),
+                    "rows": [
+                        {
+                            "row_num": 2,
+                            "item": self.item,
+                            "location": self.location,
+                            "funding": self.funding,
+                            "batch_lot": "SALDO-AWAL-2026-000002",
+                            "batch_lot_was_supplied": False,
+                            "expiry_date": date(2028, 1, 1),
+                            "quantity": Decimal("10"),
+                            "unit_price": Decimal("2500"),
+                            "is_existing": False,
+                        }
+                    ],
+                }
+            ]
+        }
+
+        with (
+            patch.object(
+                stock_admin,
+                "_preflight_opening_balance_csv",
+                return_value={"errors": []},
+            ),
+            patch.object(
+                stock_admin,
+                "_parse_opening_balance_csv",
+                return_value=stale_preview,
+            ),
+        ):
+            with self.assertRaisesMessage(ValueError, "batch_lot wajib diisi"):
+                stock_admin._process_opening_balance_csv("ignored", self.admin_user)
+
+        self.assertFalse(OpeningBalanceImportItem.objects.exists())
+        self.assertFalse(Stock.objects.exists())
+        self.assertFalse(Transaction.objects.exists())
+
     def test_opening_balance_reimport_imports_transfer_created_stock_layer(self):
         opening_balance = OpeningBalanceImport.objects.create(
             document_number="SALDO-AWAL-2026",

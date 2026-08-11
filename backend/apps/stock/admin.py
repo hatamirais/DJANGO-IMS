@@ -391,6 +391,16 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                         f"Dokumen saldo awal '{document['document_number']}' sudah memakai effective_date "
                         f"{opening_balance.effective_date:%d/%m/%Y}."
                     )
+                generated_batch_rows = [
+                    str(row["row_num"])
+                    for row in document["rows"]
+                    if not row.get("batch_lot_was_supplied", True)
+                ]
+                if generated_batch_rows:
+                    raise ValueError(
+                        "batch_lot wajib diisi saat reimport dokumen saldo awal "
+                        f"yang sudah diposting. Baris: {', '.join(generated_batch_rows)}."
+                    )
             else:
                 existing_document = False
                 claim = new_claims[document["document_number"]]
@@ -1140,6 +1150,7 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                     raise ValueError(
                         f"Baris {row_num}: batch_lot wajib diisi saat reimport dokumen saldo awal yang sudah diposting."
                     )
+                batch_lot_was_supplied = bool(raw_batch_lot)
                 batch_lot = raw_batch_lot or self._generate_opening_balance_batch_lot(
                     doc_number,
                     row_num,
@@ -1212,6 +1223,7 @@ class StockAdmin(ImportGuideMixin, ImportExportModelAdmin):
                         "funding_name": funding.name,
                         "funding": funding,
                         "batch_lot": batch_lot,
+                        "batch_lot_was_supplied": batch_lot_was_supplied,
                         "expiry_date": expiry_date,
                         "quantity": quantity,
                         "unit_price": unit_price,
