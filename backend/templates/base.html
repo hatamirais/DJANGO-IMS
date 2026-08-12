@@ -8,10 +8,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token }}">
     <title>{% block title %}Healthcare IMS{% endblock %}</title>
+    <link rel="icon" type="image/svg+xml" href="{% static 'img/default-logo.svg' %}?v={{ app_version }}-20260812">
     <link href="{% static 'vendor/bootstrap/css/bootstrap.min.css' %}?v={{ app_version }}-20260416" rel="stylesheet">
     <link href="{% static 'vendor/bootstrap-icons/bootstrap-icons.min.css' %}?v={{ app_version }}-20260416"
         rel="stylesheet">
-    <link href="{% static 'css/style.css' %}?v={{ app_version }}-20260416" rel="stylesheet">
+    <link href="{% static 'css/style.css' %}?v={{ app_version }}-20260812c" rel="stylesheet">
     {% block extra_css %}{% endblock %}
 </head>
 
@@ -22,18 +23,8 @@
         <nav id="sidebar" class="sidebar">
             <div class="sidebar-header">
                 <a href="{% url 'dashboard' %}" class="sidebar-brand">
-                    {% if system_settings and system_settings.logo %}
-                    {% with logo_url=system_settings.logo.url|safe_media_url %}
-                    {% if logo_url %}
-                    <img src="{{ logo_url }}" alt="Logo" style="height: 32px; width: auto;" class="me-2">
-                    {% else %}
-                    <i class="bi bi-hospital"></i>
-                    {% endif %}
-                    {% endwith %}
-                    {% else %}
-                    <i class="bi bi-hospital"></i>
-                    {% endif %}
-                    <span>{{ system_settings.facility_name|default:"Healthcare IMS" }}</span>
+                    <img src="{% static 'img/default-logo.svg' %}" alt="" class="sidebar-brand-logo" aria-hidden="true">
+                    <span>{{ system_settings.platform_label|default:"Healthcare IMS" }}</span>
                 </a>
                 <button class="btn btn-link sidebar-toggle d-lg-none" id="sidebarToggle">
                     <i class="bi bi-x-lg"></i>

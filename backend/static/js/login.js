@@ -50,6 +50,6 @@ document.addEventListener("DOMContentLoaded", function () {
             if (label) {
                 label.textContent = "Memproses...";
             }
-        }
+        });
     }
 });
