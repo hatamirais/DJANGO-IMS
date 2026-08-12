@@ -7,33 +7,30 @@
 
 {% block public_content %}
 <section class="auth-shell">
-    <div class="auth-backdrop auth-backdrop-primary"></div>
-    <div class="auth-orb auth-orb-one"></div>
-    <div class="auth-orb auth-orb-two"></div>
-
     <div class="auth-layout auth-layout-centered">
         <div class="auth-panel px-3 px-md-0">
-            <div class="auth-card auth-card-login px-4 px-sm-5 py-4 py-sm-5">
-                <div class="auth-card-brand">
-                    <div class="auth-brand-mark auth-brand-mark-card">
-                        {% if system_settings and system_settings.logo %}
-                        {% with logo_url=system_settings.logo.url|safe_media_url %}
-                        {% if logo_url %}
-                        <img src="{{ logo_url }}" alt="Logo {{ system_settings.facility_name|default:'Healthcare IMS'|escape }}" class="auth-brand-logo">
-                        {% else %}
-                        <img src="{% static 'img/default-logo.svg' %}" alt="" class="auth-brand-logo" aria-hidden="true">
-                        {% endif %}
-                        {% endwith %}
-                        {% else %}
-                        <img src="{% static 'img/default-logo.svg' %}" alt="" class="auth-brand-logo" aria-hidden="true">
-                        {% endif %}
-                    </div>
-                    <span class="auth-eyebrow auth-eyebrow-card">{{ system_settings.platform_label|default:system_settings.facility_name|default:"Healthcare Inventory Management System" }}</span>
+            <div class="auth-card-brand auth-login-brand">
+                <div class="auth-brand-mark auth-brand-mark-card">
+                    {% if system_settings and system_settings.logo %}
+                    {% with logo_url=system_settings.logo.url|safe_media_url %}
+                    {% if logo_url %}
+                    <img src="{{ logo_url }}" alt="Logo {{ system_settings.facility_name|default:'Healthcare IMS'|escape }}" class="auth-brand-logo">
+                    {% else %}
+                    <img src="{% static 'img/default-logo.svg' %}" alt="" class="auth-brand-logo" aria-hidden="true">
+                    {% endif %}
+                    {% endwith %}
+                    {% else %}
+                    <img src="{% static 'img/default-logo.svg' %}" alt="" class="auth-brand-logo" aria-hidden="true">
+                    {% endif %}
                 </div>
+                <span class="auth-brand-name">{{ system_settings.platform_label|default:system_settings.facility_name|default:"Healthcare IMS" }}</span>
+            </div>
 
-                <div class="auth-card-header">
-                    <h2>Masuk ke sistem</h2>
-                    <p>Portal masuk petugas untuk mengakses modul inventaris.</p>
+            <div class="auth-card auth-card-login px-4 px-sm-5 py-4 py-sm-5">
+
+                <div class="auth-card-header text-center">
+                    <h2>Selamat Datang</h2>
+                    <p>Silakan masuk untuk melanjutkan ke sistem.</p>
                 </div>
 
                 {% if form.errors %}
@@ -52,8 +49,8 @@
 
                     <div class="auth-support-row">
                         <div class="auth-support-note">
-                            <i class="bi bi-info-circle"></i>
-                            Lupa kata sandi? Hubungi administrator untuk reset akses.
+                            <span>Lupa kata sandi?</span>
+                            <strong>Hubungi administrator</strong>
                         </div>
                     </div>
 
@@ -78,5 +75,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'js/login.js' %}?v={{ app_version }}-20260724"></script>
+<script src="{% static 'js/login.js' %}?v={{ app_version }}-20260812a"></script>
 {% endblock %}
