@@ -516,196 +516,6 @@ class DashboardViewTests(TestCase):
         self.assertNotContains(response, "dashboard-actor")
         self.assertNotContains(response, "Pengguna")
 
-    def test_global_dashboard_total_stock_quantity_uses_available_stock(self):
-        viewer = User.objects.create_user(
-            username="dashboard-available-stock",
-            password="TestPassword123!",
-            role=User.Role.ADMIN_UMUM,
-        )
-        self._set_scope(viewer, ModuleAccess.Module.STOCK, ModuleAccess.Scope.VIEW)
-        self._set_scope(viewer, ModuleAccess.Module.ITEMS, ModuleAccess.Scope.NONE)
-        self._set_scope(viewer, ModuleAccess.Module.EXPIRED, ModuleAccess.Scope.NONE)
-        self._set_scope(viewer, ModuleAccess.Module.USERS, ModuleAccess.Scope.NONE)
-        self._set_scope(viewer, ModuleAccess.Module.ADMIN_PANEL, ModuleAccess.Scope.NONE)
-
-        unit = Unit.objects.create(code="KPS", name="Kapsul")
-        category = Category.objects.create(code="OBT2", name="Obat Uji")
-        funding_source = FundingSource.objects.create(code="DAU", name="Dana Alokasi Umum")
-        location = Location.objects.create(code="GD2", name="Gudang Cadangan")
-        item = Item.objects.create(
-            nama_barang="Amoxicillin 500mg",
-            satuan=unit,
-            kategori=category,
-        )
-        Stock.objects.create(
-            item=item,
-            location=location,
-            batch_lot="BATCH-AVAILABLE-001",
-            expiry_date="2026-12-31",
-            quantity=Decimal("100"),
-            reserved=Decimal("60"),
-            unit_price=Decimal("1000"),
-            sumber_dana=funding_source,
-        )
-
-        self.client.force_login(viewer)
-        response = self.client.get(reverse("dashboard"))
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["total_stock_quantity"], Decimal("40"))
-
-    def test_global_dashboard_today_transaction_count_includes_return_transactions(self):
-        viewer = User.objects.create_user(
-            username="dashboard-transaction-count",
-            password="TestPassword123!",
-            role=User.Role.ADMIN_UMUM,
-        )
-        actor = User.objects.create_user(
-            username="dashboard-return-actor",
-            password="TestPassword123!",
-            role=User.Role.GUDANG,
-        )
-        self._set_scope(viewer, ModuleAccess.Module.STOCK, ModuleAccess.Scope.VIEW)
-        self._set_scope(viewer, ModuleAccess.Module.EXPIRED, ModuleAccess.Scope.NONE)
-        self._set_scope(viewer, ModuleAccess.Module.ITEMS, ModuleAccess.Scope.NONE)
-        self._set_scope(viewer, ModuleAccess.Module.USERS, ModuleAccess.Scope.NONE)
-        self._set_scope(viewer, ModuleAccess.Module.ADMIN_PANEL, ModuleAccess.Scope.NONE)
-
-        unit = Unit.objects.create(code="RET", name="Retur")
-        category = Category.objects.create(code="RET", name="Retur Test")
-        funding_source = FundingSource.objects.create(code="RET", name="Retur Funding")
-        location = Location.objects.create(code="GDRET", name="Gudang Retur")
-        item = Item.objects.create(
-            nama_barang="Item Retur Dashboard",
-            satuan=unit,
-            kategori=category,
-        )
-        fixed_now = timezone.now().replace(hour=12, minute=0, second=0, microsecond=0)
-        today_transaction = Transaction.objects.create(
-            transaction_type=Transaction.TransactionType.RETURN,
-            item=item,
-            location=location,
-            batch_lot="RETURN-001",
-            quantity=Decimal("5"),
-            unit_price=Decimal("1000"),
-            sumber_dana=funding_source,
-            reference_type=Transaction.ReferenceType.RECALL,
-            reference_id=1,
-            user=actor,
-        )
-        tomorrow_transaction = Transaction.objects.create(
-            transaction_type=Transaction.TransactionType.RETURN,
-            item=item,
-            location=location,
-            batch_lot="RETURN-002",
-            quantity=Decimal("3"),
-            unit_price=Decimal("1000"),
-            sumber_dana=funding_source,
-            reference_type=Transaction.ReferenceType.RECALL,
-            reference_id=2,
-            user=actor,
-        )
-        Transaction.objects.filter(pk=today_transaction.pk).update(created_at=fixed_now)
-        Transaction.objects.filter(pk=tomorrow_transaction.pk).update(
-            created_at=fixed_now + timedelta(days=1)
-        )
-
-        self.client.force_login(viewer)
-        response = self.client.get(reverse("dashboard"))
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["today_transaction_count"], 1)
-        self.assertContains(response, "Semua jenis transaksi")
-
-    def test_global_dashboard_excludes_transfer_transactions_from_kpis(self):
-        viewer = User.objects.create_user(
-            username="dashboard-transfer-metrics",
-            password="TestPassword123!",
-            role=User.Role.ADMIN_UMUM,
-        )
-        actor = User.objects.create_user(
-            username="dashboard-transfer-actor",
-            password="TestPassword123!",
-            role=User.Role.GUDANG,
-        )
-        self._set_scope(viewer, ModuleAccess.Module.STOCK, ModuleAccess.Scope.VIEW)
-        self._set_scope(viewer, ModuleAccess.Module.EXPIRED, ModuleAccess.Scope.NONE)
-        self._set_scope(viewer, ModuleAccess.Module.ITEMS, ModuleAccess.Scope.NONE)
-        self._set_scope(viewer, ModuleAccess.Module.USERS, ModuleAccess.Scope.NONE)
-        self._set_scope(viewer, ModuleAccess.Module.ADMIN_PANEL, ModuleAccess.Scope.NONE)
-
-        unit = Unit.objects.create(code="TRM", name="Transfer Metric")
-        category = Category.objects.create(code="TRM", name="Transfer Metric")
-        funding_source = FundingSource.objects.create(code="TRM", name="Transfer Metric")
-        source_location = Location.objects.create(code="TRSRC", name="Gudang Karantina")
-        destination_location = Location.objects.create(code="TRDST", name="Gudang Sirup")
-        item = Item.objects.create(
-            nama_barang="Item Mutasi Dashboard",
-            satuan=unit,
-            kategori=category,
-        )
-
-        fixed_now = timezone.now().replace(hour=10, minute=0, second=0, microsecond=0)
-        inbound = Transaction.objects.create(
-            transaction_type=Transaction.TransactionType.IN,
-            item=item,
-            location=source_location,
-            batch_lot="IN-001",
-            quantity=Decimal("20"),
-            unit_price=Decimal("1000"),
-            sumber_dana=funding_source,
-            reference_type=Transaction.ReferenceType.RECEIVING,
-            reference_id=10,
-            user=actor,
-        )
-        transfer_out = Transaction.objects.create(
-            transaction_type=Transaction.TransactionType.OUT,
-            item=item,
-            location=source_location,
-            batch_lot="TRF-001",
-            quantity=Decimal("5"),
-            unit_price=Decimal("1000"),
-            sumber_dana=funding_source,
-            reference_type=Transaction.ReferenceType.TRANSFER,
-            reference_id=20,
-            user=actor,
-        )
-        transfer_in = Transaction.objects.create(
-            transaction_type=Transaction.TransactionType.IN,
-            item=item,
-            location=destination_location,
-            batch_lot="TRF-001",
-            quantity=Decimal("5"),
-            unit_price=Decimal("1000"),
-            sumber_dana=funding_source,
-            reference_type=Transaction.ReferenceType.TRANSFER,
-            reference_id=20,
-            user=actor,
-        )
-        outbound = Transaction.objects.create(
-            transaction_type=Transaction.TransactionType.OUT,
-            item=item,
-            location=destination_location,
-            batch_lot="OUT-001",
-            quantity=Decimal("7"),
-            unit_price=Decimal("1000"),
-            sumber_dana=funding_source,
-            reference_type=Transaction.ReferenceType.DISTRIBUTION,
-            reference_id=30,
-            user=actor,
-        )
-
-        for transaction in (inbound, transfer_out, transfer_in, outbound):
-            Transaction.objects.filter(pk=transaction.pk).update(created_at=fixed_now)
-
-        self.client.force_login(viewer)
-        response = self.client.get(reverse("dashboard"))
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["today_transaction_count"], 2)
-        self.assertEqual(response.context["inbound_30_days"], Decimal("20"))
-        self.assertEqual(response.context["outbound_30_days"], Decimal("7"))
-
     def test_global_dashboard_recent_transactions_excludes_transfer_rows(self):
         viewer = User.objects.create_user(
             username="dashboard-transfer-recent",
@@ -825,7 +635,6 @@ class DashboardViewTests(TestCase):
         response = self.client.get(reverse("dashboard"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["expiring_soon_count"], 1)
         self.assertEqual(list(response.context["expiring_soon"]), [near_expiry_stock])
         self.assertContains(response, "Stok Mendekati Expired")
         self.assertNotContains(response, "Stok Sudah Expired")
@@ -848,10 +657,16 @@ class DashboardViewTests(TestCase):
         response = self.client.get(reverse("dashboard"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Total Stok Aktif")
+        self.assertContains(response, "Aksi Cepat")
+        self.assertContains(response, "Transaksi Terakhir")
         self.assertContains(response, 'href="/stock/transactions/"', html=False)
         self.assertNotContains(response, "Total Jenis Barang")
+        self.assertNotContains(response, "Total Stok Aktif")
         self.assertNotContains(response, "Stok Rendah")
+        self.assertNotContains(response, "Total Kuantitas Tersedia")
+        self.assertNotContains(response, "Estimasi Nilai Stok")
+        self.assertNotContains(response, "Transaksi Hari Ini")
+        self.assertNotContains(response, "Pergerakan Stok")
         self.assertNotContains(response, 'href="/expired/alerts/?level=all&amp;pending=1"', html=False)
         self.assertNotContains(response, "Buat Penerimaan")
         self.assertNotContains(response, "Buat Permintaan Khusus")
@@ -896,11 +711,11 @@ class DashboardViewTests(TestCase):
         response = self.client.get(reverse("dashboard"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Total Jenis Barang")
-        self.assertContains(response, "Total Stok Aktif")
-        self.assertContains(response, "Total Kuantitas Tersedia")
-        self.assertContains(response, "Estimasi Nilai Stok")
-        self.assertContains(response, "Transaksi Hari Ini")
+        self.assertNotContains(response, "Total Jenis Barang")
+        self.assertNotContains(response, "Total Stok Aktif")
+        self.assertNotContains(response, "Total Kuantitas Tersedia")
+        self.assertNotContains(response, "Estimasi Nilai Stok")
+        self.assertNotContains(response, "Transaksi Hari Ini")
         self.assertNotContains(response, "Pergerakan Stok")
         self.assertNotContains(response, "Transaksi Terakhir")
         self.assertNotContains(response, "Aksi Cepat")
