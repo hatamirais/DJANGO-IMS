@@ -320,6 +320,24 @@ class DashboardViewTests(TestCase):
             defaults={"scope": scope},
         )
 
+    def test_sidebar_brand_uses_configured_navbar_logo(self):
+        admin_user = User.objects.create_superuser(
+            username="dashboard-logo-admin",
+            email="dashboard-logo-admin@example.com",
+            password="TestPassword123!",
+        )
+        settings = SystemSettings.get_settings()
+        settings.platform_label = "Configured IMS"
+        settings.logo.name = "settings/custom-navbar.png"
+        settings.save(update_fields=["platform_label", "logo"])
+
+        self.client.force_login(admin_user)
+        response = self.client.get(reverse("dashboard"))
+
+        self.assertContains(response, 'src="/media/settings/custom-navbar.png"', html=False)
+        self.assertContains(response, 'class="sidebar-brand-logo"', html=False)
+        self.assertContains(response, "<span>Configured IMS</span>", html=False)
+
     def test_puskesmas_dashboard_uses_facility_scoped_template(self):
         own_lplpo = LPLPO.objects.create(
             facility=self.facility,
