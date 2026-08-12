@@ -711,6 +711,10 @@ class DashboardViewTests(TestCase):
         response = self.client.get(reverse("dashboard"))
 
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "dashboard-reports-landing")
+        self.assertContains(response, "Daftar Laporan")
+        self.assertContains(response, 'href="/reports/"', html=False)
+        self.assertContains(response, 'href="/reports/rekap/"', html=False)
         self.assertNotContains(response, "Total Jenis Barang")
         self.assertNotContains(response, "Total Stok Aktif")
         self.assertNotContains(response, "Total Kuantitas Tersedia")

@@ -121,5 +121,40 @@
         {% endif %}
     </div>
 </div>
+{% else %}
+<div class="row g-3">
+    <div class="col-lg-8">
+        <div class="card content-card dashboard-reports-landing">
+            <div class="card-header">
+                <span><i class="bi bi-file-earmark-bar-graph me-2"></i>Laporan</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="list-group list-group-flush">
+                    <a href="{% url 'reports:index' %}" class="list-group-item list-group-item-action px-3 py-3">
+                        <div class="fw-semibold">Daftar Laporan</div>
+                    </a>
+                    <a href="{% url 'reports:numbering_history' %}" class="list-group-item list-group-item-action px-3 py-3">
+                        <div class="fw-semibold">Riwayat Penomoran</div>
+                    </a>
+                    <a href="{% url 'reports:rekap' %}" class="list-group-item list-group-item-action px-3 py-3">
+                        <div class="fw-semibold">Rekapitulasi</div>
+                    </a>
+                    <a href="{% url 'reports:penerimaan_hibah' %}" class="list-group-item list-group-item-action px-3 py-3">
+                        <div class="fw-semibold">Penerimaan Hibah</div>
+                    </a>
+                    <a href="{% url 'reports:pengadaan' %}" class="list-group-item list-group-item-action px-3 py-3">
+                        <div class="fw-semibold">Pengadaan</div>
+                    </a>
+                    <a href="{% url 'reports:kadaluarsa' %}" class="list-group-item list-group-item-action px-3 py-3">
+                        <div class="fw-semibold">Kadaluarsa</div>
+                    </a>
+                    <a href="{% url 'reports:pengeluaran' %}" class="list-group-item list-group-item-action px-3 py-3">
+                        <div class="fw-semibold">Pengeluaran</div>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 {% endif %}
 {% endblock %}
