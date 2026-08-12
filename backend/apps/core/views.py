@@ -75,6 +75,11 @@ def _can_access_global_dashboard(user):
     if not getattr(user, "is_authenticated", False):
         return False
 
+    if getattr(user, "role", None) == User.Role.AUDITOR:
+        return has_module_scope(
+            user, ModuleAccess.Module.REPORTS, ModuleAccess.Scope.VIEW
+        )
+
     return user.is_superuser or has_module_scope(
         user, ModuleAccess.Module.STOCK, ModuleAccess.Scope.VIEW
     )
@@ -216,6 +221,9 @@ def dashboard(request):
     can_view_expired = has_module_scope(
         request.user, ModuleAccess.Module.EXPIRED, ModuleAccess.Scope.VIEW
     )
+    can_view_reports = has_module_scope(
+        request.user, ModuleAccess.Module.REPORTS, ModuleAccess.Scope.VIEW
+    )
     can_create_receiving = has_module_scope(
         request.user, ModuleAccess.Module.RECEIVING, ModuleAccess.Scope.OPERATE
     )
@@ -259,6 +267,7 @@ def dashboard(request):
         {
             "expiring_soon": expiring_soon,
             "show_expiring_metrics": can_view_expired and show_linked_dashboard_sections,
+            "show_reports_landing": can_view_reports and not show_linked_dashboard_sections,
             "show_linked_dashboard_sections": show_linked_dashboard_sections,
             "show_receiving_quick_action": can_create_receiving,
             "show_distribution_quick_action": can_create_distribution,

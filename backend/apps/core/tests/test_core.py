@@ -727,6 +727,27 @@ class DashboardViewTests(TestCase):
         self.assertNotContains(response, 'href="/stock/transactions/"', html=False)
         self.assertNotContains(response, 'href="/expired/alerts/?level=all&amp;pending=1"', html=False)
 
+    def test_auditor_dashboard_requires_reports_scope_for_reports_landing(self):
+        auditor = User.objects.create_user(
+            username="auditor-dashboard-no-reports",
+            password="TestPassword123!",
+            role=User.Role.AUDITOR,
+        )
+        self._set_scope(auditor, ModuleAccess.Module.STOCK, ModuleAccess.Scope.VIEW)
+        self._set_scope(auditor, ModuleAccess.Module.REPORTS, ModuleAccess.Scope.NONE)
+
+        self.client.force_login(auditor)
+        response = self.client.get(reverse("dashboard"))
+
+        self.assertEqual(response.status_code, 403)
+        self.assertContains(
+            response,
+            "Anda tidak memiliki izin untuk mengakses dashboard inventaris.",
+            status_code=403,
+        )
+        self.assertNotContains(response, "dashboard-reports-landing", status_code=403)
+        self.assertNotContains(response, 'href="/reports/"', status_code=403, html=False)
+
     def test_superuser_dashboard_keeps_puskesmas_sidebar_visible(self):
         admin_user = User.objects.create_superuser(
             username="dashboard-admin-puskesmas",
