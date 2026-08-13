@@ -7,6 +7,27 @@ The format is based on Keep a Changelog and follows Semantic Versioning (`MAJOR.
 
 ## [Unreleased]
 
+## [1.31.3] - 2026-08-13
+
+### Changed
+
+- Non-Puskesmas dashboards now focus on operational work by removing the top KPI cards, secondary KPI cards, and stock-movement summary.
+- The operational dashboard layout now keeps `Transaksi Terakhir` on the left, with `Aksi Cepat` above `Mendekati Kedaluwarsa` on the right.
+- Auditor dashboards now show a report-focused landing surface instead of operational drill-through sections.
+
+### Fixed
+
+- Auditor dashboard access now honors both Django `reports.view_reports` permission grants and REPORTS module-scope fallback.
+- Added a production-provisioned unmanaged `reports.ReportPermission` marker so administrators can assign `reports.view_reports` in deployed databases instead of relying on test-only permission setup.
+
+### Security
+
+- Updated `tablib` from `3.9.0` to `3.10.0` to pick up the HTML export stored-XSS fix for CVE-2026-9318.
+
+### Documentation
+
+- Updated the system model to document the reports permission marker.
+
 ## [1.31.2] - 2026-08-11
 
 ### Changed
