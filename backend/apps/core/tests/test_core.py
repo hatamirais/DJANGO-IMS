@@ -9,6 +9,8 @@ from import_export.formats import base_formats
 from tablib import Dataset
 
 from django.contrib.auth.models import AnonymousUser
+from django.contrib.auth.models import Permission
+from django.contrib.contenttypes.models import ContentType
 from django.core.cache import cache
 from django.core.exceptions import PermissionDenied
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -747,6 +749,35 @@ class DashboardViewTests(TestCase):
         )
         self.assertNotContains(response, "dashboard-reports-landing", status_code=403)
         self.assertNotContains(response, 'href="/reports/"', status_code=403, html=False)
+
+    def test_auditor_dashboard_allows_django_reports_permission(self):
+        auditor = User.objects.create_user(
+            username="auditor-dashboard-django-reports",
+            password="TestPassword123!",
+            role=User.Role.AUDITOR,
+        )
+        self._set_scope(auditor, ModuleAccess.Module.STOCK, ModuleAccess.Scope.NONE)
+        self._set_scope(auditor, ModuleAccess.Module.REPORTS, ModuleAccess.Scope.NONE)
+        reports_content_type, _ = ContentType.objects.get_or_create(
+            app_label="reports",
+            model="reportpermission",
+        )
+        reports_permission, _ = Permission.objects.get_or_create(
+            codename="view_reports",
+            content_type=reports_content_type,
+            defaults={"name": "Can view reports"},
+        )
+        auditor.user_permissions.add(reports_permission)
+
+        self.client.force_login(auditor)
+        response = self.client.get(reverse("dashboard"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "dashboard-reports-landing")
+        self.assertContains(response, 'href="/reports/"', html=False)
+        self.assertContains(response, 'href="/reports/rekap/"', html=False)
+        self.assertNotContains(response, "Transaksi Terakhir")
+        self.assertNotContains(response, "Aksi Cepat")
 
     def test_superuser_dashboard_keeps_puskesmas_sidebar_visible(self):
         admin_user = User.objects.create_superuser(

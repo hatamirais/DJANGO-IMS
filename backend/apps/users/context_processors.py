@@ -1,4 +1,4 @@
-from .access import has_module_scope, is_super_admin
+from .access import has_module_permission, has_module_scope, is_super_admin
 from .models import ModuleAccess
 
 
@@ -64,9 +64,8 @@ def access_flags(request):
         "can_view_stock_opname": has_module_scope(
             user, ModuleAccess.Module.STOCK_OPNAME, ModuleAccess.Scope.VIEW
         ),
-        "can_view_reports": has_module_scope(
-            user, ModuleAccess.Module.REPORTS, ModuleAccess.Scope.VIEW
-        ),
+        "can_view_reports": user.has_perm("reports.view_reports")
+        or has_module_permission(user, "reports.view_reports"),
         "can_view_puskesmas": has_module_scope(
             user, ModuleAccess.Module.PUSKESMAS, ModuleAccess.Scope.VIEW
         )

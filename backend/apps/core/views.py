@@ -13,7 +13,7 @@ from apps.lplpo.models import LPLPO
 from apps.puskesmas.models import PuskesmasRequest
 from apps.stock.models import Stock, Transaction
 from apps.users.models import User
-from apps.users.access import has_module_scope
+from apps.users.access import has_module_permission, has_module_scope
 from apps.users.models import ModuleAccess
 from django.urls import reverse, reverse_lazy
 from django.views.generic.edit import UpdateView
@@ -76,13 +76,17 @@ def _can_access_global_dashboard(user):
         return False
 
     if getattr(user, "role", None) == User.Role.AUDITOR:
-        return has_module_scope(
-            user, ModuleAccess.Module.REPORTS, ModuleAccess.Scope.VIEW
-        )
+        return _can_view_reports(user)
 
     return user.is_superuser or has_module_scope(
         user, ModuleAccess.Module.STOCK, ModuleAccess.Scope.VIEW
     )
+
+
+def _can_view_reports(user):
+    return user.is_superuser or user.has_perm(
+        "reports.view_reports"
+    ) or has_module_permission(user, "reports.view_reports")
 
 
 def maintenance_mode(request):
@@ -221,9 +225,7 @@ def dashboard(request):
     can_view_expired = has_module_scope(
         request.user, ModuleAccess.Module.EXPIRED, ModuleAccess.Scope.VIEW
     )
-    can_view_reports = has_module_scope(
-        request.user, ModuleAccess.Module.REPORTS, ModuleAccess.Scope.VIEW
-    )
+    can_view_reports = _can_view_reports(request.user)
     can_create_receiving = has_module_scope(
         request.user, ModuleAccess.Module.RECEIVING, ModuleAccess.Scope.OPERATE
     )
