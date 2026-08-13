@@ -10,7 +10,6 @@ from tablib import Dataset
 
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.auth.models import Permission
-from django.contrib.contenttypes.models import ContentType
 from django.core.cache import cache
 from django.core.exceptions import PermissionDenied
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -758,14 +757,10 @@ class DashboardViewTests(TestCase):
         )
         self._set_scope(auditor, ModuleAccess.Module.STOCK, ModuleAccess.Scope.NONE)
         self._set_scope(auditor, ModuleAccess.Module.REPORTS, ModuleAccess.Scope.NONE)
-        reports_content_type, _ = ContentType.objects.get_or_create(
-            app_label="reports",
-            model="reportpermission",
-        )
-        reports_permission, _ = Permission.objects.get_or_create(
+        reports_permission = Permission.objects.get(
             codename="view_reports",
-            content_type=reports_content_type,
-            defaults={"name": "Can view reports"},
+            content_type__app_label="reports",
+            content_type__model="reportpermission",
         )
         auditor.user_permissions.add(reports_permission)
 
