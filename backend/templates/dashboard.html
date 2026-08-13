@@ -1,226 +1,12 @@
 {% extends "base.html" %}
-{% load number_format %}
 
 {% block title %}Dashboard — Healthcare IMS{% endblock %}
 {% block page_title %}Dashboard{% endblock %}
 
 {% block content %}
-<!-- Stats Row -->
-<div class="row g-3 mb-4">
-    {% if show_items_metrics %}
-    <div class="col-sm-6 col-xl-3">
-        <div class="card stat-card">
-            <div class="card-body">
-                <div class="d-flex align-items-center justify-content-between mb-3">
-                    <div class="stat-icon blue"><i class="bi bi-box-seam"></i></div>
-                    <button type="button" class="btn btn-link p-0 kpi-help" data-bs-toggle="tooltip" data-bs-placement="top"
-                        data-bs-title="Jumlah master barang aktif (Item.is_active = true)." aria-label="Informasi Total Jenis Barang">
-                        <i class="bi bi-info-circle"></i>
-                    </button>
-                </div>
-                <div class="stat-value">{{ total_items }}</div>
-                <div class="stat-label">Total Jenis Barang</div>
-            </div>
-        </div>
-    </div>
-    {% endif %}
-    <div class="col-sm-6 col-xl-3">
-        <div class="card stat-card">
-            <div class="card-body">
-                <div class="d-flex align-items-center justify-content-between mb-3">
-                    <div class="stat-icon green"><i class="bi bi-boxes"></i></div>
-                    <button type="button" class="btn btn-link p-0 kpi-help" data-bs-toggle="tooltip" data-bs-placement="top"
-                        data-bs-title="Jumlah entri stok dengan kuantitas > 0 (per batch/lokasi)." aria-label="Informasi Total Stok Aktif">
-                        <i class="bi bi-info-circle"></i>
-                    </button>
-                </div>
-                <div class="stat-value">{{ total_stock_entries }}</div>
-                <div class="stat-label">Total Stok Aktif</div>
-            </div>
-        </div>
-    </div>
-    {% if show_items_metrics %}
-    <div class="col-sm-6 col-xl-3">
-        <div class="card stat-card">
-            <div class="card-body">
-                <div class="d-flex align-items-center justify-content-between mb-3">
-                    <div class="stat-icon orange"><i class="bi bi-exclamation-triangle"></i></div>
-                    <button type="button" class="btn btn-link p-0 kpi-help" data-bs-toggle="tooltip" data-bs-placement="top"
-                        data-bs-title="Barang aktif dengan total stok di bawah stok minimum yang ditetapkan." aria-label="Informasi Stok Rendah">
-                        <i class="bi bi-info-circle"></i>
-                    </button>
-                </div>
-                <div class="stat-value">{{ low_stock_count }}</div>
-                <div class="stat-label">Stok Rendah</div>
-            </div>
-        </div>
-    </div>
-    {% endif %}
-    {% if show_expiring_metrics %}
-    <div class="col-sm-6 col-xl-3">
-        <div class="card stat-card">
-            <div class="card-body">
-                <div class="d-flex align-items-center justify-content-between mb-3">
-                    <div class="stat-icon red"><i class="bi bi-calendar-x"></i></div>
-                    <button type="button" class="btn btn-link p-0 kpi-help" data-bs-toggle="tooltip" data-bs-placement="top"
-                        data-bs-title="Jumlah batch stok aktif dengan tanggal kedaluwarsa <= 90 hari ke depan." aria-label="Informasi Mendekati Kedaluwarsa">
-                        <i class="bi bi-info-circle"></i>
-                    </button>
-                </div>
-                <div class="stat-value">{{ expiring_soon_count }}</div>
-                <div class="stat-label">Mendekati Kedaluwarsa</div>
-                <a href="{% url 'expired:expired_alerts' %}?level=all&pending=1" class="stretched-link" aria-label="Lihat pemantauan kedaluwarsa"></a>
-            </div>
-        </div>
-    </div>
-    {% endif %}
-</div>
-
-<!-- Secondary KPIs -->
-<div class="row g-3 mb-4">
-    <div class="col-md-6 col-xl-4">
-        <div class="card content-card h-100">
-            <div class="card-body">
-                <div class="d-flex align-items-center justify-content-between mb-2">
-                    <h6 class="mb-0">Total Kuantitas Tersedia</h6>
-                    <div class="d-flex align-items-center gap-2">
-                        <span class="badge bg-primary-subtle text-primary">Semua Lokasi</span>
-                        <button type="button" class="btn btn-link p-0 kpi-help" data-bs-toggle="tooltip" data-bs-placement="top"
-                            data-bs-title="Total penjumlahan kuantitas tersedia pada stok aktif (quantity - reserved)." aria-label="Informasi Total Kuantitas Tersedia">
-                            <i class="bi bi-info-circle"></i>
-                        </button>
-                    </div>
-                </div>
-                <div class="stat-value mb-1">{{ total_stock_quantity|id_decimal:2 }}</div>
-                <div class="text-muted small">Akumulasi kuantitas stok aktif setelah dikurangi stok dicadangkan</div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-6 col-xl-4">
-        <div class="card content-card h-100">
-            <div class="card-body">
-                <div class="d-flex align-items-center justify-content-between mb-2">
-                    <h6 class="mb-0">Estimasi Nilai Stok</h6>
-                    <div class="d-flex align-items-center gap-2">
-                        <span class="badge bg-success-subtle text-success">IDR</span>
-                        <button type="button" class="btn btn-link p-0 kpi-help" data-bs-toggle="tooltip" data-bs-placement="top"
-                            data-bs-title="Total kuantitas x harga satuan pada stok aktif (estimasi nilai buku)." aria-label="Informasi Estimasi Nilai Stok">
-                            <i class="bi bi-info-circle"></i>
-                        </button>
-                    </div>
-                </div>
-                <div class="stat-value mb-1">{{ total_stock_value|idr }}</div>
-                <div class="text-muted small">Dihitung dari kuantitas x harga satuan</div>
-            </div>
-        </div>
-    </div>
-    <div class="col-xl-4">
-        <div class="card content-card h-100">
-            <div class="card-body">
-                <div class="d-flex align-items-center justify-content-between mb-2">
-                    <h6 class="mb-0">Transaksi Hari Ini</h6>
-                    <div class="d-flex align-items-center gap-2">
-                        <i class="bi bi-activity text-info"></i>
-                        <button type="button" class="btn btn-link p-0 kpi-help" data-bs-toggle="tooltip" data-bs-placement="top"
-                            data-bs-title="Jumlah transaksi yang dibuat pada tanggal hari ini." aria-label="Informasi Transaksi Hari Ini">
-                            <i class="bi bi-info-circle"></i>
-                        </button>
-                    </div>
-                </div>
-                <div class="stat-value mb-2">{{ today_transaction_count }}</div>
-                <div class="d-flex justify-content-between text-muted small">
-                    <span>Semua jenis transaksi</span>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-{% if show_linked_dashboard_sections %}
-<div class="row g-3 mb-4">
-    <div class="{% if has_quick_actions %}col-lg-8{% else %}col-lg-12{% endif %}">
-        <div class="card content-card h-100 position-relative">
-            <div class="card-header">
-                <span><i class="bi bi-arrow-left-right me-2"></i>Pergerakan Stok (30 Hari Terakhir)</span>
-                <small class="text-muted">{{ thirty_days_ago|date:"d/m/Y" }} - {{ today|date:"d/m/Y" }}</small>
-                <a href="{% url 'stock:transaction_list' %}" class="stretched-link" aria-label="Buka log transaksi stok"></a>
-            </div>
-            <div class="card-body">
-                <div class="row g-3 mb-3">
-                    <div class="col-sm-6">
-                        <div class="border rounded-3 p-3 h-100">
-                            <div class="text-muted small mb-1">Kuantitas Masuk</div>
-                            <div class="h4 mb-0 text-success">{{ inbound_30_days|id_decimal:2 }}</div>
-                        </div>
-                    </div>
-                    <div class="col-sm-6">
-                        <div class="border rounded-3 p-3 h-100">
-                            <div class="text-muted small mb-1">Kuantitas Keluar</div>
-                            <div class="h4 mb-0 text-danger">{{ outbound_30_days|id_decimal:2 }}</div>
-                        </div>
-                    </div>
-                </div>
-                <div class="mb-2 d-flex justify-content-between small">
-                    <span>Masuk {{ inbound_percent_30_days }}%</span>
-                    <span>Keluar {{ outbound_percent_30_days }}%</span>
-                </div>
-                <div
-                    class="dashboard-movement-progress"
-                    role="img"
-                    aria-label="Inbound outbound ratio: masuk {{ inbound_percent_30_days }} persen, keluar {{ outbound_percent_30_days }} persen"
-                >
-                    <svg
-                        class="dashboard-movement-progress-svg"
-                        width="100%"
-                        height="8"
-                        viewBox="0 0 100 8"
-                        preserveAspectRatio="none"
-                        aria-hidden="true"
-                        focusable="false"
-                    >
-                        <rect x="2" y="2" width="100" height="8" rx="4" ry="4" fill="#dc3545"></rect>
-                        <rect x="0" y="0" width="{{ inbound_percent_30_days }}" height="8" rx="4" ry="4" fill="#198754"></rect>
-                    </svg>
-                </div>
-            </div>
-        </div>
-    </div>
-    {% if has_quick_actions %}
-    <div class="col-lg-4">
-        <div class="card content-card h-100">
-            <div class="card-header">
-                <span><i class="bi bi-lightning-charge me-2"></i>Aksi Cepat</span>
-            </div>
-            <div class="card-body d-grid gap-2">
-                {% if show_receiving_quick_action %}
-                <a href="{% url 'receiving:receiving_create' %}" class="btn btn-primary">
-                    <i class="bi bi-plus-circle me-1"></i>Buat Penerimaan
-                </a>
-                {% endif %}
-                {% if show_distribution_quick_action %}
-                <a href="{% url 'distribution:special_request_create' %}" class="btn btn-outline-secondary">
-                    <i class="bi bi-send-plus me-1"></i>Buat Permintaan Khusus
-                </a>
-                {% endif %}
-                {% if show_transfer_quick_action %}
-                <a href="{% url 'stock:transfer_create' %}" class="btn btn-outline-secondary">
-                    <i class="bi bi-arrow-left-right me-1"></i>Buat Mutasi Lokasi
-                </a>
-                {% endif %}
-                <a href="{% url 'stock:transaction_list' %}" class="btn btn-outline-secondary">
-                    <i class="bi bi-clock-history me-1"></i>Lihat Transaksi
-                </a>
-            </div>
-        </div>
-    </div>
-    {% endif %}
-</div>
-{% endif %}
-
 {% if show_linked_dashboard_sections %}
 <div class="row g-3">
-    <!-- Recent Transactions -->
-    <div class="{% if show_expiring_metrics %}col-lg-8{% else %}col-lg-12{% endif %}">
+    <div class="col-lg-8">
         <div class="card content-card">
             <div class="card-header">
                 <span><i class="bi bi-clock-history me-2"></i>Transaksi Terakhir</span>
@@ -276,9 +62,34 @@
         </div>
     </div>
 
-    <!-- Item Mendekati Kedaluwarsa -->
-    {% if show_expiring_metrics %}
-    <div class="col-lg-4">
+    <div class="col-lg-4 d-flex flex-column gap-3">
+        <div class="card content-card">
+            <div class="card-header">
+                <span><i class="bi bi-lightning-charge me-2"></i>Aksi Cepat</span>
+            </div>
+            <div class="card-body d-grid gap-2">
+                {% if show_receiving_quick_action %}
+                <a href="{% url 'receiving:receiving_create' %}" class="btn btn-primary">
+                    <i class="bi bi-plus-circle me-1"></i>Buat Penerimaan
+                </a>
+                {% endif %}
+                {% if show_distribution_quick_action %}
+                <a href="{% url 'distribution:special_request_create' %}" class="btn btn-outline-secondary">
+                    <i class="bi bi-send-plus me-1"></i>Buat Permintaan Khusus
+                </a>
+                {% endif %}
+                {% if show_transfer_quick_action %}
+                <a href="{% url 'stock:transfer_create' %}" class="btn btn-outline-secondary">
+                    <i class="bi bi-arrow-left-right me-1"></i>Buat Mutasi Lokasi
+                </a>
+                {% endif %}
+                <a href="{% url 'stock:transaction_list' %}" class="btn btn-outline-secondary">
+                    <i class="bi bi-clock-history me-1"></i>Lihat Transaksi
+                </a>
+            </div>
+        </div>
+
+        {% if show_expiring_metrics %}
         <div class="card content-card">
             <div class="card-header">
                 <span><i class="bi bi-calendar-x me-2"></i>Mendekati Kedaluwarsa</span>
@@ -307,8 +118,43 @@
                 {% endif %}
             </div>
         </div>
+        {% endif %}
     </div>
-    {% endif %}
+</div>
+{% elif show_reports_landing %}
+<div class="row g-3">
+    <div class="col-lg-8">
+        <div class="card content-card dashboard-reports-landing">
+            <div class="card-header">
+                <span><i class="bi bi-file-earmark-bar-graph me-2"></i>Laporan</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="list-group list-group-flush">
+                    <a href="{% url 'reports:index' %}" class="list-group-item list-group-item-action px-3 py-3">
+                        <div class="fw-semibold">Daftar Laporan</div>
+                    </a>
+                    <a href="{% url 'reports:numbering_history' %}" class="list-group-item list-group-item-action px-3 py-3">
+                        <div class="fw-semibold">Riwayat Penomoran</div>
+                    </a>
+                    <a href="{% url 'reports:rekap' %}" class="list-group-item list-group-item-action px-3 py-3">
+                        <div class="fw-semibold">Rekapitulasi</div>
+                    </a>
+                    <a href="{% url 'reports:penerimaan_hibah' %}" class="list-group-item list-group-item-action px-3 py-3">
+                        <div class="fw-semibold">Penerimaan Hibah</div>
+                    </a>
+                    <a href="{% url 'reports:pengadaan' %}" class="list-group-item list-group-item-action px-3 py-3">
+                        <div class="fw-semibold">Pengadaan</div>
+                    </a>
+                    <a href="{% url 'reports:kadaluarsa' %}" class="list-group-item list-group-item-action px-3 py-3">
+                        <div class="fw-semibold">Kadaluarsa</div>
+                    </a>
+                    <a href="{% url 'reports:pengeluaran' %}" class="list-group-item list-group-item-action px-3 py-3">
+                        <div class="fw-semibold">Pengeluaran</div>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 {% endif %}
 {% endblock %}
