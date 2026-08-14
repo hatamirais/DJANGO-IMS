@@ -10,10 +10,10 @@ from unittest.mock import patch
 
 from django.apps import apps as django_apps
 from django.contrib.admin.sites import AdminSite
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, connections, transaction
-from django.test import Client, TestCase, TransactionTestCase, override_settings
+from django.test import Client, RequestFactory, TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -24,6 +24,7 @@ from apps.receiving.admin import (
     RECEIVING_CSV_HEADERS,
     ReceivingAdmin,
     ReceivingCSVImportForm,
+    ReceivingTypeOptionAdmin,
 )
 from apps.receiving.apps import ensure_system_receiving_types
 from apps.receiving.forms import (
@@ -207,6 +208,40 @@ class ReceivingTypeMigrationTests(TestCase):
         self.assertTrue(procurement_type.is_system)
         self.assertFalse(procurement_type.requires_supplier)
         self.assertEqual(procurement_type.sort_order, 88)
+
+
+class ReceivingTypeOptionAdminTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_superuser(
+            username="receiving-type-option-admin",
+            password="secret12345",
+        )
+        self.request = RequestFactory().get("/admin/receiving/receivingtypeoption/")
+        self.request.user = self.user
+        self.admin = ReceivingTypeOptionAdmin(ReceivingTypeOption, AdminSite())
+
+    def test_system_receiving_type_cannot_be_deleted_from_object_page(self):
+        system_type = ReceivingTypeOption.objects.get(code=Receiving.ReceivingType.GRANT)
+
+        self.assertFalse(self.admin.has_delete_permission(self.request, system_type))
+
+    def test_bulk_delete_rejects_system_receiving_types(self):
+        system_type = ReceivingTypeOption.objects.get(code=Receiving.ReceivingType.GRANT)
+
+        with self.assertRaises(PermissionDenied):
+            self.admin.delete_queryset(
+                None,
+                ReceivingTypeOption.objects.filter(pk=system_type.pk),
+            )
+
+        self.assertTrue(ReceivingTypeOption.objects.filter(pk=system_type.pk).exists())
+
+    def test_bulk_delete_allows_custom_receiving_types(self):
+        custom_type = ReceivingTypeOption.objects.create(code="DON", name="Donasi")
+
+        self.admin.delete_queryset(None, ReceivingTypeOption.objects.filter(pk=custom_type.pk))
+
+        self.assertFalse(ReceivingTypeOption.objects.filter(pk=custom_type.pk).exists())
 
 
 class ReceivingModelDocumentNumberCollisionTests(TestCase):

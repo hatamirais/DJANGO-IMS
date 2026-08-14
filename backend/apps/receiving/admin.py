@@ -147,6 +147,17 @@ class ReceivingTypeOptionAdmin(admin.ModelAdmin):
             readonly_fields.extend(["code", "is_system"])
         return readonly_fields
 
+    def has_delete_permission(self, request, obj=None):
+        has_permission = super().has_delete_permission(request, obj)
+        if obj and obj.is_system:
+            return False
+        return has_permission
+
+    def delete_queryset(self, request, queryset):
+        if queryset.filter(is_system=True).exists():
+            raise PermissionDenied("System receiving types cannot be deleted.")
+        super().delete_queryset(request, queryset)
+
 
 # ── CSV Import Form ────────────────────────────────────────
 
