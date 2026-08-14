@@ -18,15 +18,18 @@ from .storage import ReceivingDocumentStorage
 
 
 class ReceivingTypeOption(TimeStampedModel):
-    """Custom receiving type options managed from form quick-create."""
+    """Receiving type lookup rows, including system-defined options."""
 
     code = models.CharField(max_length=20, unique=True)
     name = models.CharField(max_length=100)
     is_active = models.BooleanField(default=True)
+    is_system = models.BooleanField(default=False)
+    requires_supplier = models.BooleanField(default=False)
+    sort_order = models.PositiveSmallIntegerField(default=100)
 
     class Meta:
         db_table = "receiving_type_options"
-        ordering = ["name"]
+        ordering = ["sort_order", "name"]
 
     def __str__(self):
         return f"{self.code} - {self.name}"
@@ -57,11 +60,13 @@ def validate_receiving_type_code(value):
     if len(receiving_type) > 20:
         raise ValidationError({"receiving_type": "Tipe penerimaan terlalu panjang."})
 
-    builtin_codes = {choice[0] for choice in Receiving.ReceivingType.choices}
-    if receiving_type in builtin_codes:
-        return receiving_type
-
     if receiving_type in get_reserved_receiving_type_codes():
+        active_system_exists = ReceivingTypeOption.objects.filter(
+            code=receiving_type,
+            is_active=True,
+        ).exists()
+        if active_system_exists:
+            return receiving_type
         raise ValidationError({"receiving_type": "Masukkan pilihan yang valid."})
 
     custom_exists = ReceivingTypeOption.objects.filter(
@@ -72,6 +77,17 @@ def validate_receiving_type_code(value):
         return receiving_type
 
     raise ValidationError({"receiving_type": "Masukkan pilihan yang valid."})
+
+
+def receiving_type_requires_supplier(value):
+    receiving_type = normalize_receiving_type_code(value)
+    if not receiving_type:
+        return False
+    return ReceivingTypeOption.objects.filter(
+        code=receiving_type,
+        is_active=True,
+        requires_supplier=True,
+    ).exists()
 
 
 def _create_receiving_stock_row(
@@ -410,25 +426,25 @@ class Receiving(TimeStampedModel):
 
     @property
     def receiving_type_label(self):
-        builtin_map = dict(self.ReceivingType.choices)
-        if self.receiving_type in builtin_map:
-            return builtin_map[self.receiving_type]
-
-        custom_label = (
+        type_name = (
             ReceivingTypeOption.objects.filter(code=self.receiving_type, is_active=True)
             .values_list("name", flat=True)
             .first()
         )
-        return custom_label or self.receiving_type
+        if type_name:
+            return type_name
+
+        builtin_map = dict(self.ReceivingType.choices)
+        return builtin_map.get(self.receiving_type, self.receiving_type)
 
     def clean(self):
         super().clean()
         self.receiving_type = validate_receiving_type_code(self.receiving_type)
         self._validate_document_number_not_opening_balance_collision()
         self._validate_document_number_immutable_after_movements()
-        if self.receiving_type == self.ReceivingType.PROCUREMENT and not self.supplier_id:
+        if receiving_type_requires_supplier(self.receiving_type) and not self.supplier_id:
             raise ValidationError(
-                {"supplier": "Supplier wajib diisi untuk tipe Pengadaan."}
+                {"supplier": "Supplier wajib diisi untuk tipe penerimaan ini."}
             )
         if self.contract_id:
             if not self.is_planned:

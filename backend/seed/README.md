@@ -163,7 +163,7 @@ Notes:
 Expected columns for custom receiving import:
 
 - `document_number` (required)
-- `receiving_type` (optional; defaults to `GRANT` in import handler)
+- `receiving_type` (optional; defaults to `GRANT` in import handler; must match an active `ReceivingTypeOption.code`)
 - `receiving_date` (required)
 - `supplier_code` (optional; applied from the first row of each grouped document)
 - `sumber_dana_code` (required on the first row of each `document_number`; later rows may inherit or override it)

@@ -114,6 +114,9 @@ erDiagram
         string code
         string name
         bool is_active
+        bool is_system
+        bool requires_supplier
+        int sort_order
     }
 
     Receiving {

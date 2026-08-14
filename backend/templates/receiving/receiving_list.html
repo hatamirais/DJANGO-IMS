@@ -17,8 +17,11 @@
             <input type="text" name="q" class="form-control" placeholder="Cari no. dokumen / supplier..." value="{{ search }}">
             <select name="type" class="form-select">
                 <option value="">Semua Tipe</option>
-                <option value="PROCUREMENT" {{ type_procurement }}>Pengadaan</option>
-                <option value="GRANT" {{ type_grant }}>Hibah</option>
+                {% for option in receiving_type_options %}
+                <option value="{{ option.code }}" {% if selected_type == option.code %}selected{% endif %}>
+                    {{ option.name }}
+                </option>
+                {% endfor %}
             </select>
             <div class="d-flex gap-2">
                 <button type="submit" class="btn btn-outline-secondary btn-sm"><i class="bi bi-search"></i></button>
@@ -49,13 +52,7 @@
                     <td><a href="{% url 'receiving:receiving_detail' r.pk %}" class="fw-semibold text-decoration-none">{{ r.document_number }}</a></td>
                     <td>{{ r.receiving_date|date:"d/m/Y" }}</td>
                     <td>
-                        {% if r.receiving_type == 'PROCUREMENT' %}
-                        <span class="badge bg-primary-subtle text-primary">Pengadaan</span>
-                        {% elif r.receiving_type == 'GRANT' %}
-                        <span class="badge bg-success-subtle text-success">Hibah</span>
-                        {% else %}
                         <span class="badge bg-info-subtle text-info">{{ r.receiving_type_label }}</span>
-                        {% endif %}
                     </td>
                     <td>{{ r.supplier.name|default:"-" }}</td>
                     <td>{{ r.sumber_dana.name }}</td>

@@ -128,10 +128,24 @@ class ReceivingDocumentInline(admin.TabularInline):
 
 @admin.register(ReceivingTypeOption)
 class ReceivingTypeOptionAdmin(admin.ModelAdmin):
-    list_display = ("code", "name", "is_active", "created_at")
-    list_filter = ("is_active",)
+    list_display = (
+        "code",
+        "name",
+        "is_active",
+        "is_system",
+        "requires_supplier",
+        "sort_order",
+        "created_at",
+    )
+    list_filter = ("is_active", "is_system", "requires_supplier")
     search_fields = ("code", "name")
-    ordering = ("name",)
+    ordering = ("sort_order", "name")
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly_fields = list(super().get_readonly_fields(request, obj))
+        if obj and obj.is_system:
+            readonly_fields.extend(["code", "is_system"])
+        return readonly_fields
 
 
 # ── CSV Import Form ────────────────────────────────────────

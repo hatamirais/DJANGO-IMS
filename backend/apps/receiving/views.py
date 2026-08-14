@@ -25,6 +25,7 @@ from .models import (
     ReceivingDocument,
     ReceivingItem,
     ReceivingOrderItem,
+    ReceivingTypeOption,
     increment_receiving_stock,
     resolve_receiving_source_document_number,
 )
@@ -161,6 +162,7 @@ def _create_verified_receiving(request, form, formset):
 @login_required
 @perm_required("receiving.view_receiving")
 def receiving_list(request):
+    receiving_type_options = ReceivingTypeOption.objects.filter(is_active=True)
     queryset = (
         Receiving.objects.select_related("supplier", "sumber_dana", "created_by", "contract")
         .filter(is_planned=False)
@@ -188,8 +190,7 @@ def receiving_list(request):
             "receivings": receivings,
             "search": search,
             "selected_type": r_type or "",
-            "type_procurement": "selected" if r_type == "PROCUREMENT" else "",
-            "type_grant": "selected" if r_type == "GRANT" else "",
+            "receiving_type_options": receiving_type_options,
         },
     )
 
@@ -197,6 +198,7 @@ def receiving_list(request):
 @login_required
 @perm_required("receiving.view_receiving")
 def receiving_plan_list(request):
+    receiving_type_options = ReceivingTypeOption.objects.filter(is_active=True)
     queryset = (
         Receiving.objects.select_related("supplier", "sumber_dana", "created_by", "contract")
         .filter(is_planned=True)
@@ -240,8 +242,7 @@ def receiving_plan_list(request):
             if status == Receiving.Status.RECEIVED
             else "",
             "status_closed": "selected" if status == Receiving.Status.CLOSED else "",
-            "type_procurement": "selected" if r_type == "PROCUREMENT" else "",
-            "type_grant": "selected" if r_type == "GRANT" else "",
+            "receiving_type_options": receiving_type_options,
         },
     )
 
@@ -288,12 +289,6 @@ def receiving_plan_create(request):
 
         if form.is_valid() and formset.is_valid():
             receiving = form.save(commit=False)
-            if receiving.receiving_type == Receiving.ReceivingType.PROCUREMENT:
-                messages.error(
-                    request,
-                    "Rencana penerimaan pengadaan baru wajib dibuat melalui modul SPJ / Pengadaan.",
-                )
-                return redirect("procurement:contract_list")
             receiving.created_by = request.user
             receiving.is_planned = True
             receiving.status = Receiving.Status.DRAFT

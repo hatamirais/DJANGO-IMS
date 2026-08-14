@@ -1161,6 +1161,35 @@ class ReceivingWorkflowCleanupTest(TestCase):
         )
         return receiving
 
+    def test_system_receiving_type_options_seeded_and_shared_by_forms(self):
+        procurement_type = ReceivingTypeOption.objects.get(
+            code=Receiving.ReceivingType.PROCUREMENT
+        )
+        grant_type = ReceivingTypeOption.objects.get(code=Receiving.ReceivingType.GRANT)
+
+        self.assertTrue(procurement_type.is_system)
+        self.assertTrue(procurement_type.requires_supplier)
+        self.assertTrue(grant_type.is_system)
+        self.assertFalse(grant_type.requires_supplier)
+
+        regular_choices = list(ReceivingForm().fields["receiving_type"].widget.choices)
+        planned_choices = list(
+            PlannedReceivingForm().fields["receiving_type"].widget.choices
+        )
+
+        self.assertEqual(regular_choices[0], ("", "---------"))
+        self.assertEqual(planned_choices[0], ("", "---------"))
+        self.assertIn(
+            (Receiving.ReceivingType.PROCUREMENT, "Pengadaan"),
+            regular_choices,
+        )
+        self.assertIn(
+            (Receiving.ReceivingType.PROCUREMENT, "Pengadaan"),
+            planned_choices,
+        )
+        self.assertIn((Receiving.ReceivingType.GRANT, "Hibah"), regular_choices)
+        self.assertIn((Receiving.ReceivingType.GRANT, "Hibah"), planned_choices)
+
     def test_regular_receiving_create_auto_verifies_and_posts_stock_transaction(self):
         response = self.client.post(
             reverse("receiving:receiving_create"),
@@ -1795,19 +1824,30 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, 'name="facility"', html=False)
         self.assertContains(response, 'placeholder="Kosongkan untuk generate otomatis"', html=False)
-        self.assertContains(response, 'Receiving type <span class="text-danger">*</span>', html=False)
-        self.assertContains(response, 'Receiving date <span class="text-danger">*</span>', html=False)
+        self.assertContains(
+            response,
+            'Receiving type <span class="text-danger">*</span>',
+            html=False,
+        )
+        self.assertContains(
+            response,
+            'Receiving date <span class="text-danger">*</span>',
+            html=False,
+        )
         self.assertContains(response, 'Sumber dana <span class="text-danger">*</span>', html=False)
-        self.assertNotContains(response, '>Pengadaan</option>', html=False)
+        self.assertContains(response, '>Pengadaan</option>', html=False)
         self.assertContains(response, '>Hibah</option>', html=False)
 
-    def test_planned_receiving_list_keeps_manual_create_for_non_procurement_types(self):
+    def test_planned_receiving_list_keeps_manual_create_for_unlinked_plans(self):
         response = self.client.get(reverse("receiving:receiving_plan_list"))
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, reverse("receiving:receiving_plan_create"))
-        self.assertContains(response, "Buat Rencana Non-Pengadaan")
-        self.assertContains(response, "Gunakan buat manual hanya untuk hibah")
+        self.assertContains(response, "Buat Rencana")
+        self.assertContains(
+            response,
+            "Form manual dapat digunakan untuk rencana penerimaan tanpa kontrak.",
+        )
 
     def test_regular_receiving_detail_rejects_planned_receiving(self):
         planned_receiving = Receiving.objects.create(
@@ -1877,11 +1917,11 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertFalse(planned_form.is_valid())
         self.assertEqual(
             regular_form.errors["supplier"],
-            ["Supplier wajib diisi untuk tipe Pengadaan."],
+            ["Supplier wajib diisi untuk tipe penerimaan ini."],
         )
         self.assertEqual(
-            planned_form.errors["receiving_type"],
-            ["Rencana penerimaan pengadaan baru wajib dibuat melalui modul SPJ / Pengadaan."],
+            planned_form.errors["supplier"],
+            ["Supplier wajib diisi untuk tipe penerimaan ini."],
         )
 
     def test_receiving_forms_reject_unknown_custom_receiving_type(self):
@@ -1979,7 +2019,7 @@ class ReceivingWorkflowCleanupTest(TestCase):
 
         self.assertEqual(
             exc.exception.message_dict["supplier"],
-            ["Supplier wajib diisi untuk tipe Pengadaan."],
+            ["Supplier wajib diisi untuk tipe penerimaan ini."],
         )
 
     def test_receiving_forms_require_explicit_receiving_type_selection(self):
@@ -2042,14 +2082,19 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertEqual(receiving.status, Receiving.Status.DRAFT)
         self.assertTrue(receiving.order_items.filter(item=self.item).exists())
 
-    def test_planned_receiving_create_blocks_manual_procurement_type(self):
+    def test_planned_receiving_create_accepts_manual_procurement_type(self):
+        supplier = Supplier.objects.create(
+            code="SUP-RCV-PROC",
+            name="PT Manual Procurement",
+        )
+
         response = self.client.post(
             reverse("receiving:receiving_plan_create"),
             {
                 "document_number": "",
                 "receiving_type": Receiving.ReceivingType.PROCUREMENT,
                 "receiving_date": "2026-03-16",
-                "supplier": "",
+                "supplier": supplier.pk,
                 "sumber_dana": self.funding.pk,
                 "notes": "",
                 "items-TOTAL_FORMS": "1",
@@ -2064,12 +2109,11 @@ class ReceivingWorkflowCleanupTest(TestCase):
             secure=True,
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(
-            "Rencana penerimaan pengadaan baru wajib dibuat melalui modul SPJ / Pengadaan.",
-            response.context["form"].errors["receiving_type"],
-        )
-        self.assertFalse(Receiving.objects.filter(is_planned=True).exists())
+        self.assertEqual(response.status_code, 302)
+        receiving = Receiving.objects.get(is_planned=True)
+        self.assertEqual(receiving.receiving_type, Receiving.ReceivingType.PROCUREMENT)
+        self.assertEqual(receiving.supplier, supplier)
+        self.assertIsNone(receiving.contract)
 
     def test_receiving_full_clean_rejects_duplicate_planned_contract_link(self):
         supplier = Supplier.objects.create(code="SUP-RCV-001", name="PT Supplier Receiving")
