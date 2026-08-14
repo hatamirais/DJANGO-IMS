@@ -27,7 +27,7 @@ def seed_system_receiving_types(apps, schema_editor):
     Receiving = apps.get_model("receiving", "Receiving")
 
     for option in SYSTEM_RECEIVING_TYPES:
-        ReceivingTypeOption.objects.update_or_create(
+        receiving_type, created = ReceivingTypeOption.objects.get_or_create(
             code=option["code"],
             defaults={
                 "name": option["name"],
@@ -37,8 +37,11 @@ def seed_system_receiving_types(apps, schema_editor):
                 "sort_order": option["sort_order"],
             },
         )
+        if not created and not receiving_type.is_system:
+            receiving_type.is_system = True
+            receiving_type.save(update_fields=["is_system"])
 
-    valid_codes = ReceivingTypeOption.objects.filter(is_active=True).values_list(
+    valid_codes = ReceivingTypeOption.objects.values_list(
         "code",
         flat=True,
     )

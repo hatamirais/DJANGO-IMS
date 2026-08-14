@@ -27,16 +27,21 @@ def ensure_system_receiving_types(sender, using, **kwargs):
     ReceivingTypeOption = apps.get_model("receiving", "ReceivingTypeOption")
     try:
         for option in SYSTEM_RECEIVING_TYPES:
-            ReceivingTypeOption.objects.using(using).update_or_create(
-                code=option["code"],
-                defaults={
-                    "name": option["name"],
-                    "is_active": option["is_active"],
-                    "is_system": option["is_system"],
-                    "requires_supplier": option["requires_supplier"],
-                    "sort_order": option["sort_order"],
-                },
+            receiving_type, created = (
+                ReceivingTypeOption.objects.using(using).get_or_create(
+                    code=option["code"],
+                    defaults={
+                        "name": option["name"],
+                        "is_active": option["is_active"],
+                        "is_system": option["is_system"],
+                        "requires_supplier": option["requires_supplier"],
+                        "sort_order": option["sort_order"],
+                    },
+                )
             )
+            if not created and not receiving_type.is_system:
+                receiving_type.is_system = True
+                receiving_type.save(update_fields=["is_system"])
     except (OperationalError, ProgrammingError):
         return
 

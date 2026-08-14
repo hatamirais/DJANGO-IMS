@@ -25,6 +25,7 @@ from apps.receiving.admin import (
     ReceivingAdmin,
     ReceivingCSVImportForm,
 )
+from apps.receiving.apps import ensure_system_receiving_types
 from apps.receiving.forms import (
     PlannedReceivingForm,
     ReceivingForm,
@@ -112,6 +113,8 @@ class ReceivingItemModelExpiryValidationTests(TestCase):
 
 
 class ReceivingTypeMigrationTests(TestCase):
+    migration = import_module("apps.receiving.migrations.0019_seed_system_receiving_types")
+
     def test_seed_migration_allows_legacy_return_rs_receivings(self):
         user = User.objects.create_superuser(
             username="receiving-type-migration-admin",
@@ -128,11 +131,7 @@ class ReceivingTypeMigrationTests(TestCase):
             verified_by=user,
         )
 
-        migration = import_module(
-            "apps.receiving.migrations.0019_seed_system_receiving_types"
-        )
-
-        migration.seed_system_receiving_types(django_apps, None)
+        self.migration.seed_system_receiving_types(django_apps, None)
 
         self.assertTrue(
             ReceivingTypeOption.objects.filter(
@@ -141,6 +140,73 @@ class ReceivingTypeMigrationTests(TestCase):
             ).exists()
         )
         self.assertFalse(ReceivingTypeOption.objects.filter(code="RETURN_RS").exists())
+
+    def test_seed_migration_allows_inactive_custom_type_history(self):
+        user = User.objects.create_superuser(
+            username="receiving-type-inactive-admin",
+            password="secret12345",
+        )
+        funding = FundingSource.objects.create(code="RTM-INACT", name="RTM Inactive")
+        ReceivingTypeOption.objects.create(
+            code="DON",
+            name="Donasi Lama",
+            is_active=False,
+        )
+        Receiving.objects.create(
+            document_number="RCV-INACTIVE-TYPE",
+            receiving_type="DON",
+            receiving_date=date(2026, 3, 16),
+            sumber_dana=funding,
+            status=Receiving.Status.VERIFIED,
+            created_by=user,
+            verified_by=user,
+        )
+
+        self.migration.seed_system_receiving_types(django_apps, None)
+
+        self.assertTrue(ReceivingTypeOption.objects.filter(code="DON").exists())
+
+    def test_seed_migration_preserves_existing_system_type_metadata(self):
+        ReceivingTypeOption.objects.filter(
+            code=Receiving.ReceivingType.GRANT
+        ).update(
+            name="Hibah Khusus",
+            is_active=False,
+            is_system=False,
+            requires_supplier=True,
+            sort_order=77,
+        )
+
+        self.migration.seed_system_receiving_types(django_apps, None)
+
+        grant_type = ReceivingTypeOption.objects.get(code=Receiving.ReceivingType.GRANT)
+        self.assertEqual(grant_type.name, "Hibah Khusus")
+        self.assertFalse(grant_type.is_active)
+        self.assertTrue(grant_type.is_system)
+        self.assertTrue(grant_type.requires_supplier)
+        self.assertEqual(grant_type.sort_order, 77)
+
+    def test_post_migrate_seed_preserves_existing_system_type_metadata(self):
+        ReceivingTypeOption.objects.filter(
+            code=Receiving.ReceivingType.PROCUREMENT
+        ).update(
+            name="Pengadaan Manual",
+            is_active=False,
+            is_system=False,
+            requires_supplier=False,
+            sort_order=88,
+        )
+
+        ensure_system_receiving_types(sender=None, using="default")
+
+        procurement_type = ReceivingTypeOption.objects.get(
+            code=Receiving.ReceivingType.PROCUREMENT
+        )
+        self.assertEqual(procurement_type.name, "Pengadaan Manual")
+        self.assertFalse(procurement_type.is_active)
+        self.assertTrue(procurement_type.is_system)
+        self.assertFalse(procurement_type.requires_supplier)
+        self.assertEqual(procurement_type.sort_order, 88)
 
 
 class ReceivingModelDocumentNumberCollisionTests(TestCase):
