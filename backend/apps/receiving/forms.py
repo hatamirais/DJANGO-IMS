@@ -33,6 +33,7 @@ def _get_receiving_type_choices():
     try:
         custom_choices = list(
             ReceivingTypeOption.objects.filter(is_active=True)
+            .exclude(code="RETURN_RS")
             .order_by("sort_order", "name")
             .values_list("code", "name")
         )

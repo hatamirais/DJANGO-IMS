@@ -44,6 +44,7 @@ def seed_system_receiving_types(apps, schema_editor):
     )
     invalid_types = list(
         Receiving.objects.exclude(receiving_type__in=valid_codes)
+        .exclude(receiving_type="RETURN_RS")
         .values("receiving_type")
         .annotate(row_count=Count("id"))
         .order_by("receiving_type")

@@ -1,5 +1,6 @@
 from io import BytesIO
 import hashlib
+from importlib import import_module
 import shutil
 import threading
 from datetime import date
@@ -7,6 +8,7 @@ from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
+from django.apps import apps as django_apps
 from django.contrib.admin.sites import AdminSite
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -107,6 +109,38 @@ class ReceivingItemModelExpiryValidationTests(TestCase):
         )
 
         receiving_item.full_clean()
+
+
+class ReceivingTypeMigrationTests(TestCase):
+    def test_seed_migration_allows_legacy_return_rs_receivings(self):
+        user = User.objects.create_superuser(
+            username="receiving-type-migration-admin",
+            password="secret12345",
+        )
+        funding = FundingSource.objects.create(code="RTM-FUND", name="RTM Fund")
+        Receiving.objects.create(
+            document_number="RCV-LEGACY-RS",
+            receiving_type="RETURN_RS",
+            receiving_date=date(2026, 3, 16),
+            sumber_dana=funding,
+            status=Receiving.Status.VERIFIED,
+            created_by=user,
+            verified_by=user,
+        )
+
+        migration = import_module(
+            "apps.receiving.migrations.0019_seed_system_receiving_types"
+        )
+
+        migration.seed_system_receiving_types(django_apps, None)
+
+        self.assertTrue(
+            ReceivingTypeOption.objects.filter(
+                code=Receiving.ReceivingType.PROCUREMENT,
+                is_system=True,
+            ).exists()
+        )
+        self.assertFalse(ReceivingTypeOption.objects.filter(code="RETURN_RS").exists())
 
 
 class ReceivingModelDocumentNumberCollisionTests(TestCase):
@@ -1967,6 +2001,11 @@ class ReceivingWorkflowCleanupTest(TestCase):
         )
 
     def test_receiving_forms_reject_reserved_internal_receiving_type(self):
+        ReceivingTypeOption.objects.create(
+            code="RETURN_RS",
+            name="Pengembalian RS",
+            is_active=True,
+        )
         form_data = {
             "document_number": "",
             "receiving_type": "RETURN_RS",
@@ -1983,6 +2022,10 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertFalse(planned_form.is_valid())
         self.assertEqual(regular_form.errors["receiving_type"], ["Masukkan pilihan yang valid."])
         self.assertEqual(planned_form.errors["receiving_type"], ["Masukkan pilihan yang valid."])
+        self.assertNotIn(
+            ("RETURN_RS", "Pengembalian RS"),
+            ReceivingForm().fields["receiving_type"].widget.choices,
+        )
 
     def test_receiving_model_full_clean_rejects_invalid_receiving_type(self):
         receiving = Receiving(

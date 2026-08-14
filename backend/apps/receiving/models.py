@@ -61,9 +61,13 @@ def validate_receiving_type_code(value):
         raise ValidationError({"receiving_type": "Tipe penerimaan terlalu panjang."})
 
     if receiving_type in get_reserved_receiving_type_codes():
+        system_codes = {choice[0] for choice in Receiving.ReceivingType.choices}
+        if receiving_type not in system_codes:
+            raise ValidationError({"receiving_type": "Masukkan pilihan yang valid."})
         active_system_exists = ReceivingTypeOption.objects.filter(
             code=receiving_type,
             is_active=True,
+            is_system=True,
         ).exists()
         if active_system_exists:
             return receiving_type
