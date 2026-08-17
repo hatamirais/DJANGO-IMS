@@ -20,7 +20,7 @@ psycopg2-binary==2.9.11
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
 six==1.17.0
-sqlparse==0.5.5
+sqlparse==0.6.0
 tablib==3.10.0
 types-psycopg2==2.9.21.20260518
 types-PyYAML==6.0.12.20260518
