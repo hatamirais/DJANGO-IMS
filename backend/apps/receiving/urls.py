@@ -33,6 +33,8 @@ urlpatterns = [
     ),
     path("create/", views.receiving_create, name="receiving_create"),
     path("<int:pk>/", views.receiving_detail, name="receiving_detail"),
+    path("<int:pk>/edit/", views.receiving_edit, name="receiving_edit"),
+    path("<int:pk>/delete/", views.receiving_delete, name="receiving_delete"),
     path(
         "<int:pk>/documents/<int:document_pk>/download/",
         views.receiving_document_download,

@@ -333,6 +333,7 @@ class Receiving(TimeStampedModel):
         RECEIVED = "RECEIVED", "Diterima Lengkap"
         CLOSED = "CLOSED", "Ditutup"
         VERIFIED = "VERIFIED", "Terverifikasi"
+        CANCELLED = "CANCELLED", "Dibatalkan"
 
     receiving_type = models.CharField(max_length=20)
     document_number = models.CharField(max_length=100, unique=True, blank=True)
@@ -407,6 +408,15 @@ class Receiving(TimeStampedModel):
     )
     closed_at = models.DateTimeField(null=True, blank=True)
     closed_reason = models.TextField(blank=True)
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="cancelled_receivings",
+    )
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancel_reason = models.TextField(blank=True)
     notes = models.TextField(blank=True)
 
     class Meta:

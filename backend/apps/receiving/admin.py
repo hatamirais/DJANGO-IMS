@@ -197,8 +197,8 @@ class ReceivingAdmin(admin.ModelAdmin):
     search_fields = ("document_number", "supplier__name")
     date_hierarchy = "receiving_date"
     inlines = [ReceivingOrderItemInline, ReceivingItemInline, ReceivingDocumentInline]
-    raw_id_fields = ("supplier", "created_by", "verified_by")
-    readonly_fields = ("verified_at",)
+    raw_id_fields = ("supplier", "created_by", "verified_by", "cancelled_by")
+    readonly_fields = ("verified_at", "cancelled_at")
     list_per_page = 25
 
     change_list_template = "admin/receiving/receiving_changelist.html"

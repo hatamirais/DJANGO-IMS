@@ -5,7 +5,7 @@ from pathlib import PurePath
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.db.models import Q, F
 from django.http import FileResponse, Http404, JsonResponse
@@ -16,10 +16,10 @@ from django.utils import timezone
 
 from apps.core.decorators import module_scope_required, perm_required
 from apps.core.decimal_validation import format_price_exact
-from apps.core.rate_limits import item_mutation_ratelimit
+from apps.core.rate_limits import item_mutation_ratelimit, receiving_mutation_ratelimit
 from apps.core.upload_validation import sanitize_uploaded_filename
 from apps.stock.models import Stock, Transaction
-from apps.users.models import ModuleAccess
+from apps.users.models import ModuleAccess, User
 from .models import (
     Receiving,
     ReceivingDocument,
@@ -32,7 +32,9 @@ from .models import (
 from .forms import (
     build_planned_receipt_item_formset,
     PlannedReceivingForm,
+    ReceivingCancelForm,
     ReceivingCloseForm,
+    ReceivingEditForm,
     ReceivingForm,
     ReceivingItemFormSet,
     ReceivingOrderCloseItemFormSet,
@@ -64,6 +66,159 @@ class PlannedReceiptQuantityConflict(ValueError):
     def __init__(self, order_item_id, message):
         super().__init__(message)
         self.order_item_id = order_item_id
+
+
+class ReceivingCorrectionError(ValueError):
+    pass
+
+
+def _can_correct_regular_receiving(user):
+    return bool(
+        getattr(user, "is_superuser", False)
+        or getattr(user, "role", None)
+        in {User.Role.ADMIN, User.Role.GUDANG, User.Role.KEPALA}
+    )
+
+
+def _require_regular_receiving_correction_role(user):
+    if not _can_correct_regular_receiving(user):
+        raise PermissionDenied(
+            "Anda tidak memiliki akses untuk mengoreksi penerimaan ini."
+        )
+
+
+def _stock_lookup_kwargs(receiving, item):
+    source_document_number = resolve_receiving_source_document_number(
+        receiving,
+        item=item.item,
+        location=item.location,
+        batch_lot=item.batch_lot,
+        sumber_dana=receiving.sumber_dana,
+    )
+    return {
+        "item": item.item,
+        "location": item.location,
+        "batch_lot": item.batch_lot,
+        "sumber_dana": receiving.sumber_dana,
+        "source_document_number": source_document_number,
+    }
+
+
+def _reverse_regular_receiving_stock(receiving, items, user, reason, *, action_label):
+    transactions = []
+    for item in items:
+        stock_kwargs = _stock_lookup_kwargs(receiving, item)
+        stock = (
+            Stock.objects.select_for_update(of=("self",))
+            .filter(**stock_kwargs)
+            .first()
+        )
+        if stock is None:
+            raise ReceivingCorrectionError(
+                f"Stok untuk {item.item} batch {item.batch_lot} tidak ditemukan."
+            )
+        remaining_quantity = stock.quantity - item.quantity
+        if remaining_quantity < stock.reserved:
+            raise ReceivingCorrectionError(
+                (
+                    f"Stok {item.item} batch {item.batch_lot} tidak cukup untuk "
+                    "dikoreksi karena sudah dipakai atau direservasi."
+                )
+            )
+        stock.quantity = remaining_quantity
+        if stock.quantity == 0 and stock.reserved == 0:
+            stock.delete()
+        else:
+            stock.save(update_fields=["quantity", "updated_at"])
+        transactions.append(
+            Transaction(
+                transaction_type=Transaction.TransactionType.OUT,
+                item=item.item,
+                location=item.location,
+                batch_lot=item.batch_lot,
+                quantity=item.quantity,
+                unit_price=item.unit_price,
+                source_document_number=stock.source_document_number,
+                sumber_dana=receiving.sumber_dana,
+                reference_type=Transaction.ReferenceType.RECEIVING,
+                reference_id=receiving.pk,
+                user=user,
+                notes=(
+                    f"Koreksi {action_label} penerimaan {receiving.document_number}: "
+                    f"{reason}"
+                ),
+            )
+        )
+    if transactions:
+        Transaction.objects.bulk_create(transactions)
+
+
+def _post_regular_receiving_stock(receiving, items, user, reason):
+    transactions = []
+    for item in items:
+        source_document_number = resolve_receiving_source_document_number(
+            receiving,
+            item=item.item,
+            location=item.location,
+            batch_lot=item.batch_lot,
+            sumber_dana=receiving.sumber_dana,
+        )
+        increment_receiving_stock(
+            item=item.item,
+            location=item.location,
+            batch_lot=item.batch_lot,
+            sumber_dana=receiving.sumber_dana,
+            expiry_date=item.expiry_date,
+            quantity=item.quantity,
+            unit_price=item.unit_price,
+            receiving_ref=receiving,
+            source_document_number=source_document_number,
+        )
+        transactions.append(
+            Transaction(
+                transaction_type=Transaction.TransactionType.IN,
+                item=item.item,
+                location=item.location,
+                batch_lot=item.batch_lot,
+                quantity=item.quantity,
+                unit_price=item.unit_price,
+                source_document_number=source_document_number,
+                sumber_dana=receiving.sumber_dana,
+                reference_type=Transaction.ReferenceType.RECEIVING,
+                reference_id=receiving.pk,
+                user=user,
+                notes=f"Koreksi ulang penerimaan {receiving.document_number}: {reason}",
+            )
+        )
+    if transactions:
+        Transaction.objects.bulk_create(transactions)
+
+
+def _replacement_items_from_formset(receiving, formset, user):
+    items = []
+    received_at = timezone.now()
+    for form in formset.forms:
+        cleaned = getattr(form, "cleaned_data", None)
+        if not cleaned or cleaned.get("DELETE"):
+            continue
+        if not cleaned.get("item"):
+            continue
+        items.append(
+            ReceivingItem(
+                receiving=receiving,
+                item=cleaned["item"],
+                quantity=cleaned["quantity"],
+                batch_lot=cleaned["batch_lot"],
+                expiry_date=cleaned.get("expiry_date"),
+                unit_price=cleaned["unit_price"],
+                location=cleaned["location"],
+                received_by=user,
+                received_at=received_at,
+            )
+        )
+    if not items:
+        raise ReceivingCorrectionError("Tambahkan minimal 1 item penerimaan.")
+    return items
 
 
 def _get_locked_planned_receiving_order_items(order_item_ids):
@@ -310,6 +465,174 @@ def receiving_create(request):
 
 
 @login_required
+@perm_required("receiving.change_receiving")
+@module_scope_required(ModuleAccess.Module.RECEIVING, ModuleAccess.Scope.OPERATE)
+@receiving_mutation_ratelimit
+def receiving_edit(request, pk):
+    _require_regular_receiving_correction_role(request.user)
+    receiving = get_object_or_404(
+        Receiving.objects.exclude(receiving_type="RETURN_RS"),
+        pk=pk,
+        is_planned=False,
+    )
+    if receiving.status != Receiving.Status.VERIFIED:
+        messages.error(request, "Hanya penerimaan terverifikasi yang dapat dikoreksi.")
+        return redirect("receiving:receiving_detail", pk=pk)
+
+    if request.method == "POST":
+        form = ReceivingEditForm(request.POST, instance=receiving)
+        formset = ReceivingItemFormSet(request.POST, instance=receiving, prefix="items")
+        if form.is_valid() and formset.is_valid():
+            reason = form.cleaned_data["correction_reason"]
+            try:
+                with transaction.atomic():
+                    locked_receiving = get_object_or_404(
+                        Receiving.objects.select_for_update(of=("self",))
+                        .exclude(receiving_type="RETURN_RS"),
+                        pk=pk,
+                        is_planned=False,
+                    )
+                    if locked_receiving.status != Receiving.Status.VERIFIED:
+                        raise ReceivingCorrectionError(
+                            "Status penerimaan sudah berubah dan tidak dapat dikoreksi."
+                        )
+                    old_items = list(
+                        locked_receiving.items.select_related("item", "location")
+                        .order_by("pk")
+                    )
+                    _reverse_regular_receiving_stock(
+                        locked_receiving,
+                        old_items,
+                        request.user,
+                        reason,
+                        action_label="edit",
+                    )
+
+                    for field_name in ReceivingForm.Meta.fields:
+                        setattr(
+                            locked_receiving,
+                            field_name,
+                            form.cleaned_data[field_name],
+                        )
+                    locked_receiving.status = Receiving.Status.VERIFIED
+                    locked_receiving.full_clean()
+                    locked_receiving.save()
+
+                    ReceivingItem.objects.filter(receiving=locked_receiving).delete()
+                    replacement_items = _replacement_items_from_formset(
+                        locked_receiving,
+                        formset,
+                        request.user,
+                    )
+                    ReceivingItem.objects.bulk_create(replacement_items)
+                    _post_regular_receiving_stock(
+                        locked_receiving,
+                        replacement_items,
+                        request.user,
+                        reason,
+                    )
+            except (ReceivingCorrectionError, ValidationError, ProtectedError) as exc:
+                messages.error(request, str(exc))
+            else:
+                messages.success(
+                    request,
+                    f"Penerimaan {receiving.document_number} berhasil dikoreksi.",
+                )
+                return redirect("receiving:receiving_detail", pk=pk)
+    else:
+        form = ReceivingEditForm(instance=receiving)
+        formset = ReceivingItemFormSet(instance=receiving, prefix="items")
+
+    return render(
+        request,
+        "receiving/receiving_form.html",
+        {
+            "form": form,
+            "formset": formset,
+            "title": f"Edit Penerimaan {receiving.document_number}",
+            "cancel_url": "receiving:receiving_detail",
+            "cancel_url_pk": receiving.pk,
+        },
+    )
+
+
+@login_required
+@perm_required("receiving.delete_receiving")
+@module_scope_required(ModuleAccess.Module.RECEIVING, ModuleAccess.Scope.OPERATE)
+@receiving_mutation_ratelimit
+def receiving_delete(request, pk):
+    _require_regular_receiving_correction_role(request.user)
+    receiving = get_object_or_404(
+        Receiving.objects.exclude(receiving_type="RETURN_RS"),
+        pk=pk,
+        is_planned=False,
+    )
+    if receiving.status != Receiving.Status.VERIFIED:
+        messages.error(request, "Hanya penerimaan terverifikasi yang dapat dibatalkan.")
+        return redirect("receiving:receiving_detail", pk=pk)
+
+    if request.method == "POST":
+        form = ReceivingCancelForm(request.POST)
+        if form.is_valid():
+            reason = form.cleaned_data["cancel_reason"]
+            try:
+                with transaction.atomic():
+                    locked_receiving = get_object_or_404(
+                        Receiving.objects.select_for_update(of=("self",))
+                        .exclude(receiving_type="RETURN_RS"),
+                        pk=pk,
+                        is_planned=False,
+                    )
+                    if locked_receiving.status != Receiving.Status.VERIFIED:
+                        raise ReceivingCorrectionError(
+                            "Status penerimaan sudah berubah dan tidak dapat dibatalkan."
+                        )
+                    old_items = list(
+                        locked_receiving.items.select_related("item", "location")
+                        .order_by("pk")
+                    )
+                    _reverse_regular_receiving_stock(
+                        locked_receiving,
+                        old_items,
+                        request.user,
+                        reason,
+                        action_label="pembatalan",
+                    )
+                    locked_receiving.status = Receiving.Status.CANCELLED
+                    locked_receiving.cancelled_by = request.user
+                    locked_receiving.cancelled_at = timezone.now()
+                    locked_receiving.cancel_reason = reason
+                    locked_receiving.save(
+                        update_fields=[
+                            "status",
+                            "cancelled_by",
+                            "cancelled_at",
+                            "cancel_reason",
+                            "updated_at",
+                        ]
+                    )
+            except (ReceivingCorrectionError, ProtectedError) as exc:
+                messages.error(request, str(exc))
+            else:
+                messages.success(
+                    request,
+                    f"Penerimaan {receiving.document_number} berhasil dibatalkan.",
+                )
+                return redirect("receiving:receiving_detail", pk=pk)
+    else:
+        form = ReceivingCancelForm()
+
+    return render(
+        request,
+        "receiving/receiving_confirm_delete.html",
+        {
+            "form": form,
+            "receiving": receiving,
+        },
+    )
+
+
+@login_required
 @perm_required("receiving.add_receiving")
 def receiving_plan_create(request):
     if request.method == "POST":
@@ -351,7 +674,12 @@ def receiving_plan_create(request):
 def receiving_detail(request, pk):
     receiving = get_object_or_404(
         Receiving.objects.select_related(
-            "supplier", "facility", "sumber_dana", "created_by", "verified_by"
+            "supplier",
+            "facility",
+            "sumber_dana",
+            "created_by",
+            "verified_by",
+            "cancelled_by",
         )
         .prefetch_related("documents")
         .exclude(receiving_type="RETURN_RS"),
@@ -370,6 +698,10 @@ def receiving_detail(request, pk):
             "documents": documents,
             "receiving": receiving,
             "items": items,
+            "can_correct_receiving": (
+                receiving.status == Receiving.Status.VERIFIED
+                and _can_correct_regular_receiving(request.user)
+            ),
         },
     )
 

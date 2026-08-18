@@ -49,7 +49,7 @@ Module highlights:
 - Stock card: `/stock/stock-card/`, `/stock/stock-card/<item_id>/`
 - Puskesmas stock snapshot: `/stock/puskesmas-stock/`
 - Stock transfer: `/stock/transfers/*`
-- Receiving regular: `/receiving/`, `/receiving/create/`, `/receiving/<pk>/`, `/receiving/<pk>/documents/<document_pk>/download/`
+- Receiving regular: `/receiving/`, `/receiving/create/`, `/receiving/<pk>/`, `/receiving/<pk>/edit/`, `/receiving/<pk>/delete/`, `/receiving/<pk>/documents/<document_pk>/download/`
 - Receiving plan: `/receiving/plans/*`
   - Procurement-linked plans (`Receiving.contract != NULL`) are created and synchronized from approved SPJ contracts/amendments. Their leftover close action routes to procurement amendment creation, and the receiving-side close-items endpoint redirects direct access back to that amendment flow. Legacy manual planned receivings without `contract` remain readable and executable through the receiving close-items flow.
 - Procurement: `/procurement/`, `/procurement/create/`, `/procurement/api/quick-create-supplier/`, `/procurement/api/quick-create-funding-source/`, `/procurement/<pk>/`, `/procurement/<pk>/edit/`, `/procurement/<pk>/submit/`, `/procurement/<pk>/approve/`, `/procurement/<pk>/close/`, `/procurement/<pk>/amend/`, `/procurement/amendments/<pk>/`, `/procurement/amendments/<pk>/edit/`, `/procurement/amendments/<pk>/submit/`, `/procurement/amendments/<pk>/approve/`
@@ -254,10 +254,10 @@ This section reflects model code in `backend/apps/*/models.py`.
 
 - `receiving.Receiving` (`receivings`):
   - Type code stored in `receiving_type`, validated against active `ReceivingTypeOption.code`
-  - Status: `DRAFT`, `SUBMITTED`, `APPROVED`, `PARTIAL`, `RECEIVED`, `CLOSED`, `VERIFIED`
-  - Fields: `document_number` (auto-generated `RCV-YYYY-NNNNN` when blank), `receiving_date`, `is_planned`, `grant_origin`, `program`, `closed_reason`, `notes`
-  - FKs: `contract` (nullable FK to `procurement.ProcurementContract`), `supplier` (nullable), `facility` (nullable), `sumber_dana`, `created_by`, `verified_by` (nullable), `approved_by` (nullable), `closed_by` (nullable)
-  - Timestamps: `verified_at`, `approved_at`, `closed_at`
+  - Status: `DRAFT`, `SUBMITTED`, `APPROVED`, `PARTIAL`, `RECEIVED`, `CLOSED`, `VERIFIED`, `CANCELLED`
+  - Fields: `document_number` (auto-generated `RCV-YYYY-NNNNN` when blank), `receiving_date`, `is_planned`, `grant_origin`, `program`, `closed_reason`, `cancel_reason`, `notes`
+  - FKs: `contract` (nullable FK to `procurement.ProcurementContract`), `supplier` (nullable), `facility` (nullable), `sumber_dana`, `created_by`, `verified_by` (nullable), `approved_by` (nullable), `closed_by` (nullable), `cancelled_by` (nullable)
+  - Timestamps: `verified_at`, `approved_at`, `closed_at`, `cancelled_at`
   - Index: `idx_recv_status_date`
   - Properties: `receiving_type_label`
   - `receiving_type_label` resolves labels from active `ReceivingTypeOption` rows, with a code-level fallback for migration-adjacent states.
@@ -472,6 +472,7 @@ Operational mutation points (from app behavior and admin import logic):
 - Procurement contract/amendment approval is restricted to Admin/Superuser or `KEPALA` with procurement approval scope and never mutates stock; it only creates or re-syncs the linked planned receiving execution document.
 - Procurement-linked receiving leftovers are closed audit-first through procurement amendments; direct receiving-side close-items cancellation is reserved for non-contract planned receivings.
 - Receiving verify/receive path posts `Transaction(IN)` and updates/creates `Stock` with the receiving source document number. This is normally `Receiving.document_number`; migrated historical collisions continue on their existing disambiguated receiving stock layer.
+- Regular receiving edit/delete is an auditable correction workflow for `VERIFIED` documents, restricted to superusers/Admin plus roles `GUDANG` and `KEPALA` with receiving operate access. It never deletes historical ledger rows: edit atomically reverses the current receiving stock effect with `Transaction(OUT)` rows, rewrites the current `ReceivingItem` rows, and posts corrected `Transaction(IN)` rows; delete marks the header `CANCELLED` and appends reversal `Transaction(OUT)` rows. Both actions are blocked when reversing would make stock quantity fall below reserved stock or below zero.
 - Receiving `document_number` values are validated and claimed against posted opening-balance import document numbers, and generated receiving numbers skip opening-balance-owned `RCV-YYYY-NNNNN` values so source-layer identifiers remain workflow-unique.
 - Receiving `document_number` becomes immutable once stock rows or ledger transactions exist.
 - Receiving CSV admin import (`import-csv/`) posts:
@@ -538,6 +539,7 @@ From `backend/config/settings.py`:
   - `USER_BULK_ACTION_RATE_LIMIT = 10/m`
   - `USER_MUTATION_RATE_LIMIT = 20/m`
   - `ITEM_MUTATION_RATE_LIMIT = 20/m` (shared by item lookup quick-create POSTs plus receiving and procurement lookup quick-create POSTs)
+  - `RECEIVING_MUTATION_RATE_LIMIT = 20/m`
   - `USER_PASSWORD_RESET_RATE_LIMIT = 5/m`
   - `PASSWORD_CHANGE_RATE_LIMIT = 5/m`
   - `PUSKESMAS_RECEIPT_CONFIRMATION_MUTATION_RATE_LIMIT = 20/m` (legacy `PUSKESMAS_SBBK_MUTATION_RATE_LIMIT` remains accepted as fallback)

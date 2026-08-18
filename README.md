@@ -94,6 +94,7 @@ Rincian skema kanonis tersedia di `SYSTEM_MODEL.md`.
 - Endpoint simpan/edit/hapus konfirmasi penerimaan Puskesmas dibatasi melalui `django-ratelimit` dengan knob environment `PUSKESMAS_RECEIPT_CONFIRMATION_MUTATION_RATE_LIMIT`; pratinjau pemuatan checklist distribusi pada form buat memakai `GET` non-mutasi dan tidak dihitung ke kuota ini. Nama lama `PUSKESMAS_SBBK_MUTATION_RATE_LIMIT` tetap diterima sebagai fallback kompatibilitas.
 - Endpoint mutasi pemakaian rinci Puskesmas juga dibatasi melalui `django-ratelimit` dengan knob environment `PUSKESMAS_CONSUMPTION_MUTATION_RATE_LIMIT`.
 - Endpoint mutasi master barang dan quick-create lookup `items`, serta quick-create supplier/sumber dana pada form receiving dan procurement, dibatasi melalui `django-ratelimit` dengan knob environment `ITEM_MUTATION_RATE_LIMIT`, terpisah dari kuota mutasi modul `users`.
+- Endpoint koreksi/batal penerimaan reguler dibatasi melalui `django-ratelimit` dengan knob environment `RECEIVING_MUTATION_RATE_LIMIT`; koreksi stok dilakukan dengan transaksi pembalik append-only, bukan menghapus ledger lama.
 - Endpoint import XLSX LPLPO (`/lplpo/<pk>/import-xlsx/`) dibatasi melalui `django-ratelimit` dengan knob environment `LPLPO_IMPORT_RATE_LIMIT`.
 - Validasi kata sandi kuat dengan minimum 10 karakter dan validator kustom tambahan.
 - Kombinasi pengamanan sesi dan CSRF dengan `HttpOnly` serta `SameSite=Lax`.

@@ -1293,6 +1293,20 @@ class ProcurementReportTests(TestCase):
             html=True,
         )
 
+    def test_procurement_report_excludes_cancelled_receiving(self):
+        self.receiving.status = Receiving.Status.CANCELLED
+        self.receiving.save(update_fields=["status", "updated_at"])
+
+        response = self.client.get(
+            reverse("reports:pengadaan"),
+            {"start_date": "2026-07-01", "end_date": "2026-07-31"},
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["report_data"], [])
+        self.assertNotContains(response, self.receiving.document_number)
+
 
 class ProcurementReceivingReportTests(TestCase):
     @classmethod

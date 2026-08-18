@@ -1625,6 +1625,246 @@ class ReceivingWorkflowCleanupTest(TestCase):
             1,
         )
 
+    def _create_posted_regular_receiving(
+        self,
+        *,
+        document_number="RCV-2026-CORR-001",
+        quantity=Decimal("10"),
+        unit_price=Decimal("1500"),
+        funding=None,
+    ):
+        funding = funding or self.funding
+        receiving = Receiving.objects.create(
+            document_number=document_number,
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 3, 16),
+            sumber_dana=funding,
+            status=Receiving.Status.VERIFIED,
+            is_planned=False,
+            created_by=self.user,
+            verified_by=self.user,
+            verified_at=timezone.now(),
+        )
+        ReceivingItem.objects.create(
+            receiving=receiving,
+            item=self.item,
+            quantity=quantity,
+            batch_lot="BATCH-CORR-OLD",
+            expiry_date=date(2030, 1, 1),
+            unit_price=unit_price,
+            location=self.location,
+            received_by=self.user,
+            received_at=timezone.now(),
+        )
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot="BATCH-CORR-OLD",
+            expiry_date=date(2030, 1, 1),
+            quantity=quantity,
+            reserved=Decimal("0"),
+            unit_price=unit_price,
+            sumber_dana=funding,
+            receiving_ref=receiving,
+            source_document_number=document_number,
+        )
+        Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.IN,
+            item=self.item,
+            location=self.location,
+            batch_lot="BATCH-CORR-OLD",
+            quantity=quantity,
+            unit_price=unit_price,
+            source_document_number=document_number,
+            sumber_dana=funding,
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=receiving.pk,
+            user=self.user,
+            notes=f"Penerimaan reguler {document_number}",
+        )
+        return receiving
+
+    def _regular_edit_payload(self, receiving, *, funding=None):
+        funding = funding or receiving.sumber_dana
+        item = receiving.items.get()
+        return {
+            "document_number": receiving.document_number,
+            "receiving_type": receiving.receiving_type,
+            "receiving_date": "2026-03-17",
+            "supplier": "",
+            "sumber_dana": funding.pk,
+            "notes": "Koreksi hasil QA",
+            "correction_reason": "Jumlah dan harga salah input",
+            "items-TOTAL_FORMS": "1",
+            "items-INITIAL_FORMS": "1",
+            "items-MIN_NUM_FORMS": "0",
+            "items-MAX_NUM_FORMS": "1000",
+            "items-0-id": item.pk,
+            "items-0-item": self.item.pk,
+            "items-0-quantity": "7",
+            "items-0-batch_lot": "BATCH-CORR-OLD",
+            "items-0-expiry_date": "2030-01-01",
+            "items-0-unit_price": "1750",
+            "items-0-location": self.location.pk,
+        }
+
+    def test_regular_receiving_edit_reverses_old_stock_and_posts_corrected_stock(self):
+        receiving = self._create_posted_regular_receiving()
+        new_funding = FundingSource.objects.create(code="BLUD", name="BLUD")
+
+        response = self.client.post(
+            reverse("receiving:receiving_edit", args=[receiving.pk]),
+            self._regular_edit_payload(receiving, funding=new_funding),
+            secure=True,
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("receiving:receiving_detail", args=[receiving.pk]),
+            fetch_redirect_response=False,
+        )
+        receiving.refresh_from_db()
+        self.assertEqual(receiving.sumber_dana, new_funding)
+        self.assertEqual(receiving.receiving_date, date(2026, 3, 17))
+        self.assertEqual(receiving.items.get().quantity, Decimal("7"))
+        self.assertFalse(
+            Stock.objects.filter(
+                source_document_number=receiving.document_number,
+                sumber_dana=self.funding,
+            ).exists()
+        )
+        corrected_stock = Stock.objects.get(
+            source_document_number=receiving.document_number,
+            sumber_dana=new_funding,
+        )
+        self.assertEqual(corrected_stock.quantity, Decimal("7"))
+        self.assertEqual(corrected_stock.unit_price, Decimal("1750"))
+        transactions = Transaction.objects.filter(
+            reference_type=Transaction.ReferenceType.RECEIVING,
+            reference_id=receiving.pk,
+        ).order_by("created_at", "pk")
+        self.assertEqual(transactions.count(), 3)
+        self.assertEqual(
+            list(transactions.values_list("transaction_type", "quantity")),
+            [
+                (Transaction.TransactionType.IN, Decimal("10.00")),
+                (Transaction.TransactionType.OUT, Decimal("10.00")),
+                (Transaction.TransactionType.IN, Decimal("7.00")),
+            ],
+        )
+
+    def test_regular_receiving_edit_blocks_when_stock_is_reserved(self):
+        receiving = self._create_posted_regular_receiving()
+        stock = Stock.objects.get(source_document_number=receiving.document_number)
+        stock.reserved = Decimal("4")
+        stock.save(update_fields=["reserved", "updated_at"])
+
+        response = self.client.post(
+            reverse("receiving:receiving_edit", args=[receiving.pk]),
+            self._regular_edit_payload(receiving),
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "sudah dipakai atau direservasi")
+        stock.refresh_from_db()
+        self.assertEqual(stock.quantity, Decimal("10"))
+        self.assertEqual(
+            Transaction.objects.filter(
+                reference_type=Transaction.ReferenceType.RECEIVING,
+                reference_id=receiving.pk,
+            ).count(),
+            1,
+        )
+
+    def test_regular_receiving_delete_cancels_and_reverses_stock(self):
+        receiving = self._create_posted_regular_receiving()
+
+        response = self.client.post(
+            reverse("receiving:receiving_delete", args=[receiving.pk]),
+            {"cancel_reason": "Dobel input oleh petugas berbeda"},
+            secure=True,
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("receiving:receiving_detail", args=[receiving.pk]),
+            fetch_redirect_response=False,
+        )
+        receiving.refresh_from_db()
+        self.assertEqual(receiving.status, Receiving.Status.CANCELLED)
+        self.assertEqual(receiving.cancelled_by, self.user)
+        self.assertEqual(receiving.cancel_reason, "Dobel input oleh petugas berbeda")
+        self.assertFalse(
+            Stock.objects.filter(source_document_number=receiving.document_number).exists()
+        )
+        self.assertEqual(
+            list(
+                Transaction.objects.filter(
+                    reference_type=Transaction.ReferenceType.RECEIVING,
+                    reference_id=receiving.pk,
+                )
+                .order_by("created_at", "pk")
+                .values_list("transaction_type", "quantity")
+            ),
+            [
+                (Transaction.TransactionType.IN, Decimal("10.00")),
+                (Transaction.TransactionType.OUT, Decimal("10.00")),
+            ],
+        )
+
+    def test_regular_receiving_delete_blocks_when_stock_was_consumed(self):
+        receiving = self._create_posted_regular_receiving()
+        stock = Stock.objects.get(source_document_number=receiving.document_number)
+        stock.quantity = Decimal("3")
+        stock.save(update_fields=["quantity", "updated_at"])
+
+        response = self.client.post(
+            reverse("receiving:receiving_delete", args=[receiving.pk]),
+            {"cancel_reason": "Dobel input"},
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "sudah dipakai atau direservasi")
+        receiving.refresh_from_db()
+        self.assertEqual(receiving.status, Receiving.Status.VERIFIED)
+        stock.refresh_from_db()
+        self.assertEqual(stock.quantity, Decimal("3"))
+
+    def test_regular_receiving_correction_role_gate_allows_gudang_and_kepala_only(self):
+        receiving = self._create_posted_regular_receiving()
+        allowed_roles = [User.Role.GUDANG, User.Role.KEPALA]
+        denied_roles = [User.Role.ADMIN_UMUM, User.Role.AUDITOR]
+
+        for role in allowed_roles:
+            user = User.objects.create_user(
+                username=f"allowed-{role.lower()}",
+                password="secret12345",
+                role=role,
+            )
+            ensure_default_module_access(user)
+            self.client.force_login(user)
+            response = self.client.get(
+                reverse("receiving:receiving_edit", args=[receiving.pk]),
+                secure=True,
+            )
+            self.assertEqual(response.status_code, 200)
+
+        for role in denied_roles:
+            user = User.objects.create_user(
+                username=f"denied-{role.lower()}",
+                password="secret12345",
+                role=role,
+            )
+            ensure_default_module_access(user)
+            self.client.force_login(user)
+            response = self.client.get(
+                reverse("receiving:receiving_edit", args=[receiving.pk]),
+                secure=True,
+            )
+            self.assertEqual(response.status_code, 403)
+
 
     def test_plan_close_blocked_when_remaining_items_not_cancelled(self):
         receiving = Receiving.objects.create(

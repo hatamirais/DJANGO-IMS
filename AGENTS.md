@@ -70,6 +70,8 @@ Stock movement is ledger-first: historical `stock.Transaction` rows are append-o
 
 Inbound: `procurement` approved SPJ/amendment -> linked planned `receiving` document -> receiving execution/import -> `stock.Stock` update + `stock.Transaction(IN)`.
 
+Regular receiving edit/delete is implemented as stock correction, not ledger rewriting. Editing a posted regular receiving appends reversal `Transaction(OUT)` rows, replaces the current receiving items, then appends corrected `Transaction(IN)` rows. Deleting/cancelling appends reversal `Transaction(OUT)` rows and marks the receiving `CANCELLED`. Both are blocked when stock has already been consumed or reserved.
+
 Opening balance: Stock Admin opening-balance import -> `stock.OpeningBalanceImport` / `OpeningBalanceImportItem` -> `Stock(source_document_number=OpeningBalanceImport.document_number, receiving_ref=NULL)` update/create -> `Transaction(IN, reference_type=INITIAL_IMPORT)`.
 
 Outbound: `allocation` approval or `lplpo` PIC review or manual/special request -> `distribution.Distribution` / `DistributionItem` -> stock reservation at verification -> stock deduction and reservation clearing at final distribution.
@@ -99,11 +101,12 @@ Receiving and opening-balance imports enforce `Item.requires_expiry_date`: blank
 - Authentication and centralized error logs resolve client IPs through `apps.core.client_ip.get_client_ip()`, using `REMOTE_ADDR` by default and accepting `X-Forwarded-For` only when the immediate peer matches `AUTH_AUDIT_TRUSTED_PROXIES`.
 - Additional authenticated POST throttling uses `django-ratelimit`; counters use local memory cache via `CACHES["default"]` and `RATELIMIT_USE_CACHE`.
 - `RATELIMIT_FAIL_OPEN=True` is the default so rate-limiting degrades gracefully if there are cache issues.
-- Settings-backed knobs include `LOGIN_RATE_LIMIT`, `USER_BULK_ACTION_RATE_LIMIT`, `USER_MUTATION_RATE_LIMIT`, `ITEM_MUTATION_RATE_LIMIT`, `USER_PASSWORD_RESET_RATE_LIMIT`, `PASSWORD_CHANGE_RATE_LIMIT`, `PUSKESMAS_RECEIPT_CONFIRMATION_MUTATION_RATE_LIMIT`, `PUSKESMAS_CONSUMPTION_MUTATION_RATE_LIMIT`, `PROCUREMENT_MUTATION_RATE_LIMIT`, and `LPLPO_IMPORT_RATE_LIMIT`; legacy `PUSKESMAS_SBBK_MUTATION_RATE_LIMIT` remains accepted as a compatibility fallback.
+- Settings-backed knobs include `LOGIN_RATE_LIMIT`, `USER_BULK_ACTION_RATE_LIMIT`, `USER_MUTATION_RATE_LIMIT`, `ITEM_MUTATION_RATE_LIMIT`, `RECEIVING_MUTATION_RATE_LIMIT`, `USER_PASSWORD_RESET_RATE_LIMIT`, `PASSWORD_CHANGE_RATE_LIMIT`, `PUSKESMAS_RECEIPT_CONFIRMATION_MUTATION_RATE_LIMIT`, `PUSKESMAS_CONSUMPTION_MUTATION_RATE_LIMIT`, `PROCUREMENT_MUTATION_RATE_LIMIT`, and `LPLPO_IMPORT_RATE_LIMIT`; legacy `PUSKESMAS_SBBK_MUTATION_RATE_LIMIT` remains accepted as a compatibility fallback.
 - Receipt-confirmation throttling is mutation-only: create/edit/delete saves are POST-limited, while the create-form distribution preview uses non-mutating `GET` and must not consume that quota.
 - Throttled requests must continue through the centralized error pipeline and render as HTTP `429`.
 - `@user_mutation_ratelimit` covers user create, update, toggle-active, and delete.
 - `@item_mutation_ratelimit` covers item catalog lookup POST mutations plus receiving and procurement quick-create lookup POST mutations.
+- `@receiving_mutation_ratelimit` covers regular receiving correction and cancellation POST mutations.
 - `django-auditlog` records database-backed create/update/delete history for selected critical models; its initial webview is Django Admin at `/admin/` through the auditlog `LogEntry` admin, and no custom IMS audit-log sidebar page exists yet.
 - Auditlog is signal-driven and does not automatically cover `bulk_create`, `bulk_update`, or `QuerySet.update()` paths. Keep explicit workflow logs or tests for critical bulk operations where row-level audit history is required.
 - User bulk activate/deactivate intentionally uses locked per-row `save(update_fields=["is_active"])` calls so account-status changes produce audit entries.
