@@ -7,6 +7,30 @@ The format is based on Keep a Changelog and follows Semantic Versioning (`MAJOR.
 
 ## [Unreleased]
 
+## [1.31.4] - 2026-08-18
+
+### Added
+
+- Receiving type dropdowns now use `ReceivingTypeOption` lookup rows for both regular receiving and receiving plan forms.
+- Added quick-create support for custom receiving type options from receiving forms.
+
+### Changed
+
+- System receiving type rows are seeded and protected for `PROCUREMENT` / `Pengadaan` and `GRANT` / `Hibah`.
+- Receiving list, detail, form, admin, and CSV import flows now resolve receiving type labels from table-backed options while preserving historical fallback labels.
+
+### Fixed
+
+- Receiving plan creation no longer blocks `PROCUREMENT` while regular receiving allows it.
+- Receiving type migrations now preserve legacy `RETURN_RS` history without reintroducing it into active dropdowns.
+- Existing or deleted historical custom receiving type values are preserved as inactive lookup rows during migration.
+- Legacy system-code lookup rows are restored to canonical defaults during migration so `PROCUREMENT` remains active and supplier-required.
+- Django admin can no longer promote arbitrary custom receiving type rows into protected system rows.
+
+### Security
+
+- Updated `sqlparse` from `0.5.3` to `0.6.0`.
+
 ## [1.31.3] - 2026-08-13
 
 ### Changed
