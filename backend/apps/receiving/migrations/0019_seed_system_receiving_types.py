@@ -38,9 +38,20 @@ def seed_system_receiving_types(apps, schema_editor):
                 "sort_order": option["sort_order"],
             },
         )
-        if not created and not receiving_type.is_system:
-            receiving_type.is_system = True
-            receiving_type.save(using=db_alias, update_fields=["is_system"])
+        if not created:
+            update_fields = []
+            for field in (
+                "name",
+                "is_active",
+                "is_system",
+                "requires_supplier",
+                "sort_order",
+            ):
+                if getattr(receiving_type, field) != option[field]:
+                    setattr(receiving_type, field, option[field])
+                    update_fields.append(field)
+            if update_fields:
+                receiving_type.save(using=db_alias, update_fields=update_fields)
 
     valid_codes = set(
         ReceivingTypeOption.objects.using(db_alias).values_list(

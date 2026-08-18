@@ -191,25 +191,27 @@ class ReceivingTypeMigrationTests(TestCase):
         self.assertFalse(receiving_type.is_system)
         self.assertFalse(receiving_type.requires_supplier)
 
-    def test_seed_migration_preserves_existing_system_type_metadata(self):
+    def test_seed_migration_restores_existing_system_type_defaults(self):
         ReceivingTypeOption.objects.filter(
-            code=Receiving.ReceivingType.GRANT
+            code=Receiving.ReceivingType.PROCUREMENT
         ).update(
-            name="Hibah Khusus",
+            name="Pengadaan Lama",
             is_active=False,
             is_system=False,
-            requires_supplier=True,
+            requires_supplier=False,
             sort_order=77,
         )
 
         self.migration.seed_system_receiving_types(django_apps, None)
 
-        grant_type = ReceivingTypeOption.objects.get(code=Receiving.ReceivingType.GRANT)
-        self.assertEqual(grant_type.name, "Hibah Khusus")
-        self.assertFalse(grant_type.is_active)
-        self.assertTrue(grant_type.is_system)
-        self.assertTrue(grant_type.requires_supplier)
-        self.assertEqual(grant_type.sort_order, 77)
+        procurement_type = ReceivingTypeOption.objects.get(
+            code=Receiving.ReceivingType.PROCUREMENT
+        )
+        self.assertEqual(procurement_type.name, "Pengadaan")
+        self.assertTrue(procurement_type.is_active)
+        self.assertTrue(procurement_type.is_system)
+        self.assertTrue(procurement_type.requires_supplier)
+        self.assertEqual(procurement_type.sort_order, 10)
 
     def test_post_migrate_seed_preserves_existing_system_type_metadata(self):
         ReceivingTypeOption.objects.filter(
