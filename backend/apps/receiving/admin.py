@@ -143,8 +143,9 @@ class ReceivingTypeOptionAdmin(admin.ModelAdmin):
 
     def get_readonly_fields(self, request, obj=None):
         readonly_fields = list(super().get_readonly_fields(request, obj))
+        readonly_fields.append("is_system")
         if obj and obj.is_system:
-            readonly_fields.extend(["code", "is_system"])
+            readonly_fields.append("code")
         return readonly_fields
 
     def has_delete_permission(self, request, obj=None):

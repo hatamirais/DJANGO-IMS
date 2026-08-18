@@ -251,6 +251,25 @@ class ReceivingTypeOptionAdminTests(TestCase):
 
         self.assertFalse(self.admin.has_delete_permission(self.request, system_type))
 
+    def test_is_system_is_readonly_when_adding_receiving_type(self):
+        readonly_fields = self.admin.get_readonly_fields(self.request)
+
+        self.assertIn("is_system", readonly_fields)
+
+    def test_is_system_is_readonly_when_editing_custom_receiving_type(self):
+        custom_type = ReceivingTypeOption.objects.create(code="DON", name="Donasi")
+        readonly_fields = self.admin.get_readonly_fields(self.request, custom_type)
+
+        self.assertIn("is_system", readonly_fields)
+        self.assertNotIn("code", readonly_fields)
+
+    def test_system_receiving_type_locks_code_and_system_flag(self):
+        system_type = ReceivingTypeOption.objects.get(code=Receiving.ReceivingType.GRANT)
+        readonly_fields = self.admin.get_readonly_fields(self.request, system_type)
+
+        self.assertIn("is_system", readonly_fields)
+        self.assertIn("code", readonly_fields)
+
     def test_bulk_delete_rejects_system_receiving_types(self):
         system_type = ReceivingTypeOption.objects.get(code=Receiving.ReceivingType.GRANT)
 
