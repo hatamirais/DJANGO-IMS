@@ -15,6 +15,7 @@ from .models import (
     ReceivingOrderItem,
     ReceivingTypeOption,
     get_reserved_receiving_type_codes,
+    normalize_receiving_type_code,
     validate_receiving_type_code,
 )
 
@@ -44,6 +45,37 @@ def _get_receiving_type_choices():
 
 def _get_receiving_type_widget_choices():
     return [("", "---------")] + _get_receiving_type_choices()
+
+
+def _receiving_type_label(code):
+    if not code:
+        return ""
+    try:
+        option = ReceivingTypeOption.objects.filter(code=code).only("name").first()
+    except (ProgrammingError, OperationalError):
+        option = None
+    if option:
+        return option.name
+    return dict(Receiving.ReceivingType.choices).get(code, code)
+
+
+def _add_receiving_type_choice(choices, code):
+    if not code:
+        return choices
+    if any(choice_code == code for choice_code, _ in choices):
+        return choices
+    return [*choices, (code, _receiving_type_label(code))]
+
+
+class TrimmedDecimalNumberInput(forms.NumberInput):
+    def format_value(self, value):
+        if value is None or value == "":
+            return None
+        try:
+            decimal_value = value if isinstance(value, Decimal) else Decimal(str(value))
+        except (InvalidOperation, TypeError, ValueError):
+            return value
+        return format(decimal_value.normalize(), "f")
 
 
 def _normalize_text_value(value, *, field_label, max_length=None, allow_blank=True):
@@ -268,8 +300,25 @@ class ReceivingEditForm(ReceivingForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        current_type = getattr(self.instance, "receiving_type", "")
+        self.fields["receiving_type"].widget.choices = _add_receiving_type_choice(
+            list(self.fields["receiving_type"].widget.choices),
+            current_type,
+        )
         if self.instance and self.instance.has_posted_stock_movements():
             self.fields["document_number"].disabled = True
+
+    def clean_receiving_type(self):
+        try:
+            return super().clean_receiving_type()
+        except ValidationError:
+            current_type = getattr(self.instance, "receiving_type", "")
+            submitted_type = normalize_receiving_type_code(
+                self.cleaned_data.get("receiving_type")
+            )
+            if submitted_type and submitted_type == current_type:
+                return submitted_type
+            raise
 
     def clean_correction_reason(self):
         return _normalize_text_value(
@@ -347,7 +396,7 @@ class ReceivingItemForm(forms.ModelForm):
             "expiry_date": forms.DateInput(
                 attrs={"class": "form-control form-control-sm", "type": "date"}
             ),
-            "unit_price": forms.NumberInput(
+            "unit_price": TrimmedDecimalNumberInput(
                 attrs={
                     "class": "form-control form-control-sm",
                     "min": "0",

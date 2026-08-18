@@ -3,7 +3,7 @@ import hashlib
 from importlib import import_module
 import shutil
 import threading
-from datetime import date
+from datetime import date, datetime, time
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import PropertyMock, patch
@@ -30,6 +30,7 @@ from apps.receiving.apps import ensure_system_receiving_types
 from apps.receiving.forms import (
     PlannedReceivingForm,
     ReceivingForm,
+    ReceivingItemForm,
     ReceivingOrderItemForm,
 )
 from apps.receiving.models import (
@@ -42,7 +43,7 @@ from apps.receiving.models import (
 )
 from apps.stock.models import OpeningBalanceImport, SourceDocumentNumberClaim, Stock, Transaction
 from apps.users.access import ensure_default_module_access
-from apps.users.models import User
+from apps.users.models import ModuleAccess, User
 
 
 class ReceivingItemModelExpiryValidationTests(TestCase):
@@ -1753,6 +1754,103 @@ class ReceivingWorkflowCleanupTest(TestCase):
             ],
         )
 
+    def test_regular_receiving_edit_preserves_effective_received_at_date(self):
+        original_received_at = timezone.make_aware(datetime(2026, 3, 16, 8, 30, 0))
+        receiving = self._create_posted_regular_receiving()
+        item = receiving.items.get()
+        item.received_at = original_received_at
+        item.save(update_fields=["received_at"])
+
+        response = self.client.post(
+            reverse("receiving:receiving_edit", args=[receiving.pk]),
+            self._regular_edit_payload(receiving),
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        corrected_item = receiving.items.get()
+        local_received_at = timezone.localtime(corrected_item.received_at)
+        self.assertEqual(local_received_at.date(), date(2026, 3, 17))
+        self.assertEqual(local_received_at.time().replace(tzinfo=None), time(8, 30, 0))
+
+    def test_regular_receiving_edit_reports_stock_layer_mismatch_as_form_error(self):
+        receiving = self._create_posted_regular_receiving()
+        item = receiving.items.get()
+        payload = self._regular_edit_payload(receiving)
+        payload.update(
+            {
+                "items-TOTAL_FORMS": "2",
+                "items-1-id": "",
+                "items-1-item": self.item.pk,
+                "items-1-quantity": "3",
+                "items-1-batch_lot": "BATCH-CORR-OLD",
+                "items-1-expiry_date": "2031-01-01",
+                "items-1-unit_price": "1750",
+                "items-1-location": self.location.pk,
+            }
+        )
+
+        response = self.client.post(
+            reverse("receiving:receiving_edit", args=[receiving.pk]),
+            payload,
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Batch stok yang sama tidak boleh memiliki tanggal kedaluwarsa berbeda.",
+        )
+        self.assertTrue(ReceivingItem.objects.filter(pk=item.pk).exists())
+        stock = Stock.objects.get(source_document_number=receiving.document_number)
+        self.assertEqual(stock.quantity, Decimal("10"))
+        self.assertEqual(
+            Transaction.objects.filter(
+                reference_type=Transaction.ReferenceType.RECEIVING,
+                reference_id=receiving.pk,
+            ).count(),
+            1,
+        )
+
+    def test_regular_receiving_edit_retains_inactive_historical_receiving_type(self):
+        receiving_type = ReceivingTypeOption.objects.create(
+            code="HIBAH_KHUSUS",
+            name="Hibah Khusus",
+            is_active=True,
+        )
+        receiving = self._create_posted_regular_receiving()
+        receiving.receiving_type = receiving_type.code
+        receiving.save(update_fields=["receiving_type", "updated_at"])
+        receiving_type.is_active = False
+        receiving_type.save(update_fields=["is_active", "updated_at"])
+
+        response = self.client.get(
+            reverse("receiving:receiving_edit", args=[receiving.pk]),
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'value="HIBAH_KHUSUS" selected', html=False)
+
+        payload = self._regular_edit_payload(receiving)
+        payload["receiving_type"] = "HIBAH_KHUSUS"
+        response = self.client.post(
+            reverse("receiving:receiving_edit", args=[receiving.pk]),
+            payload,
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        receiving.refresh_from_db()
+        self.assertEqual(receiving.receiving_type, "HIBAH_KHUSUS")
+
+    def test_regular_receiving_edit_displays_trimmed_unit_price(self):
+        receiving = self._create_posted_regular_receiving(unit_price=Decimal("120"))
+        form = ReceivingItemForm(instance=receiving.items.get(), prefix="items-0")
+
+        self.assertIn('value="120"', str(form["unit_price"]))
+        self.assertNotIn("120.0000000000", str(form["unit_price"]))
+
     def test_regular_receiving_edit_blocks_when_stock_is_reserved(self):
         receiving = self._create_posted_regular_receiving()
         stock = Stock.objects.get(source_document_number=receiving.document_number)
@@ -1864,6 +1962,30 @@ class ReceivingWorkflowCleanupTest(TestCase):
                 secure=True,
             )
             self.assertEqual(response.status_code, 403)
+
+    def test_regular_receiving_detail_hides_correction_actions_without_operate_scope(self):
+        receiving = self._create_posted_regular_receiving()
+        user = User.objects.create_user(
+            username="gudang-view-only",
+            password="secret12345",
+            role=User.Role.GUDANG,
+        )
+        ensure_default_module_access(user)
+        ModuleAccess.objects.filter(
+            user=user,
+            module=ModuleAccess.Module.RECEIVING,
+        ).update(scope=ModuleAccess.Scope.VIEW)
+        self.client.force_login(user)
+
+        response = self.client.get(
+            reverse("receiving:receiving_detail", args=[receiving.pk]),
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context["can_correct_receiving"])
+        self.assertNotContains(response, reverse("receiving:receiving_edit", args=[receiving.pk]))
+        self.assertNotContains(response, reverse("receiving:receiving_delete", args=[receiving.pk]))
 
 
     def test_plan_close_blocked_when_remaining_items_not_cancelled(self):

@@ -25,6 +25,7 @@ App-specific guidance for receiving workflows.
 - Receiving type dropdowns and labels resolve from active `ReceivingTypeOption` rows.
 - System rows include `PROCUREMENT` / `Pengadaan` and `GRANT` / `Hibah`; quick-create rows are non-system custom types.
 - `requires_supplier=True` on a receiving type row requires the form/model to capture a supplier.
+- Regular receiving edit keeps an inactive historical type selectable and valid when the existing document already uses that exact type; inactive types remain invalid for new selections.
 
 ## Procurement-Linked Planned Receiving
 

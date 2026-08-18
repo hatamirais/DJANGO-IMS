@@ -1,5 +1,6 @@
 import json
 import logging
+from datetime import datetime, time
 from pathlib import PurePath
 
 from django.shortcuts import render, get_object_or_404, redirect
@@ -19,6 +20,7 @@ from apps.core.decimal_validation import format_price_exact
 from apps.core.rate_limits import item_mutation_ratelimit, receiving_mutation_ratelimit
 from apps.core.upload_validation import sanitize_uploaded_filename
 from apps.stock.models import Stock, Transaction
+from apps.users.access import has_module_scope
 from apps.users.models import ModuleAccess, User
 from .models import (
     Receiving,
@@ -77,6 +79,20 @@ def _can_correct_regular_receiving(user):
         getattr(user, "is_superuser", False)
         or getattr(user, "role", None)
         in {User.Role.ADMIN, User.Role.GUDANG, User.Role.KEPALA}
+    )
+
+
+def _has_regular_receiving_correction_access(user):
+    return bool(
+        _can_correct_regular_receiving(user)
+        and (
+            getattr(user, "is_superuser", False)
+            or has_module_scope(
+                user,
+                ModuleAccess.Module.RECEIVING,
+                ModuleAccess.Scope.OPERATE,
+            )
+        )
     )
 
 
@@ -194,9 +210,24 @@ def _post_regular_receiving_stock(receiving, items, user, reason):
         Transaction.objects.bulk_create(transactions)
 
 
-def _replacement_items_from_formset(receiving, formset, user):
+def _effective_received_at(receiving, original_received_at=None):
+    if not receiving.receiving_date:
+        return original_received_at or timezone.now()
+    receipt_time = time.min
+    if original_received_at:
+        receipt_time = timezone.localtime(original_received_at).time()
+    received_at = datetime.combine(receiving.receiving_date, receipt_time)
+    if timezone.is_naive(received_at):
+        return timezone.make_aware(received_at, timezone.get_current_timezone())
+    return received_at
+
+
+def _replacement_items_from_formset(receiving, formset, user, *, original_received_at=None):
     items = []
-    received_at = timezone.now()
+    received_at = _effective_received_at(
+        receiving,
+        original_received_at=original_received_at,
+    )
     for form in formset.forms:
         cleaned = getattr(form, "cleaned_data", None)
         if not cleaned or cleaned.get("DELETE"):
@@ -500,6 +531,9 @@ def receiving_edit(request, pk):
                         locked_receiving.items.select_related("item", "location")
                         .order_by("pk")
                     )
+                    original_received_at = (
+                        old_items[0].received_at if old_items else None
+                    )
                     _reverse_regular_receiving_stock(
                         locked_receiving,
                         old_items,
@@ -523,6 +557,7 @@ def receiving_edit(request, pk):
                         locked_receiving,
                         formset,
                         request.user,
+                        original_received_at=original_received_at,
                     )
                     ReceivingItem.objects.bulk_create(replacement_items)
                     _post_regular_receiving_stock(
@@ -531,7 +566,7 @@ def receiving_edit(request, pk):
                         request.user,
                         reason,
                     )
-            except (ReceivingCorrectionError, ValidationError, ProtectedError) as exc:
+            except (ValueError, ValidationError, ProtectedError) as exc:
                 messages.error(request, str(exc))
             else:
                 messages.success(
@@ -700,7 +735,7 @@ def receiving_detail(request, pk):
             "items": items,
             "can_correct_receiving": (
                 receiving.status == Receiving.Status.VERIFIED
-                and _can_correct_regular_receiving(request.user)
+                and _has_regular_receiving_correction_access(request.user)
             ),
         },
     )

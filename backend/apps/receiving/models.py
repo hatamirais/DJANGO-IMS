@@ -453,7 +453,27 @@ class Receiving(TimeStampedModel):
 
     def clean(self):
         super().clean()
-        self.receiving_type = validate_receiving_type_code(self.receiving_type)
+        normalized_receiving_type = normalize_receiving_type_code(self.receiving_type)
+        try:
+            self.receiving_type = validate_receiving_type_code(normalized_receiving_type)
+        except ValidationError:
+            existing_receiving_type = None
+            if self.pk:
+                existing_receiving_type = (
+                    Receiving.objects.filter(pk=self.pk)
+                    .values_list("receiving_type", flat=True)
+                    .first()
+                )
+            if (
+                existing_receiving_type
+                and normalized_receiving_type == existing_receiving_type
+                and ReceivingTypeOption.objects.filter(
+                    code=normalized_receiving_type
+                ).exists()
+            ):
+                self.receiving_type = normalized_receiving_type
+            else:
+                raise
         self._validate_document_number_not_opening_balance_collision()
         self._validate_document_number_immutable_after_movements()
         if receiving_type_requires_supplier(self.receiving_type) and not self.supplier_id:
