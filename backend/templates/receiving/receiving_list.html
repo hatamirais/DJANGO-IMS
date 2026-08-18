@@ -52,7 +52,7 @@
                     <td><a href="{% url 'receiving:receiving_detail' r.pk %}" class="fw-semibold text-decoration-none">{{ r.document_number }}</a></td>
                     <td>{{ r.receiving_date|date:"d/m/Y" }}</td>
                     <td>
-                        <span class="badge bg-info-subtle text-info">{{ r.receiving_type_label }}</span>
+                        <span class="badge bg-info-subtle text-info">{{ r.receiving_type_display_label }}</span>
                     </td>
                     <td>{{ r.supplier.name|default:"-" }}</td>
                     <td>{{ r.sumber_dana.name }}</td>

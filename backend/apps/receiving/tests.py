@@ -6,7 +6,7 @@ import threading
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 
 from django.apps import apps as django_apps
 from django.contrib.admin.sites import AdminSite
@@ -1936,6 +1936,30 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertNotContains(response, 'Status:</span>', html=False)
         self.assertContains(response, 'badge-status badge-verified', html=False)
 
+    def test_regular_receiving_list_uses_preloaded_type_labels(self):
+        ReceivingTypeOption.objects.create(code="DON", name="Donasi")
+        Receiving.objects.create(
+            document_number="RCV-2026-LABEL-001",
+            receiving_type="DON",
+            receiving_date=date(2026, 3, 16),
+            sumber_dana=self.funding,
+            status=Receiving.Status.VERIFIED,
+            is_planned=False,
+            created_by=self.user,
+            verified_by=self.user,
+        )
+
+        with patch.object(
+            Receiving,
+            "receiving_type_label",
+            new_callable=PropertyMock,
+            side_effect=AssertionError("List views must not call receiving_type_label."),
+        ):
+            response = self.client.get(reverse("receiving:receiving_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Donasi")
+
     def test_regular_receiving_create_page_does_not_show_rs_settlement_column(self):
         response = self.client.get(reverse("receiving:receiving_create"))
 
@@ -1983,6 +2007,28 @@ class ReceivingWorkflowCleanupTest(TestCase):
             response,
             "Form manual dapat digunakan untuk rencana penerimaan tanpa kontrak.",
         )
+
+    def test_planned_receiving_list_uses_preloaded_type_labels(self):
+        Receiving.objects.create(
+            document_number="RCV-2026-LABEL-PLAN",
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 3, 16),
+            sumber_dana=self.funding,
+            status=Receiving.Status.DRAFT,
+            is_planned=True,
+            created_by=self.user,
+        )
+
+        with patch.object(
+            Receiving,
+            "receiving_type_label",
+            new_callable=PropertyMock,
+            side_effect=AssertionError("List views must not call receiving_type_label."),
+        ):
+            response = self.client.get(reverse("receiving:receiving_plan_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Hibah")
 
     def test_regular_receiving_detail_rejects_planned_receiving(self):
         planned_receiving = Receiving.objects.create(

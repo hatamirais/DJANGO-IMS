@@ -159,10 +159,35 @@ def _create_verified_receiving(request, form, formset):
     return receiving
 
 
+def _receiving_type_options_and_label_map():
+    receiving_type_options = list(ReceivingTypeOption.objects.filter(is_active=True))
+    receiving_type_labels = {
+        option.code: option.name for option in receiving_type_options
+    }
+    receiving_type_labels.update(
+        {
+            code: label
+            for code, label in Receiving.ReceivingType.choices
+            if code not in receiving_type_labels
+        }
+    )
+    return receiving_type_options, receiving_type_labels
+
+
+def _attach_receiving_type_labels(receivings, receiving_type_labels):
+    for receiving in receivings:
+        receiving.receiving_type_display_label = receiving_type_labels.get(
+            receiving.receiving_type,
+            receiving.receiving_type,
+        )
+
+
 @login_required
 @perm_required("receiving.view_receiving")
 def receiving_list(request):
-    receiving_type_options = ReceivingTypeOption.objects.filter(is_active=True)
+    receiving_type_options, receiving_type_labels = (
+        _receiving_type_options_and_label_map()
+    )
     queryset = (
         Receiving.objects.select_related("supplier", "sumber_dana", "created_by", "contract")
         .filter(is_planned=False)
@@ -182,6 +207,7 @@ def receiving_list(request):
 
     paginator = Paginator(queryset, 25)
     receivings = paginator.get_page(request.GET.get("page"))
+    _attach_receiving_type_labels(receivings, receiving_type_labels)
 
     return render(
         request,
@@ -198,7 +224,9 @@ def receiving_list(request):
 @login_required
 @perm_required("receiving.view_receiving")
 def receiving_plan_list(request):
-    receiving_type_options = ReceivingTypeOption.objects.filter(is_active=True)
+    receiving_type_options, receiving_type_labels = (
+        _receiving_type_options_and_label_map()
+    )
     queryset = (
         Receiving.objects.select_related("supplier", "sumber_dana", "created_by", "contract")
         .filter(is_planned=True)
@@ -221,6 +249,7 @@ def receiving_plan_list(request):
 
     paginator = Paginator(queryset, 25)
     receivings = paginator.get_page(request.GET.get("page"))
+    _attach_receiving_type_labels(receivings, receiving_type_labels)
 
     return render(
         request,
