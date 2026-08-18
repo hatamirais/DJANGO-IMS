@@ -1,17 +1,19 @@
 from io import BytesIO
 import hashlib
+from importlib import import_module
 import shutil
 import threading
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 
+from django.apps import apps as django_apps
 from django.contrib.admin.sites import AdminSite
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, connections, transaction
-from django.test import Client, TestCase, TransactionTestCase, override_settings
+from django.test import Client, RequestFactory, TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -22,7 +24,9 @@ from apps.receiving.admin import (
     RECEIVING_CSV_HEADERS,
     ReceivingAdmin,
     ReceivingCSVImportForm,
+    ReceivingTypeOptionAdmin,
 )
+from apps.receiving.apps import ensure_system_receiving_types
 from apps.receiving.forms import (
     PlannedReceivingForm,
     ReceivingForm,
@@ -107,6 +111,182 @@ class ReceivingItemModelExpiryValidationTests(TestCase):
         )
 
         receiving_item.full_clean()
+
+
+class ReceivingTypeMigrationTests(TestCase):
+    migration = import_module("apps.receiving.migrations.0019_seed_system_receiving_types")
+
+    def test_seed_migration_allows_legacy_return_rs_receivings(self):
+        user = User.objects.create_superuser(
+            username="receiving-type-migration-admin",
+            password="secret12345",
+        )
+        funding = FundingSource.objects.create(code="RTM-FUND", name="RTM Fund")
+        Receiving.objects.create(
+            document_number="RCV-LEGACY-RS",
+            receiving_type="RETURN_RS",
+            receiving_date=date(2026, 3, 16),
+            sumber_dana=funding,
+            status=Receiving.Status.VERIFIED,
+            created_by=user,
+            verified_by=user,
+        )
+
+        self.migration.seed_system_receiving_types(django_apps, None)
+
+        self.assertTrue(
+            ReceivingTypeOption.objects.filter(
+                code=Receiving.ReceivingType.PROCUREMENT,
+                is_system=True,
+            ).exists()
+        )
+        self.assertFalse(ReceivingTypeOption.objects.filter(code="RETURN_RS").exists())
+
+    def test_seed_migration_allows_inactive_custom_type_history(self):
+        user = User.objects.create_superuser(
+            username="receiving-type-inactive-admin",
+            password="secret12345",
+        )
+        funding = FundingSource.objects.create(code="RTM-INACT", name="RTM Inactive")
+        ReceivingTypeOption.objects.create(
+            code="DON",
+            name="Donasi Lama",
+            is_active=False,
+        )
+        Receiving.objects.create(
+            document_number="RCV-INACTIVE-TYPE",
+            receiving_type="DON",
+            receiving_date=date(2026, 3, 16),
+            sumber_dana=funding,
+            status=Receiving.Status.VERIFIED,
+            created_by=user,
+            verified_by=user,
+        )
+
+        self.migration.seed_system_receiving_types(django_apps, None)
+
+        self.assertTrue(ReceivingTypeOption.objects.filter(code="DON").exists())
+
+    def test_seed_migration_preserves_deleted_custom_type_history(self):
+        user = User.objects.create_superuser(
+            username="receiving-type-deleted-admin",
+            password="secret12345",
+        )
+        funding = FundingSource.objects.create(code="RTM-DEL", name="RTM Deleted")
+        Receiving.objects.create(
+            document_number="RCV-DELETED-TYPE",
+            receiving_type="DONASI",
+            receiving_date=date(2026, 3, 16),
+            sumber_dana=funding,
+            status=Receiving.Status.VERIFIED,
+            created_by=user,
+            verified_by=user,
+        )
+
+        self.migration.seed_system_receiving_types(django_apps, None)
+
+        receiving_type = ReceivingTypeOption.objects.get(code="DONASI")
+        self.assertEqual(receiving_type.name, "DONASI")
+        self.assertFalse(receiving_type.is_active)
+        self.assertFalse(receiving_type.is_system)
+        self.assertFalse(receiving_type.requires_supplier)
+
+    def test_seed_migration_restores_existing_system_type_defaults(self):
+        ReceivingTypeOption.objects.filter(
+            code=Receiving.ReceivingType.PROCUREMENT
+        ).update(
+            name="Pengadaan Lama",
+            is_active=False,
+            is_system=False,
+            requires_supplier=False,
+            sort_order=77,
+        )
+
+        self.migration.seed_system_receiving_types(django_apps, None)
+
+        procurement_type = ReceivingTypeOption.objects.get(
+            code=Receiving.ReceivingType.PROCUREMENT
+        )
+        self.assertEqual(procurement_type.name, "Pengadaan")
+        self.assertTrue(procurement_type.is_active)
+        self.assertTrue(procurement_type.is_system)
+        self.assertTrue(procurement_type.requires_supplier)
+        self.assertEqual(procurement_type.sort_order, 10)
+
+    def test_post_migrate_seed_preserves_existing_system_type_metadata(self):
+        ReceivingTypeOption.objects.filter(
+            code=Receiving.ReceivingType.PROCUREMENT
+        ).update(
+            name="Pengadaan Manual",
+            is_active=False,
+            is_system=False,
+            requires_supplier=False,
+            sort_order=88,
+        )
+
+        ensure_system_receiving_types(sender=None, using="default")
+
+        procurement_type = ReceivingTypeOption.objects.get(
+            code=Receiving.ReceivingType.PROCUREMENT
+        )
+        self.assertEqual(procurement_type.name, "Pengadaan Manual")
+        self.assertFalse(procurement_type.is_active)
+        self.assertTrue(procurement_type.is_system)
+        self.assertFalse(procurement_type.requires_supplier)
+        self.assertEqual(procurement_type.sort_order, 88)
+
+
+class ReceivingTypeOptionAdminTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_superuser(
+            username="receiving-type-option-admin",
+            password="secret12345",
+        )
+        self.request = RequestFactory().get("/admin/receiving/receivingtypeoption/")
+        self.request.user = self.user
+        self.admin = ReceivingTypeOptionAdmin(ReceivingTypeOption, AdminSite())
+
+    def test_system_receiving_type_cannot_be_deleted_from_object_page(self):
+        system_type = ReceivingTypeOption.objects.get(code=Receiving.ReceivingType.GRANT)
+
+        self.assertFalse(self.admin.has_delete_permission(self.request, system_type))
+
+    def test_is_system_is_readonly_when_adding_receiving_type(self):
+        readonly_fields = self.admin.get_readonly_fields(self.request)
+
+        self.assertIn("is_system", readonly_fields)
+
+    def test_is_system_is_readonly_when_editing_custom_receiving_type(self):
+        custom_type = ReceivingTypeOption.objects.create(code="DON", name="Donasi")
+        readonly_fields = self.admin.get_readonly_fields(self.request, custom_type)
+
+        self.assertIn("is_system", readonly_fields)
+        self.assertNotIn("code", readonly_fields)
+
+    def test_system_receiving_type_locks_code_and_system_flag(self):
+        system_type = ReceivingTypeOption.objects.get(code=Receiving.ReceivingType.GRANT)
+        readonly_fields = self.admin.get_readonly_fields(self.request, system_type)
+
+        self.assertIn("is_system", readonly_fields)
+        self.assertIn("code", readonly_fields)
+
+    def test_bulk_delete_rejects_system_receiving_types(self):
+        system_type = ReceivingTypeOption.objects.get(code=Receiving.ReceivingType.GRANT)
+
+        with self.assertRaises(PermissionDenied):
+            self.admin.delete_queryset(
+                None,
+                ReceivingTypeOption.objects.filter(pk=system_type.pk),
+            )
+
+        self.assertTrue(ReceivingTypeOption.objects.filter(pk=system_type.pk).exists())
+
+    def test_bulk_delete_allows_custom_receiving_types(self):
+        custom_type = ReceivingTypeOption.objects.create(code="DON", name="Donasi")
+
+        self.admin.delete_queryset(None, ReceivingTypeOption.objects.filter(pk=custom_type.pk))
+
+        self.assertFalse(ReceivingTypeOption.objects.filter(pk=custom_type.pk).exists())
 
 
 class ReceivingModelDocumentNumberCollisionTests(TestCase):
@@ -1161,6 +1341,35 @@ class ReceivingWorkflowCleanupTest(TestCase):
         )
         return receiving
 
+    def test_system_receiving_type_options_seeded_and_shared_by_forms(self):
+        procurement_type = ReceivingTypeOption.objects.get(
+            code=Receiving.ReceivingType.PROCUREMENT
+        )
+        grant_type = ReceivingTypeOption.objects.get(code=Receiving.ReceivingType.GRANT)
+
+        self.assertTrue(procurement_type.is_system)
+        self.assertTrue(procurement_type.requires_supplier)
+        self.assertTrue(grant_type.is_system)
+        self.assertFalse(grant_type.requires_supplier)
+
+        regular_choices = list(ReceivingForm().fields["receiving_type"].widget.choices)
+        planned_choices = list(
+            PlannedReceivingForm().fields["receiving_type"].widget.choices
+        )
+
+        self.assertEqual(regular_choices[0], ("", "---------"))
+        self.assertEqual(planned_choices[0], ("", "---------"))
+        self.assertIn(
+            (Receiving.ReceivingType.PROCUREMENT, "Pengadaan"),
+            regular_choices,
+        )
+        self.assertIn(
+            (Receiving.ReceivingType.PROCUREMENT, "Pengadaan"),
+            planned_choices,
+        )
+        self.assertIn((Receiving.ReceivingType.GRANT, "Hibah"), regular_choices)
+        self.assertIn((Receiving.ReceivingType.GRANT, "Hibah"), planned_choices)
+
     def test_regular_receiving_create_auto_verifies_and_posts_stock_transaction(self):
         response = self.client.post(
             reverse("receiving:receiving_create"),
@@ -1772,6 +1981,30 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertNotContains(response, 'Status:</span>', html=False)
         self.assertContains(response, 'badge-status badge-verified', html=False)
 
+    def test_regular_receiving_list_uses_preloaded_type_labels(self):
+        ReceivingTypeOption.objects.create(code="DON", name="Donasi")
+        Receiving.objects.create(
+            document_number="RCV-2026-LABEL-001",
+            receiving_type="DON",
+            receiving_date=date(2026, 3, 16),
+            sumber_dana=self.funding,
+            status=Receiving.Status.VERIFIED,
+            is_planned=False,
+            created_by=self.user,
+            verified_by=self.user,
+        )
+
+        with patch.object(
+            Receiving,
+            "receiving_type_label",
+            new_callable=PropertyMock,
+            side_effect=AssertionError("List views must not call receiving_type_label."),
+        ):
+            response = self.client.get(reverse("receiving:receiving_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Donasi")
+
     def test_regular_receiving_create_page_does_not_show_rs_settlement_column(self):
         response = self.client.get(reverse("receiving:receiving_create"))
 
@@ -1795,19 +2028,52 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, 'name="facility"', html=False)
         self.assertContains(response, 'placeholder="Kosongkan untuk generate otomatis"', html=False)
-        self.assertContains(response, 'Receiving type <span class="text-danger">*</span>', html=False)
-        self.assertContains(response, 'Receiving date <span class="text-danger">*</span>', html=False)
+        self.assertContains(
+            response,
+            'Receiving type <span class="text-danger">*</span>',
+            html=False,
+        )
+        self.assertContains(
+            response,
+            'Receiving date <span class="text-danger">*</span>',
+            html=False,
+        )
         self.assertContains(response, 'Sumber dana <span class="text-danger">*</span>', html=False)
-        self.assertNotContains(response, '>Pengadaan</option>', html=False)
+        self.assertContains(response, '>Pengadaan</option>', html=False)
         self.assertContains(response, '>Hibah</option>', html=False)
 
-    def test_planned_receiving_list_keeps_manual_create_for_non_procurement_types(self):
+    def test_planned_receiving_list_keeps_manual_create_for_unlinked_plans(self):
         response = self.client.get(reverse("receiving:receiving_plan_list"))
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, reverse("receiving:receiving_plan_create"))
-        self.assertContains(response, "Buat Rencana Non-Pengadaan")
-        self.assertContains(response, "Gunakan buat manual hanya untuk hibah")
+        self.assertContains(response, "Buat Rencana")
+        self.assertContains(
+            response,
+            "Form manual dapat digunakan untuk rencana penerimaan tanpa kontrak.",
+        )
+
+    def test_planned_receiving_list_uses_preloaded_type_labels(self):
+        Receiving.objects.create(
+            document_number="RCV-2026-LABEL-PLAN",
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 3, 16),
+            sumber_dana=self.funding,
+            status=Receiving.Status.DRAFT,
+            is_planned=True,
+            created_by=self.user,
+        )
+
+        with patch.object(
+            Receiving,
+            "receiving_type_label",
+            new_callable=PropertyMock,
+            side_effect=AssertionError("List views must not call receiving_type_label."),
+        ):
+            response = self.client.get(reverse("receiving:receiving_plan_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Hibah")
 
     def test_regular_receiving_detail_rejects_planned_receiving(self):
         planned_receiving = Receiving.objects.create(
@@ -1877,11 +2143,11 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertFalse(planned_form.is_valid())
         self.assertEqual(
             regular_form.errors["supplier"],
-            ["Supplier wajib diisi untuk tipe Pengadaan."],
+            ["Supplier wajib diisi untuk tipe penerimaan ini."],
         )
         self.assertEqual(
-            planned_form.errors["receiving_type"],
-            ["Rencana penerimaan pengadaan baru wajib dibuat melalui modul SPJ / Pengadaan."],
+            planned_form.errors["supplier"],
+            ["Supplier wajib diisi untuk tipe penerimaan ini."],
         )
 
     def test_receiving_forms_reject_unknown_custom_receiving_type(self):
@@ -1927,6 +2193,11 @@ class ReceivingWorkflowCleanupTest(TestCase):
         )
 
     def test_receiving_forms_reject_reserved_internal_receiving_type(self):
+        ReceivingTypeOption.objects.create(
+            code="RETURN_RS",
+            name="Pengembalian RS",
+            is_active=True,
+        )
         form_data = {
             "document_number": "",
             "receiving_type": "RETURN_RS",
@@ -1943,6 +2214,10 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertFalse(planned_form.is_valid())
         self.assertEqual(regular_form.errors["receiving_type"], ["Masukkan pilihan yang valid."])
         self.assertEqual(planned_form.errors["receiving_type"], ["Masukkan pilihan yang valid."])
+        self.assertNotIn(
+            ("RETURN_RS", "Pengembalian RS"),
+            ReceivingForm().fields["receiving_type"].widget.choices,
+        )
 
     def test_receiving_model_full_clean_rejects_invalid_receiving_type(self):
         receiving = Receiving(
@@ -1979,7 +2254,7 @@ class ReceivingWorkflowCleanupTest(TestCase):
 
         self.assertEqual(
             exc.exception.message_dict["supplier"],
-            ["Supplier wajib diisi untuk tipe Pengadaan."],
+            ["Supplier wajib diisi untuk tipe penerimaan ini."],
         )
 
     def test_receiving_forms_require_explicit_receiving_type_selection(self):
@@ -2042,14 +2317,19 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertEqual(receiving.status, Receiving.Status.DRAFT)
         self.assertTrue(receiving.order_items.filter(item=self.item).exists())
 
-    def test_planned_receiving_create_blocks_manual_procurement_type(self):
+    def test_planned_receiving_create_accepts_manual_procurement_type(self):
+        supplier = Supplier.objects.create(
+            code="SUP-RCV-PROC",
+            name="PT Manual Procurement",
+        )
+
         response = self.client.post(
             reverse("receiving:receiving_plan_create"),
             {
                 "document_number": "",
                 "receiving_type": Receiving.ReceivingType.PROCUREMENT,
                 "receiving_date": "2026-03-16",
-                "supplier": "",
+                "supplier": supplier.pk,
                 "sumber_dana": self.funding.pk,
                 "notes": "",
                 "items-TOTAL_FORMS": "1",
@@ -2064,12 +2344,11 @@ class ReceivingWorkflowCleanupTest(TestCase):
             secure=True,
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(
-            "Rencana penerimaan pengadaan baru wajib dibuat melalui modul SPJ / Pengadaan.",
-            response.context["form"].errors["receiving_type"],
-        )
-        self.assertFalse(Receiving.objects.filter(is_planned=True).exists())
+        self.assertEqual(response.status_code, 302)
+        receiving = Receiving.objects.get(is_planned=True)
+        self.assertEqual(receiving.receiving_type, Receiving.ReceivingType.PROCUREMENT)
+        self.assertEqual(receiving.supplier, supplier)
+        self.assertIsNone(receiving.contract)
 
     def test_receiving_full_clean_rejects_duplicate_planned_contract_link(self):
         supplier = Supplier.objects.create(code="SUP-RCV-001", name="PT Supplier Receiving")

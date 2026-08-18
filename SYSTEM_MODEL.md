@@ -249,18 +249,18 @@ This section reflects model code in `backend/apps/*/models.py`.
 
 ### 4.6 Receiving
 
-- `receiving.ReceivingTypeOption` (`receiving_type_options`): `code`, `name`, `is_active`
-  - Used by quick-create receiving type UI and by `Receiving.receiving_type_label` to resolve non-built-in labels
+- `receiving.ReceivingTypeOption` (`receiving_type_options`): `code`, `name`, `is_active`, `is_system`, `requires_supplier`, `sort_order`
+  - Single lookup source for receiving type dropdowns and labels. System rows include `PROCUREMENT` / `Pengadaan` and `GRANT` / `Hibah`; quick-create rows are non-system custom types.
 
 - `receiving.Receiving` (`receivings`):
-  - Type: `PROCUREMENT`, `GRANT`
+  - Type code stored in `receiving_type`, validated against active `ReceivingTypeOption.code`
   - Status: `DRAFT`, `SUBMITTED`, `APPROVED`, `PARTIAL`, `RECEIVED`, `CLOSED`, `VERIFIED`
   - Fields: `document_number` (auto-generated `RCV-YYYY-NNNNN` when blank), `receiving_date`, `is_planned`, `grant_origin`, `program`, `closed_reason`, `notes`
   - FKs: `contract` (nullable FK to `procurement.ProcurementContract`), `supplier` (nullable), `facility` (nullable), `sumber_dana`, `created_by`, `verified_by` (nullable), `approved_by` (nullable), `closed_by` (nullable)
   - Timestamps: `verified_at`, `approved_at`, `closed_at`
   - Index: `idx_recv_status_date`
   - Properties: `receiving_type_label`
-  - Custom receiving types can still be stored in `receiving_type`; built-in display labels come from `ReceivingType`, while non-built-in labels are resolved from `ReceivingTypeOption`
+  - `receiving_type_label` resolves labels from active `ReceivingTypeOption` rows, with a code-level fallback for migration-adjacent states.
 
 - `receiving.ReceivingItem` (`receiving_items`):
   - FKs: `receiving`, `order_item` (nullable), `item`, `location` (nullable), `settlement_distribution_item` (nullable), `received_by` (nullable)

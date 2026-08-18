@@ -12,10 +12,10 @@
     <div class="px-3 py-3 border-bottom bg-light">
         <div class="d-flex flex-column flex-lg-row gap-3 justify-content-between align-items-lg-center mb-3">
             <div class="alert alert-info mb-0 flex-grow-1">
-                Rencana penerimaan pengadaan baru dibuat otomatis dari modul <strong>SPJ / Pengadaan</strong>. Gunakan buat manual hanya untuk hibah, tipe non-pengadaan lain, atau dokumen kompatibilitas lama.
+                Rencana penerimaan dari kontrak tetap disinkronkan melalui modul <strong>SPJ / Pengadaan</strong>. Form manual dapat digunakan untuk rencana penerimaan tanpa kontrak.
             </div>
             <a href="{% url 'receiving:receiving_plan_create' %}" class="btn btn-primary btn-sm align-self-start">
-                <i class="bi bi-plus-lg me-1"></i>Buat Rencana Non-Pengadaan
+                <i class="bi bi-plus-lg me-1"></i>Buat Rencana
             </a>
         </div>
         <form method="get" class="filter-form">
@@ -31,8 +31,11 @@
             </select>
             <select name="type" class="form-select">
                 <option value="">Semua Tipe</option>
-                <option value="PROCUREMENT" {{ type_procurement }}>Pengadaan</option>
-                <option value="GRANT" {{ type_grant }}>Hibah</option>
+                {% for option in receiving_type_options %}
+                <option value="{{ option.code }}" {% if selected_type == option.code %}selected{% endif %}>
+                    {{ option.name }}
+                </option>
+                {% endfor %}
             </select>
             <div class="d-flex gap-2">
                 <button type="submit" class="btn btn-outline-secondary btn-sm"><i class="bi bi-search"></i></button>
@@ -70,7 +73,7 @@
                         <span class="text-muted">Legacy manual</span>
                         {% endif %}
                     </td>
-                    <td>{{ r.receiving_type_label }}</td>
+                    <td>{{ r.receiving_type_display_label }}</td>
                     <td>{{ r.supplier.name|default:"-" }}</td>
                     <td>{{ r.sumber_dana.code }}</td>
                     <td>

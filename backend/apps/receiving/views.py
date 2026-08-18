@@ -25,6 +25,7 @@ from .models import (
     ReceivingDocument,
     ReceivingItem,
     ReceivingOrderItem,
+    ReceivingTypeOption,
     increment_receiving_stock,
     resolve_receiving_source_document_number,
 )
@@ -158,9 +159,35 @@ def _create_verified_receiving(request, form, formset):
     return receiving
 
 
+def _receiving_type_options_and_label_map():
+    receiving_type_options = list(ReceivingTypeOption.objects.filter(is_active=True))
+    receiving_type_labels = {
+        option.code: option.name for option in receiving_type_options
+    }
+    receiving_type_labels.update(
+        {
+            code: label
+            for code, label in Receiving.ReceivingType.choices
+            if code not in receiving_type_labels
+        }
+    )
+    return receiving_type_options, receiving_type_labels
+
+
+def _attach_receiving_type_labels(receivings, receiving_type_labels):
+    for receiving in receivings:
+        receiving.receiving_type_display_label = receiving_type_labels.get(
+            receiving.receiving_type,
+            receiving.receiving_type,
+        )
+
+
 @login_required
 @perm_required("receiving.view_receiving")
 def receiving_list(request):
+    receiving_type_options, receiving_type_labels = (
+        _receiving_type_options_and_label_map()
+    )
     queryset = (
         Receiving.objects.select_related("supplier", "sumber_dana", "created_by", "contract")
         .filter(is_planned=False)
@@ -180,6 +207,7 @@ def receiving_list(request):
 
     paginator = Paginator(queryset, 25)
     receivings = paginator.get_page(request.GET.get("page"))
+    _attach_receiving_type_labels(receivings, receiving_type_labels)
 
     return render(
         request,
@@ -188,8 +216,7 @@ def receiving_list(request):
             "receivings": receivings,
             "search": search,
             "selected_type": r_type or "",
-            "type_procurement": "selected" if r_type == "PROCUREMENT" else "",
-            "type_grant": "selected" if r_type == "GRANT" else "",
+            "receiving_type_options": receiving_type_options,
         },
     )
 
@@ -197,6 +224,9 @@ def receiving_list(request):
 @login_required
 @perm_required("receiving.view_receiving")
 def receiving_plan_list(request):
+    receiving_type_options, receiving_type_labels = (
+        _receiving_type_options_and_label_map()
+    )
     queryset = (
         Receiving.objects.select_related("supplier", "sumber_dana", "created_by", "contract")
         .filter(is_planned=True)
@@ -219,6 +249,7 @@ def receiving_plan_list(request):
 
     paginator = Paginator(queryset, 25)
     receivings = paginator.get_page(request.GET.get("page"))
+    _attach_receiving_type_labels(receivings, receiving_type_labels)
 
     return render(
         request,
@@ -240,8 +271,7 @@ def receiving_plan_list(request):
             if status == Receiving.Status.RECEIVED
             else "",
             "status_closed": "selected" if status == Receiving.Status.CLOSED else "",
-            "type_procurement": "selected" if r_type == "PROCUREMENT" else "",
-            "type_grant": "selected" if r_type == "GRANT" else "",
+            "receiving_type_options": receiving_type_options,
         },
     )
 
@@ -288,12 +318,6 @@ def receiving_plan_create(request):
 
         if form.is_valid() and formset.is_valid():
             receiving = form.save(commit=False)
-            if receiving.receiving_type == Receiving.ReceivingType.PROCUREMENT:
-                messages.error(
-                    request,
-                    "Rencana penerimaan pengadaan baru wajib dibuat melalui modul SPJ / Pengadaan.",
-                )
-                return redirect("procurement:contract_list")
             receiving.created_by = request.user
             receiving.is_planned = True
             receiving.status = Receiving.Status.DRAFT

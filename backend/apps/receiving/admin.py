@@ -128,10 +128,36 @@ class ReceivingDocumentInline(admin.TabularInline):
 
 @admin.register(ReceivingTypeOption)
 class ReceivingTypeOptionAdmin(admin.ModelAdmin):
-    list_display = ("code", "name", "is_active", "created_at")
-    list_filter = ("is_active",)
+    list_display = (
+        "code",
+        "name",
+        "is_active",
+        "is_system",
+        "requires_supplier",
+        "sort_order",
+        "created_at",
+    )
+    list_filter = ("is_active", "is_system", "requires_supplier")
     search_fields = ("code", "name")
-    ordering = ("name",)
+    ordering = ("sort_order", "name")
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly_fields = list(super().get_readonly_fields(request, obj))
+        readonly_fields.append("is_system")
+        if obj and obj.is_system:
+            readonly_fields.append("code")
+        return readonly_fields
+
+    def has_delete_permission(self, request, obj=None):
+        has_permission = super().has_delete_permission(request, obj)
+        if obj and obj.is_system:
+            return False
+        return has_permission
+
+    def delete_queryset(self, request, queryset):
+        if queryset.filter(is_system=True).exists():
+            raise PermissionDenied("System receiving types cannot be deleted.")
+        super().delete_queryset(request, queryset)
 
 
 # ── CSV Import Form ────────────────────────────────────────

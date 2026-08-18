@@ -20,15 +20,16 @@ App-specific guidance for receiving workflows.
 
 ## Receiving Types
 
-- Receiving supports built-in and custom type codes.
-- UI labels for non-built-in types are resolved from `ReceivingTypeOption`.
+- Receiving type dropdowns and labels resolve from active `ReceivingTypeOption` rows.
+- System rows include `PROCUREMENT` / `Pengadaan` and `GRANT` / `Hibah`; quick-create rows are non-system custom types.
+- `requires_supplier=True` on a receiving type row requires the form/model to capture a supplier.
 
 ## Procurement-Linked Planned Receiving
 
-- New procurement receiving plans are no longer manually approved.
+- SPJ-linked procurement receiving plans are no longer manually approved.
 - Approved SPJ contracts auto-create or re-sync exactly one linked planned `Receiving(contract!=NULL)` document.
 - SPJ-linked planned receiving leftovers must be corrected through procurement amendments rather than the receiving-side `Tutup Sisa` close-items action.
-- Legacy manual `Receiving(is_planned=True, contract IS NULL)` rows remain executable through compatibility routes.
+- Manual `Receiving(is_planned=True, contract IS NULL)` rows can be created from the receiving plan form and remain executable through receiving routes.
 
 ## Attachments
 
