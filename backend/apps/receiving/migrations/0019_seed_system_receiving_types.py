@@ -1,4 +1,4 @@
-from django.db import migrations
+from django.db import DEFAULT_DB_ALIAS, migrations
 from django.db.models import Count
 
 
@@ -25,9 +25,10 @@ SYSTEM_RECEIVING_TYPES = [
 def seed_system_receiving_types(apps, schema_editor):
     ReceivingTypeOption = apps.get_model("receiving", "ReceivingTypeOption")
     Receiving = apps.get_model("receiving", "Receiving")
+    db_alias = schema_editor.connection.alias if schema_editor else DEFAULT_DB_ALIAS
 
     for option in SYSTEM_RECEIVING_TYPES:
-        receiving_type, created = ReceivingTypeOption.objects.get_or_create(
+        receiving_type, created = ReceivingTypeOption.objects.using(db_alias).get_or_create(
             code=option["code"],
             defaults={
                 "name": option["name"],
@@ -39,14 +40,45 @@ def seed_system_receiving_types(apps, schema_editor):
         )
         if not created and not receiving_type.is_system:
             receiving_type.is_system = True
-            receiving_type.save(update_fields=["is_system"])
+            receiving_type.save(using=db_alias, update_fields=["is_system"])
 
-    valid_codes = ReceivingTypeOption.objects.values_list(
+    valid_codes = set(
+        ReceivingTypeOption.objects.using(db_alias).values_list(
+            "code",
+            flat=True,
+        )
+    )
+    missing_historical_codes = list(
+        Receiving.objects.using(db_alias)
+        .exclude(receiving_type__in=valid_codes)
+        .exclude(receiving_type="")
+        .exclude(receiving_type="RETURN_RS")
+        .values_list("receiving_type", flat=True)
+        .distinct()
+        .order_by("receiving_type")
+    )
+    ReceivingTypeOption.objects.using(db_alias).bulk_create(
+        [
+            ReceivingTypeOption(
+                code=code,
+                name=code,
+                is_active=False,
+                is_system=False,
+                requires_supplier=False,
+                sort_order=100,
+            )
+            for code in missing_historical_codes
+        ],
+        ignore_conflicts=True,
+    )
+
+    valid_codes = ReceivingTypeOption.objects.using(db_alias).values_list(
         "code",
         flat=True,
     )
     invalid_types = list(
-        Receiving.objects.exclude(receiving_type__in=valid_codes)
+        Receiving.objects.using(db_alias)
+        .exclude(receiving_type__in=valid_codes)
         .exclude(receiving_type="RETURN_RS")
         .values("receiving_type")
         .annotate(row_count=Count("id"))
@@ -60,7 +92,7 @@ def seed_system_receiving_types(apps, schema_editor):
         )
         raise RuntimeError(
             "Cannot migrate receiving types: found "
-            f"{total} receiving row(s) without an active receiving_type_options row. "
+            f"{total} receiving row(s) without a receiving_type_options row. "
             f"Sample: {sample}"
         )
 

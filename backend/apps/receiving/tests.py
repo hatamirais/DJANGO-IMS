@@ -167,6 +167,30 @@ class ReceivingTypeMigrationTests(TestCase):
 
         self.assertTrue(ReceivingTypeOption.objects.filter(code="DON").exists())
 
+    def test_seed_migration_preserves_deleted_custom_type_history(self):
+        user = User.objects.create_superuser(
+            username="receiving-type-deleted-admin",
+            password="secret12345",
+        )
+        funding = FundingSource.objects.create(code="RTM-DEL", name="RTM Deleted")
+        Receiving.objects.create(
+            document_number="RCV-DELETED-TYPE",
+            receiving_type="DONASI",
+            receiving_date=date(2026, 3, 16),
+            sumber_dana=funding,
+            status=Receiving.Status.VERIFIED,
+            created_by=user,
+            verified_by=user,
+        )
+
+        self.migration.seed_system_receiving_types(django_apps, None)
+
+        receiving_type = ReceivingTypeOption.objects.get(code="DONASI")
+        self.assertEqual(receiving_type.name, "DONASI")
+        self.assertFalse(receiving_type.is_active)
+        self.assertFalse(receiving_type.is_system)
+        self.assertFalse(receiving_type.requires_supplier)
+
     def test_seed_migration_preserves_existing_system_type_metadata(self):
         ReceivingTypeOption.objects.filter(
             code=Receiving.ReceivingType.GRANT
