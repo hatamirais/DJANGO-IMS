@@ -89,7 +89,6 @@ def receiving_type_requires_supplier(value):
         return False
     return ReceivingTypeOption.objects.filter(
         code=receiving_type,
-        is_active=True,
         requires_supplier=True,
     ).exists()
 
@@ -121,6 +120,46 @@ def _create_receiving_stock_row(
     )
 
 
+def _rewrite_zero_receiving_stock_metadata(
+    *,
+    stock_pk,
+    expiry_date,
+    unit_price,
+    receiving_ref,
+):
+    from apps.stock.models import Stock
+
+    stock = Stock.objects.select_for_update().get(pk=stock_pk)
+    if stock.quantity != 0 or stock.reserved != 0:
+        return {
+            "pk": stock.pk,
+            "expiry_date": stock.expiry_date,
+            "quantity": stock.quantity,
+            "reserved": stock.reserved,
+            "unit_price": stock.unit_price,
+        }
+
+    stock.expiry_date = expiry_date
+    stock.unit_price = unit_price
+    stock.receiving_ref = receiving_ref
+    stock.updated_at = timezone.now()
+    stock.save(
+        update_fields=[
+            "expiry_date",
+            "unit_price",
+            "receiving_ref",
+            "updated_at",
+        ]
+    )
+    return {
+        "pk": stock.pk,
+        "expiry_date": stock.expiry_date,
+        "quantity": stock.quantity,
+        "reserved": stock.reserved,
+        "unit_price": stock.unit_price,
+    }
+
+
 def increment_receiving_stock(
     *,
     item,
@@ -132,6 +171,7 @@ def increment_receiving_stock(
     unit_price,
     receiving_ref,
     source_document_number,
+    allow_zero_layer_metadata_update=False,
 ):
     if not transaction.get_connection().in_atomic_block:
         raise RuntimeError("increment_receiving_stock harus dipanggil dalam transaksi.")
@@ -148,9 +188,25 @@ def increment_receiving_stock(
     updated_at = timezone.now()
     existing_stock = (
         Stock.objects.filter(**stock_filters)
-        .values("pk", "expiry_date", "unit_price")
+        .values("pk", "expiry_date", "quantity", "reserved", "unit_price")
         .first()
     )
+    if (
+        existing_stock
+        and (
+            existing_stock["expiry_date"] != expiry_date
+            or existing_stock["unit_price"] != unit_price
+        )
+        and existing_stock["quantity"] == 0
+        and existing_stock["reserved"] == 0
+        and allow_zero_layer_metadata_update
+    ):
+        existing_stock = _rewrite_zero_receiving_stock_metadata(
+            stock_pk=existing_stock["pk"],
+            expiry_date=expiry_date,
+            unit_price=unit_price,
+            receiving_ref=receiving_ref,
+        )
     if existing_stock and existing_stock["expiry_date"] != expiry_date:
         raise ValueError(
             "Batch stok yang sama tidak boleh memiliki tanggal kedaluwarsa berbeda."
@@ -188,9 +244,25 @@ def increment_receiving_stock(
     except IntegrityError:
         existing_stock = (
             Stock.objects.filter(**stock_filters)
-            .values("pk", "expiry_date", "unit_price")
+            .values("pk", "expiry_date", "quantity", "reserved", "unit_price")
             .first()
         )
+        if (
+            existing_stock
+            and (
+                existing_stock["expiry_date"] != expiry_date
+                or existing_stock["unit_price"] != unit_price
+            )
+            and existing_stock["quantity"] == 0
+            and existing_stock["reserved"] == 0
+            and allow_zero_layer_metadata_update
+        ):
+            existing_stock = _rewrite_zero_receiving_stock_metadata(
+                stock_pk=existing_stock["pk"],
+                expiry_date=expiry_date,
+                unit_price=unit_price,
+                receiving_ref=receiving_ref,
+            )
         if existing_stock and existing_stock["expiry_date"] != expiry_date:
             raise ValueError(
                 "Batch stok yang sama tidak boleh memiliki tanggal kedaluwarsa berbeda."
@@ -333,6 +405,7 @@ class Receiving(TimeStampedModel):
         RECEIVED = "RECEIVED", "Diterima Lengkap"
         CLOSED = "CLOSED", "Ditutup"
         VERIFIED = "VERIFIED", "Terverifikasi"
+        CANCELLED = "CANCELLED", "Dibatalkan"
 
     receiving_type = models.CharField(max_length=20)
     document_number = models.CharField(max_length=100, unique=True, blank=True)
@@ -407,6 +480,15 @@ class Receiving(TimeStampedModel):
     )
     closed_at = models.DateTimeField(null=True, blank=True)
     closed_reason = models.TextField(blank=True)
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="cancelled_receivings",
+    )
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancel_reason = models.TextField(blank=True)
     notes = models.TextField(blank=True)
 
     class Meta:
@@ -443,7 +525,27 @@ class Receiving(TimeStampedModel):
 
     def clean(self):
         super().clean()
-        self.receiving_type = validate_receiving_type_code(self.receiving_type)
+        normalized_receiving_type = normalize_receiving_type_code(self.receiving_type)
+        try:
+            self.receiving_type = validate_receiving_type_code(normalized_receiving_type)
+        except ValidationError:
+            existing_receiving_type = None
+            if self.pk:
+                existing_receiving_type = (
+                    Receiving.objects.filter(pk=self.pk)
+                    .values_list("receiving_type", flat=True)
+                    .first()
+                )
+            if (
+                existing_receiving_type
+                and normalized_receiving_type == existing_receiving_type
+                and ReceivingTypeOption.objects.filter(
+                    code=normalized_receiving_type
+                ).exists()
+            ):
+                self.receiving_type = normalized_receiving_type
+            else:
+                raise
         self._validate_document_number_not_opening_balance_collision()
         self._validate_document_number_immutable_after_movements()
         if receiving_type_requires_supplier(self.receiving_type) and not self.supplier_id:
@@ -682,6 +784,19 @@ class ReceivingItem(models.Model):
         null=True,
         blank=True,
         related_name="receiving_items",
+    )
+    posted_sumber_dana = models.ForeignKey(
+        "items.FundingSource",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="posted_receiving_items",
+        help_text="Actual funding source layer posted to stock for this item.",
+    )
+    posted_source_document_number = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="Actual stock source document layer posted for this item.",
     )
     received_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

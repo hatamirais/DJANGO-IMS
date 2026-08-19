@@ -58,6 +58,7 @@ Variabel opsional yang saat ini dibaca oleh aplikasi:
 - `USER_BULK_ACTION_RATE_LIMIT`
 - `USER_MUTATION_RATE_LIMIT`
 - `ITEM_MUTATION_RATE_LIMIT`
+- `RECEIVING_MUTATION_RATE_LIMIT`
 - `USER_PASSWORD_RESET_RATE_LIMIT`
 - `PASSWORD_CHANGE_RATE_LIMIT`
 - `PUSKESMAS_RECEIPT_CONFIRMATION_MUTATION_RATE_LIMIT`
@@ -84,6 +85,7 @@ Catatan:
 - Mutasi simpan/edit/hapus konfirmasi penerimaan Puskesmas (`/puskesmas/penerimaan/*`) juga memakai `django-ratelimit`; gunakan `PUSKESMAS_RECEIPT_CONFIRMATION_MUTATION_RATE_LIMIT` bila perlu menyesuaikan throughput operator fasilitas. Pratinjau pemuatan baris distribusi pada form buat berjalan lewat `GET` non-mutasi dan tidak memakai kuota ini. Nama lama `PUSKESMAS_SBBK_MUTATION_RATE_LIMIT` tetap dibaca sebagai fallback kompatibilitas.
 - Mutasi pemakaian rinci Puskesmas (`/puskesmas/pemakaian/*`) juga memakai `django-ratelimit`; gunakan `PUSKESMAS_CONSUMPTION_MUTATION_RATE_LIMIT` bila perlu menyesuaikan throughput operator fasilitas.
 - Mutasi create/update/delete barang dan quick-create lookup pada modul `items`, serta quick-create supplier/sumber dana pada form `receiving` dan `procurement`, juga memakai `django-ratelimit`; gunakan `ITEM_MUTATION_RATE_LIMIT` bila perlu menyesuaikan throughput operator katalog tanpa memakan kuota mutasi modul `users`.
+- Mutasi koreksi/batal penerimaan reguler (`/receiving/<pk>/edit/`, `/receiving/<pk>/delete/`) juga memakai `django-ratelimit`; gunakan `RECEIVING_MUTATION_RATE_LIMIT` bila perlu menyesuaikan throughput koreksi petugas gudang.
 - Mutasi impor XLSX LPLPO (`/lplpo/<pk>/import-xlsx/`) juga memakai `django-ratelimit`; gunakan `LPLPO_IMPORT_RATE_LIMIT` bila perlu menyesuaikan throughput input offline per operator.
 - Mutasi modul `procurement` (`/procurement/*`) juga memakai `django-ratelimit`; gunakan `PROCUREMENT_MUTATION_RATE_LIMIT` bila perlu menyesuaikan throughput pembuatan, pengajuan, approval, dan amandemen SPJ.
 - Lampiran dokumen penerimaan disimpan di `PRIVATE_MEDIA_ROOT` dan diunduh melalui route aplikasi yang membutuhkan login, jadi jangan arahkan web server publik langsung ke direktori ini.

@@ -15,6 +15,7 @@ from .models import (
     ReceivingOrderItem,
     ReceivingTypeOption,
     get_reserved_receiving_type_codes,
+    normalize_receiving_type_code,
     validate_receiving_type_code,
 )
 
@@ -44,6 +45,37 @@ def _get_receiving_type_choices():
 
 def _get_receiving_type_widget_choices():
     return [("", "---------")] + _get_receiving_type_choices()
+
+
+def _receiving_type_label(code):
+    if not code:
+        return ""
+    try:
+        option = ReceivingTypeOption.objects.filter(code=code).only("name").first()
+    except (ProgrammingError, OperationalError):
+        option = None
+    if option:
+        return option.name
+    return dict(Receiving.ReceivingType.choices).get(code, code)
+
+
+def _add_receiving_type_choice(choices, code):
+    if not code:
+        return choices
+    if any(choice_code == code for choice_code, _ in choices):
+        return choices
+    return [*choices, (code, _receiving_type_label(code))]
+
+
+class TrimmedDecimalNumberInput(forms.NumberInput):
+    def format_value(self, value):
+        if value is None or value == "":
+            return None
+        try:
+            decimal_value = value if isinstance(value, Decimal) else Decimal(str(value))
+        except (InvalidOperation, TypeError, ValueError):
+            return value
+        return format(decimal_value.normalize(), "f")
 
 
 def _normalize_text_value(value, *, field_label, max_length=None, allow_blank=True):
@@ -237,6 +269,81 @@ class ReceivingForm(BaseReceivingForm):
             "notes": forms.Textarea(attrs={"class": "form-control", "rows": 2}),
         }
 
+    def clean_document_number(self):
+        return _normalize_text_value(
+            self.cleaned_data.get("document_number"),
+            field_label="No. dokumen",
+            max_length=100,
+        )
+
+    def clean_receiving_date(self):
+        value = self.cleaned_data.get("receiving_date")
+        if value and not (1000 <= value.year <= 9999):
+            raise forms.ValidationError(
+                "Tanggal penerimaan harus berada pada rentang tahun 1000-9999."
+            )
+        return value
+
+    def clean_notes(self):
+        return _normalize_text_value(
+            self.cleaned_data.get("notes"),
+            field_label="Catatan",
+        )
+
+
+class ReceivingEditForm(ReceivingForm):
+    correction_reason = forms.CharField(
+        label="Alasan Koreksi",
+        required=True,
+        widget=forms.Textarea(attrs={"class": "form-control", "rows": 2}),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        current_type = getattr(self.instance, "receiving_type", "")
+        self.fields["receiving_type"].widget.choices = _add_receiving_type_choice(
+            list(self.fields["receiving_type"].widget.choices),
+            current_type,
+        )
+        if self.instance and self.instance.has_posted_stock_movements():
+            self.fields["document_number"].disabled = True
+
+    def clean_receiving_type(self):
+        try:
+            return super().clean_receiving_type()
+        except ValidationError:
+            current_type = getattr(self.instance, "receiving_type", "")
+            submitted_type = normalize_receiving_type_code(
+                self.cleaned_data.get("receiving_type")
+            )
+            if submitted_type and submitted_type == current_type:
+                return submitted_type
+            raise
+
+    def clean_correction_reason(self):
+        return _normalize_text_value(
+            self.cleaned_data.get("correction_reason"),
+            field_label="Alasan koreksi",
+            max_length=1000,
+            allow_blank=False,
+        )
+
+
+class ReceivingCancelForm(forms.Form):
+    cancel_reason = forms.CharField(
+        label="Alasan Pembatalan",
+        required=True,
+        widget=forms.Textarea(attrs={"class": "form-control", "rows": 3}),
+    )
+
+    def clean_cancel_reason(self):
+        return _normalize_text_value(
+            self.cleaned_data.get("cancel_reason"),
+            field_label="Alasan pembatalan",
+            max_length=1000,
+            allow_blank=False,
+        )
+
 class PlannedReceivingForm(BaseReceivingForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -289,7 +396,7 @@ class ReceivingItemForm(forms.ModelForm):
             "expiry_date": forms.DateInput(
                 attrs={"class": "form-control form-control-sm", "type": "date"}
             ),
-            "unit_price": forms.NumberInput(
+            "unit_price": TrimmedDecimalNumberInput(
                 attrs={
                     "class": "form-control form-control-sm",
                     "min": "0",
@@ -318,6 +425,22 @@ class ReceivingItemForm(forms.ModelForm):
         if unit_price is not None and unit_price < 0:
             raise forms.ValidationError("Harga satuan tidak boleh negatif.")
         return unit_price
+
+    def clean_batch_lot(self):
+        return _normalize_text_value(
+            self.cleaned_data.get("batch_lot"),
+            field_label="Batch/Lot",
+            max_length=100,
+            allow_blank=False,
+        )
+
+    def clean_expiry_date(self):
+        value = self.cleaned_data.get("expiry_date")
+        if value and not (1000 <= value.year <= 9999):
+            raise forms.ValidationError(
+                "Tanggal kedaluwarsa harus berada pada rentang tahun 1000-9999."
+            )
+        return value
 
     def clean(self):
         cleaned = super().clean()

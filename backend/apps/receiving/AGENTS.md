@@ -17,12 +17,15 @@ App-specific guidance for receiving workflows.
 - Within one receiving source-document layer, expiry date and unit price must remain exact. A same-layer mismatch is rejected instead of merged.
 - Stock mutation belongs to receiving execution/import workflow actions, not arbitrary model saves.
 - Receiving and opening-balance imports enforce `Item.requires_expiry_date`: blank `expiry_date` is allowed only for catalog items marked as non-expiring.
+- Regular receiving correction is ledger-safe: edit/cancel actions append reversal `Transaction(OUT)` rows instead of mutating historical `Transaction(IN)` rows. Edit then reposts corrected `Transaction(IN)` rows; cancel marks the document `CANCELLED`. Both actions must lock affected stock rows, fail if the received stock has already been consumed or reserved, and preserve zero-quantity stock rows instead of deleting them because draft workflows may reference those rows. Correction reposting may reuse an unreserved zero-quantity receiving stock row with corrected expiry or unit price; normal receiving and planned receiving execution must still reject same-source metadata mismatches. CSV-imported rows with per-row `sumber_dana_code` overrides store their posted funding/source layer on `ReceivingItem` and must be reversed from that actual posted stock/ledger layer.
+- Regular receiving edit/cancel is limited to superusers/Admin plus roles `GUDANG` and `KEPALA` with receiving operate access, and POST mutations use `RECEIVING_MUTATION_RATE_LIMIT`.
 
 ## Receiving Types
 
 - Receiving type dropdowns and labels resolve from active `ReceivingTypeOption` rows.
 - System rows include `PROCUREMENT` / `Pengadaan` and `GRANT` / `Hibah`; quick-create rows are non-system custom types.
 - `requires_supplier=True` on a receiving type row requires the form/model to capture a supplier.
+- Regular receiving edit keeps an inactive historical type selectable and valid when the existing document already uses that exact type; inactive types remain invalid for new selections, and retained inactive types still enforce their stored `requires_supplier` flag.
 
 ## Procurement-Linked Planned Receiving
 

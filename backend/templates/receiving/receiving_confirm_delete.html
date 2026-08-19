@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}Batalkan Penerimaan {{ receiving.document_number }} - Healthcare IMS{% endblock %}
+{% block page_title %}Batalkan Penerimaan{% endblock %}
+
+{% block content %}
+<div class="card content-card">
+    <div class="card-header">
+        <span><i class="bi bi-trash me-2"></i>Batalkan Penerimaan</span>
+    </div>
+    <div class="card-body">
+        <div class="alert alert-warning">
+            Pembatalan akan mengurangi stok dari penerimaan ini dan menambahkan transaksi koreksi. Riwayat transaksi awal tetap disimpan.
+        </div>
+
+        <dl class="row">
+            <dt class="col-md-3 text-muted">No. Dokumen</dt>
+            <dd class="col-md-9 fw-semibold">{{ receiving.document_number }}</dd>
+            <dt class="col-md-3 text-muted">Tanggal</dt>
+            <dd class="col-md-9">{{ receiving.receiving_date|date:"d/m/Y" }}</dd>
+            <dt class="col-md-3 text-muted">Status</dt>
+            <dd class="col-md-9">{{ receiving.get_status_display }}</dd>
+        </dl>
+
+        <form method="post" novalidate>
+            {% csrf_token %}
+            <div class="mb-3">
+                <label for="{{ form.cancel_reason.id_for_label }}" class="form-label fw-semibold">
+                    {{ form.cancel_reason.label }} <span class="text-danger">*</span>
+                </label>
+                {{ form.cancel_reason }}
+                {% for error in form.cancel_reason.errors %}
+                <div class="invalid-feedback d-block">{{ error }}</div>
+                {% endfor %}
+            </div>
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-danger">
+                    <i class="bi bi-trash me-1"></i>Batalkan Penerimaan
+                </button>
+                <a href="{% url 'receiving:receiving_detail' receiving.pk %}" class="btn btn-outline-secondary">Kembali</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

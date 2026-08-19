@@ -7,6 +7,36 @@ The format is based on Keep a Changelog and follows Semantic Versioning (`MAJOR.
 
 ## [Unreleased]
 
+## [1.31.5] - 2026-08-19
+
+### Added
+
+- Added auditable edit and cancel actions for verified regular receiving documents at `/receiving/<pk>/edit/` and `/receiving/<pk>/delete/`.
+- Added `CANCELLED` receiving status plus cancellation actor, timestamp, and reason metadata.
+- Added `RECEIVING_MUTATION_RATE_LIMIT` for regular receiving correction and cancellation POST endpoints.
+- Added posted stock-layer tracking on receiving items so CSV-imported row-level funding overrides can be reversed deterministically.
+
+### Changed
+
+- Regular receiving edit and cancel now use append-only stock correction transactions instead of mutating historical receiving ledger rows.
+- Regular receiving corrections reverse the current posted stock layer, preserve original `Transaction(IN)` rows, and append correction `Transaction(OUT)` / replacement `Transaction(IN)` rows as appropriate.
+- Regular receiving edit keeps the document number immutable once stock exists and preserves historical receiving type choices when correcting older documents.
+- Receiving correction forms now render unit prices without unnecessary trailing precision and use more flexible item-table column sizing.
+
+### Fixed
+
+- Regular receiving rows can now be edited or operationally cancelled when their originally received stock is still fully available.
+- Receiving correction and cancellation are blocked when stock has been consumed, reserved, or cannot be reversed without making stock invalid.
+- Cancelled receiving rows are excluded from receiving reports, and inventory summaries account for receiving reversal transactions.
+- Correction actions are hidden unless the user also has receiving operate access, matching endpoint authorization.
+- Correction reposting handles same-source metadata mismatch validation without returning HTTP 500.
+- Zero-quantity stock layers referenced by draft workflows are preserved instead of deleted during valid receiving reversals.
+- Correction-only zero-stock metadata rewrites are restricted away from planned receiving execution and are recorded through django-auditlog.
+
+### Documentation
+
+- Updated receiving, stock, system model, README, developer, and onboarding documentation for the regular receiving correction workflow, stock mutation semantics, routes, permissions, status values, import semantics, and rate-limit setting.
+
 ## [1.31.4] - 2026-08-18
 
 ### Added

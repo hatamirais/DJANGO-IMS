@@ -42,6 +42,16 @@
                     <dd class="col-7">{{ receiving.verified_by }} <br><small class="text-muted">{{ receiving.verified_at|date:"d/m/Y H:i" }}</small></dd>
                     {% endif %}
 
+                    {% if receiving.cancelled_by %}
+                    <dt class="col-5 text-muted">Dibatalkan</dt>
+                    <dd class="col-7">{{ receiving.cancelled_by }} <br><small class="text-muted">{{ receiving.cancelled_at|date:"d/m/Y H:i" }}</small></dd>
+                    {% endif %}
+
+                    {% if receiving.cancel_reason %}
+                    <dt class="col-5 text-muted">Alasan Pembatalan</dt>
+                    <dd class="col-7">{{ receiving.cancel_reason }}</dd>
+                    {% endif %}
+
                     {% if receiving.notes %}
                     <dt class="col-5 text-muted">Catatan</dt>
                     <dd class="col-7">{{ receiving.notes }}</dd>
@@ -122,6 +132,14 @@
 </div>
 
 <div class="mt-3">
+    {% if can_correct_receiving %}
+    <a href="{% url 'receiving:receiving_edit' receiving.pk %}" class="btn btn-outline-primary">
+        <i class="bi bi-pencil-square me-1"></i>Edit
+    </a>
+    <a href="{% url 'receiving:receiving_delete' receiving.pk %}" class="btn btn-outline-danger">
+        <i class="bi bi-trash me-1"></i>Batalkan
+    </a>
+    {% endif %}
     <a href="{% url 'receiving:receiving_list' %}" class="btn btn-outline-secondary">
         <i class="bi bi-arrow-left me-1"></i>Kembali
     </a>
