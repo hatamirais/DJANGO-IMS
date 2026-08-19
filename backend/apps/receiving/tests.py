@@ -8,8 +8,11 @@ from decimal import Decimal
 from pathlib import Path
 from unittest.mock import PropertyMock, patch
 
+from auditlog.context import set_actor
+from auditlog.models import LogEntry
 from django.apps import apps as django_apps
 from django.contrib.admin.sites import AdminSite
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, connections, transaction
@@ -4008,6 +4011,66 @@ class ReceivingStockConcurrencyTest(TransactionTestCase):
         stock = Stock.objects.get(source_document_number="RCV-ZERO-STRICT")
         self.assertEqual(stock.expiry_date, date(2030, 1, 1))
         self.assertEqual(stock.quantity, Decimal("0"))
+
+    def test_increment_receiving_stock_audits_zero_layer_metadata_rewrite(self):
+        from apps.receiving import models as receiving_models
+
+        stock = Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot=self.batch_lot,
+            sumber_dana=self.funding,
+            expiry_date=date(2030, 1, 1),
+            quantity=Decimal("0"),
+            reserved=Decimal("0"),
+            unit_price=Decimal("1000"),
+            source_document_number="RCV-ZERO-AUDIT",
+        )
+        stock_content_type = ContentType.objects.get_for_model(Stock)
+        previous_log_count = LogEntry.objects.filter(
+            content_type=stock_content_type,
+            object_pk=str(stock.pk),
+        ).count()
+
+        with set_actor(self.user), transaction.atomic():
+            receiving_models.increment_receiving_stock(
+                item=self.item,
+                location=self.location,
+                batch_lot=self.batch_lot,
+                sumber_dana=self.funding,
+                expiry_date=date(2031, 1, 1),
+                quantity=Decimal("3"),
+                unit_price=Decimal("1200"),
+                receiving_ref=None,
+                source_document_number="RCV-ZERO-AUDIT",
+                allow_zero_layer_metadata_update=True,
+            )
+
+        stock.refresh_from_db()
+        self.assertEqual(stock.expiry_date, date(2031, 1, 1))
+        self.assertEqual(stock.unit_price, Decimal("1200.0000000000"))
+        self.assertEqual(stock.quantity, Decimal("3.00"))
+
+        update_log = (
+            LogEntry.objects.filter(
+                content_type=stock_content_type,
+                object_pk=str(stock.pk),
+                action=LogEntry.Action.UPDATE,
+            )
+            .order_by("-timestamp")
+            .first()
+        )
+        self.assertIsNotNone(update_log)
+        self.assertEqual(update_log.actor, self.user)
+        self.assertGreater(
+            LogEntry.objects.filter(
+                content_type=stock_content_type,
+                object_pk=str(stock.pk),
+            ).count(),
+            previous_log_count,
+        )
+        self.assertIn("expiry_date", update_log.changes)
+        self.assertIn("unit_price", update_log.changes)
 
     def test_planned_receiving_concurrent_posts_create_source_document_layers(self):
         from apps.receiving import models as receiving_models

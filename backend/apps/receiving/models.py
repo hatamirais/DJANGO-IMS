@@ -120,6 +120,46 @@ def _create_receiving_stock_row(
     )
 
 
+def _rewrite_zero_receiving_stock_metadata(
+    *,
+    stock_pk,
+    expiry_date,
+    unit_price,
+    receiving_ref,
+):
+    from apps.stock.models import Stock
+
+    stock = Stock.objects.select_for_update().get(pk=stock_pk)
+    if stock.quantity != 0 or stock.reserved != 0:
+        return {
+            "pk": stock.pk,
+            "expiry_date": stock.expiry_date,
+            "quantity": stock.quantity,
+            "reserved": stock.reserved,
+            "unit_price": stock.unit_price,
+        }
+
+    stock.expiry_date = expiry_date
+    stock.unit_price = unit_price
+    stock.receiving_ref = receiving_ref
+    stock.updated_at = timezone.now()
+    stock.save(
+        update_fields=[
+            "expiry_date",
+            "unit_price",
+            "receiving_ref",
+            "updated_at",
+        ]
+    )
+    return {
+        "pk": stock.pk,
+        "expiry_date": stock.expiry_date,
+        "quantity": stock.quantity,
+        "reserved": stock.reserved,
+        "unit_price": stock.unit_price,
+    }
+
+
 def increment_receiving_stock(
     *,
     item,
@@ -161,14 +201,12 @@ def increment_receiving_stock(
         and existing_stock["reserved"] == 0
         and allow_zero_layer_metadata_update
     ):
-        Stock.objects.filter(pk=existing_stock["pk"]).update(
+        existing_stock = _rewrite_zero_receiving_stock_metadata(
+            stock_pk=existing_stock["pk"],
             expiry_date=expiry_date,
             unit_price=unit_price,
             receiving_ref=receiving_ref,
-            updated_at=updated_at,
         )
-        existing_stock["expiry_date"] = expiry_date
-        existing_stock["unit_price"] = unit_price
     if existing_stock and existing_stock["expiry_date"] != expiry_date:
         raise ValueError(
             "Batch stok yang sama tidak boleh memiliki tanggal kedaluwarsa berbeda."
@@ -219,14 +257,12 @@ def increment_receiving_stock(
             and existing_stock["reserved"] == 0
             and allow_zero_layer_metadata_update
         ):
-            Stock.objects.filter(pk=existing_stock["pk"]).update(
+            existing_stock = _rewrite_zero_receiving_stock_metadata(
+                stock_pk=existing_stock["pk"],
                 expiry_date=expiry_date,
                 unit_price=unit_price,
                 receiving_ref=receiving_ref,
-                updated_at=updated_at,
             )
-            existing_stock["expiry_date"] = expiry_date
-            existing_stock["unit_price"] = unit_price
         if existing_stock and existing_stock["expiry_date"] != expiry_date:
             raise ValueError(
                 "Batch stok yang sama tidak boleh memiliki tanggal kedaluwarsa berbeda."
