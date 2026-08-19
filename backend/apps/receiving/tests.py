@@ -1692,7 +1692,14 @@ class ReceivingWorkflowCleanupTest(TestCase):
         )
         return receiving
 
-    def _regular_edit_payload(self, receiving, *, funding=None):
+    def _regular_edit_payload(
+        self,
+        receiving,
+        *,
+        funding=None,
+        quantity="7",
+        unit_price="1750",
+    ):
         funding = funding or receiving.sumber_dana
         item = receiving.items.get()
         return {
@@ -1709,10 +1716,10 @@ class ReceivingWorkflowCleanupTest(TestCase):
             "items-MAX_NUM_FORMS": "1000",
             "items-0-id": item.pk,
             "items-0-item": self.item.pk,
-            "items-0-quantity": "7",
+            "items-0-quantity": quantity,
             "items-0-batch_lot": "BATCH-CORR-OLD",
             "items-0-expiry_date": "2030-01-01",
-            "items-0-unit_price": "1750",
+            "items-0-unit_price": unit_price,
             "items-0-location": self.location.pk,
         }
 
@@ -1800,6 +1807,71 @@ class ReceivingWorkflowCleanupTest(TestCase):
                 (Transaction.TransactionType.IN, row_funding.pk, Decimal("10.00")),
                 (Transaction.TransactionType.OUT, row_funding.pk, Decimal("10.00")),
                 (Transaction.TransactionType.IN, self.funding.pk, Decimal("7.00")),
+            ],
+        )
+
+    def test_regular_receiving_delete_reverses_current_layer_after_imported_override_edit(self):
+        row_funding = FundingSource.objects.create(code="ROWCURR", name="Row Current")
+        receiving = self._create_posted_regular_receiving(funding=row_funding)
+        receiving.sumber_dana = self.funding
+        receiving.save(update_fields=["sumber_dana", "updated_at"])
+
+        first_response = self.client.post(
+            reverse("receiving:receiving_edit", args=[receiving.pk]),
+            self._regular_edit_payload(
+                receiving,
+                funding=self.funding,
+                quantity="10",
+                unit_price="1500",
+            ),
+            secure=True,
+        )
+
+        self.assertRedirects(
+            first_response,
+            reverse("receiving:receiving_detail", args=[receiving.pk]),
+            fetch_redirect_response=False,
+        )
+        row_stock = Stock.objects.get(
+            source_document_number=receiving.document_number,
+            sumber_dana=row_funding,
+        )
+        self.assertEqual(row_stock.quantity, Decimal("0"))
+        current_stock = Stock.objects.get(
+            source_document_number=receiving.document_number,
+            sumber_dana=self.funding,
+        )
+        self.assertEqual(current_stock.quantity, Decimal("10"))
+
+        second_response = self.client.post(
+            reverse("receiving:receiving_delete", args=[receiving.pk]),
+            {"cancel_reason": "Batalkan setelah koreksi sumber dana"},
+            secure=True,
+        )
+
+        self.assertRedirects(
+            second_response,
+            reverse("receiving:receiving_detail", args=[receiving.pk]),
+            fetch_redirect_response=False,
+        )
+        current_stock.refresh_from_db()
+        self.assertEqual(current_stock.quantity, Decimal("0"))
+        receiving.refresh_from_db()
+        self.assertEqual(receiving.status, Receiving.Status.CANCELLED)
+        self.assertEqual(
+            list(
+                Transaction.objects.filter(
+                    reference_type=Transaction.ReferenceType.RECEIVING,
+                    reference_id=receiving.pk,
+                )
+                .order_by("created_at", "pk")
+                .values_list("transaction_type", "sumber_dana", "quantity")
+            ),
+            [
+                (Transaction.TransactionType.IN, row_funding.pk, Decimal("10.00")),
+                (Transaction.TransactionType.OUT, row_funding.pk, Decimal("10.00")),
+                (Transaction.TransactionType.IN, self.funding.pk, Decimal("10.00")),
+                (Transaction.TransactionType.OUT, self.funding.pk, Decimal("10.00")),
             ],
         )
 

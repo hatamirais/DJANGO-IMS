@@ -132,6 +132,14 @@ def _filter_stocks_by_item_metadata(stocks, item):
     ]
 
 
+def _filter_current_stock_candidates(stocks, item):
+    return [
+        stock
+        for stock in stocks
+        if stock.quantity > 0 and stock.quantity >= item.quantity
+    ]
+
+
 def _select_single_stock_candidate(receiving, item, stocks):
     if len(stocks) == 1:
         return stocks[0]
@@ -139,6 +147,14 @@ def _select_single_stock_candidate(receiving, item, stocks):
     metadata_matches = _filter_stocks_by_item_metadata(stocks, item)
     if len(metadata_matches) == 1:
         return metadata_matches[0]
+
+    current_matches = _filter_current_stock_candidates(metadata_matches, item)
+    if len(current_matches) == 1:
+        return current_matches[0]
+
+    current_matches = _filter_current_stock_candidates(stocks, item)
+    if len(current_matches) == 1:
+        return current_matches[0]
 
     transaction_layer = (
         Transaction.objects.filter(
