@@ -597,6 +597,14 @@ class ReceivingAdmin(admin.ModelAdmin):
                         f"Baris {row_num}: location_code '{effective_location_code}' tidak ditemukan"
                     ) from exc
 
+                source_document_number = resolve_receiving_source_document_number(
+                    receiving,
+                    item=item,
+                    location=row_location,
+                    batch_lot=batch_lot,
+                    sumber_dana=row_sumber_dana,
+                )
+
                 # ReceivingItem
                 ReceivingItem.objects.create(
                     receiving=receiving,
@@ -606,17 +614,12 @@ class ReceivingAdmin(admin.ModelAdmin):
                     expiry_date=expiry_date,
                     unit_price=unit_price,
                     location=row_location,
+                    posted_sumber_dana=row_sumber_dana,
+                    posted_source_document_number=source_document_number,
                     received_by=user,
                     received_at=timezone.now(),
                 )
                 counts["items"] += 1
-                source_document_number = resolve_receiving_source_document_number(
-                    receiving,
-                    item=item,
-                    location=row_location,
-                    batch_lot=batch_lot,
-                    sumber_dana=row_sumber_dana,
-                )
 
                 # Stock — update or create
                 increment_receiving_stock(

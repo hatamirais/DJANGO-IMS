@@ -131,6 +131,7 @@ def increment_receiving_stock(
     unit_price,
     receiving_ref,
     source_document_number,
+    allow_zero_layer_metadata_update=False,
 ):
     if not transaction.get_connection().in_atomic_block:
         raise RuntimeError("increment_receiving_stock harus dipanggil dalam transaksi.")
@@ -158,6 +159,7 @@ def increment_receiving_stock(
         )
         and existing_stock["quantity"] == 0
         and existing_stock["reserved"] == 0
+        and allow_zero_layer_metadata_update
     ):
         Stock.objects.filter(pk=existing_stock["pk"]).update(
             expiry_date=expiry_date,
@@ -215,6 +217,7 @@ def increment_receiving_stock(
             )
             and existing_stock["quantity"] == 0
             and existing_stock["reserved"] == 0
+            and allow_zero_layer_metadata_update
         ):
             Stock.objects.filter(pk=existing_stock["pk"]).update(
                 expiry_date=expiry_date,
@@ -745,6 +748,19 @@ class ReceivingItem(models.Model):
         null=True,
         blank=True,
         related_name="receiving_items",
+    )
+    posted_sumber_dana = models.ForeignKey(
+        "items.FundingSource",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="posted_receiving_items",
+        help_text="Actual funding source layer posted to stock for this item.",
+    )
+    posted_source_document_number = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="Actual stock source document layer posted for this item.",
     )
     received_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

@@ -144,6 +144,22 @@ def _select_single_stock_candidate(receiving, item, stocks):
     if len(stocks) == 1:
         return stocks[0]
 
+    if item.posted_sumber_dana_id or item.posted_source_document_number:
+        posted_matches = [
+            stock
+            for stock in stocks
+            if (
+                not item.posted_sumber_dana_id
+                or stock.sumber_dana_id == item.posted_sumber_dana_id
+            )
+            and (
+                not item.posted_source_document_number
+                or stock.source_document_number == item.posted_source_document_number
+            )
+        ]
+        if len(posted_matches) == 1:
+            return posted_matches[0]
+
     metadata_matches = _filter_stocks_by_item_metadata(stocks, item)
     if len(metadata_matches) == 1:
         return metadata_matches[0]
@@ -180,16 +196,21 @@ def _select_single_stock_candidate(receiving, item, stocks):
 
 
 def _get_original_receiving_stock(receiving, item):
-    source_document_number = resolve_receiving_source_document_number(
-        receiving,
-        item=item.item,
-        location=item.location,
-        batch_lot=item.batch_lot,
+    source_document_number = item.posted_source_document_number or (
+        resolve_receiving_source_document_number(
+            receiving,
+            item=item.item,
+            location=item.location,
+            batch_lot=item.batch_lot,
+            sumber_dana=item.posted_sumber_dana,
+        )
     )
     stock_filters = {
         **_stock_identity_filters(item),
         "source_document_number": source_document_number,
     }
+    if item.posted_sumber_dana_id:
+        stock_filters["sumber_dana_id"] = item.posted_sumber_dana_id
     candidates = list(
         Stock.objects.select_for_update(of=("self",))
         .select_related("sumber_dana")
@@ -271,23 +292,29 @@ def _reverse_regular_receiving_stock(receiving, items, user, reason, *, action_l
 def _post_regular_receiving_stock(receiving, items, user, reason):
     transactions = []
     for item in items:
-        source_document_number = resolve_receiving_source_document_number(
-            receiving,
-            item=item.item,
-            location=item.location,
-            batch_lot=item.batch_lot,
-            sumber_dana=receiving.sumber_dana,
+        posted_sumber_dana = item.posted_sumber_dana or receiving.sumber_dana
+        source_document_number = item.posted_source_document_number or (
+            resolve_receiving_source_document_number(
+                receiving,
+                item=item.item,
+                location=item.location,
+                batch_lot=item.batch_lot,
+                sumber_dana=posted_sumber_dana,
+            )
         )
+        item.posted_sumber_dana = posted_sumber_dana
+        item.posted_source_document_number = source_document_number
         increment_receiving_stock(
             item=item.item,
             location=item.location,
             batch_lot=item.batch_lot,
-            sumber_dana=receiving.sumber_dana,
+            sumber_dana=posted_sumber_dana,
             expiry_date=item.expiry_date,
             quantity=item.quantity,
             unit_price=item.unit_price,
             receiving_ref=receiving,
             source_document_number=source_document_number,
+            allow_zero_layer_metadata_update=True,
         )
         transactions.append(
             Transaction(
@@ -298,7 +325,7 @@ def _post_regular_receiving_stock(receiving, items, user, reason):
                 quantity=item.quantity,
                 unit_price=item.unit_price,
                 source_document_number=source_document_number,
-                sumber_dana=receiving.sumber_dana,
+                sumber_dana=posted_sumber_dana,
                 reference_type=Transaction.ReferenceType.RECEIVING,
                 reference_id=receiving.pk,
                 user=user,
@@ -342,6 +369,14 @@ def _replacement_items_from_formset(receiving, formset, user, *, original_receiv
                 expiry_date=cleaned.get("expiry_date"),
                 unit_price=cleaned["unit_price"],
                 location=cleaned["location"],
+                posted_sumber_dana=receiving.sumber_dana,
+                posted_source_document_number=resolve_receiving_source_document_number(
+                    receiving,
+                    item=cleaned["item"],
+                    location=cleaned["location"],
+                    batch_lot=cleaned["batch_lot"],
+                    sumber_dana=receiving.sumber_dana,
+                ),
                 received_by=user,
                 received_at=received_at,
             )
@@ -396,7 +431,6 @@ def _create_verified_receiving(request, form, formset):
             item.receiving = receiving
             item.received_by = request.user
             item.received_at = timezone.now()
-            item.save()
             source_document_number = resolve_receiving_source_document_number(
                 receiving,
                 item=item.item,
@@ -404,6 +438,9 @@ def _create_verified_receiving(request, form, formset):
                 batch_lot=item.batch_lot,
                 sumber_dana=receiving.sumber_dana,
             )
+            item.posted_sumber_dana = receiving.sumber_dana
+            item.posted_source_document_number = source_document_number
+            item.save()
 
             increment_receiving_stock(
                 item=item.item,
@@ -627,7 +664,11 @@ def receiving_edit(request, pk):
                             "Status penerimaan sudah berubah dan tidak dapat dikoreksi."
                         )
                     old_items = list(
-                        locked_receiving.items.select_related("item", "location")
+                        locked_receiving.items.select_related(
+                            "item",
+                            "location",
+                            "posted_sumber_dana",
+                        )
                         .order_by("pk")
                     )
                     original_received_at = (
@@ -722,7 +763,11 @@ def receiving_delete(request, pk):
                             "Status penerimaan sudah berubah dan tidak dapat dibatalkan."
                         )
                     old_items = list(
-                        locked_receiving.items.select_related("item", "location")
+                        locked_receiving.items.select_related(
+                            "item",
+                            "location",
+                            "posted_sumber_dana",
+                        )
                         .order_by("pk")
                     )
                     _reverse_regular_receiving_stock(
@@ -1175,12 +1220,6 @@ def receiving_plan_receive(request, pk):
                     item.received_by = request.user
                     item.received_at = timezone.now()
                     item.item = order_item.item
-                    item.save()
-
-                    order_item.received_quantity = (
-                        order_item.received_quantity + item.quantity
-                    )
-                    order_item.save(update_fields=["received_quantity", "updated_at"])
                     source_document_number = resolve_receiving_source_document_number(
                         receiving,
                         item=item.item,
@@ -1188,6 +1227,14 @@ def receiving_plan_receive(request, pk):
                         batch_lot=item.batch_lot,
                         sumber_dana=receiving.sumber_dana,
                     )
+                    item.posted_sumber_dana = receiving.sumber_dana
+                    item.posted_source_document_number = source_document_number
+                    item.save()
+
+                    order_item.received_quantity = (
+                        order_item.received_quantity + item.quantity
+                    )
+                    order_item.save(update_fields=["received_quantity", "updated_at"])
 
                     increment_receiving_stock(
                         item=item.item,

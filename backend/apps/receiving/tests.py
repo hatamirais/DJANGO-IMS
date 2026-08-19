@@ -822,6 +822,11 @@ class ReceivingCSVImportTest(TestCase):
         self.assertEqual(receiving_item.unit_price, Decimal("0"))
         self.assertEqual(receiving_item.batch_lot, "SALDO-0002")
         self.assertIsNone(receiving_item.expiry_date)
+        self.assertEqual(receiving_item.posted_sumber_dana, self.funding)
+        self.assertEqual(
+            receiving_item.posted_source_document_number,
+            "RCV-2026-00001",
+        )
 
         stock = Stock.objects.get()
         self.assertEqual(stock.quantity, Decimal("10"))
@@ -1661,6 +1666,8 @@ class ReceivingWorkflowCleanupTest(TestCase):
             expiry_date=date(2030, 1, 1),
             unit_price=unit_price,
             location=self.location,
+            posted_sumber_dana=funding,
+            posted_source_document_number=document_number,
             received_by=self.user,
             received_at=timezone.now(),
         )
@@ -2153,6 +2160,100 @@ class ReceivingWorkflowCleanupTest(TestCase):
             [
                 (Transaction.TransactionType.IN, row_funding.pk, Decimal("10.00")),
                 (Transaction.TransactionType.OUT, row_funding.pk, Decimal("10.00")),
+            ],
+        )
+
+    def test_regular_receiving_delete_disambiguates_identical_imported_rows_by_funding_layer(self):
+        row_funding_a = FundingSource.objects.create(code="ROWA", name="Row A")
+        row_funding_b = FundingSource.objects.create(code="ROWB", name="Row B")
+        receiving = Receiving.objects.create(
+            document_number="RCV-2026-CORR-DUP-FUND",
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 3, 16),
+            sumber_dana=self.funding,
+            status=Receiving.Status.VERIFIED,
+            is_planned=False,
+            created_by=self.user,
+            verified_by=self.user,
+            verified_at=timezone.now(),
+        )
+        for funding in (row_funding_a, row_funding_b):
+            ReceivingItem.objects.create(
+                receiving=receiving,
+                item=self.item,
+                quantity=Decimal("10"),
+                batch_lot="BATCH-CORR-DUP",
+                expiry_date=date(2030, 1, 1),
+                unit_price=Decimal("1500"),
+                location=self.location,
+                posted_sumber_dana=funding,
+                posted_source_document_number=receiving.document_number,
+                received_by=self.user,
+                received_at=timezone.now(),
+            )
+            Stock.objects.create(
+                item=self.item,
+                location=self.location,
+                batch_lot="BATCH-CORR-DUP",
+                expiry_date=date(2030, 1, 1),
+                quantity=Decimal("10"),
+                reserved=Decimal("0"),
+                unit_price=Decimal("1500"),
+                sumber_dana=funding,
+                receiving_ref=receiving,
+                source_document_number=receiving.document_number,
+            )
+            Transaction.objects.create(
+                transaction_type=Transaction.TransactionType.IN,
+                item=self.item,
+                location=self.location,
+                batch_lot="BATCH-CORR-DUP",
+                quantity=Decimal("10"),
+                unit_price=Decimal("1500"),
+                source_document_number=receiving.document_number,
+                sumber_dana=funding,
+                reference_type=Transaction.ReferenceType.RECEIVING,
+                reference_id=receiving.pk,
+                user=self.user,
+                notes=f"Penerimaan reguler {receiving.document_number}",
+            )
+
+        response = self.client.post(
+            reverse("receiving:receiving_delete", args=[receiving.pk]),
+            {"cancel_reason": "Dobel input impor CSV identik"},
+            secure=True,
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("receiving:receiving_detail", args=[receiving.pk]),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(
+            list(
+                Stock.objects.filter(source_document_number=receiving.document_number)
+                .order_by("sumber_dana__code")
+                .values_list("sumber_dana__code", "quantity")
+            ),
+            [
+                ("ROWA", Decimal("0.00")),
+                ("ROWB", Decimal("0.00")),
+            ],
+        )
+        self.assertEqual(
+            list(
+                Transaction.objects.filter(
+                    reference_type=Transaction.ReferenceType.RECEIVING,
+                    reference_id=receiving.pk,
+                )
+                .order_by("created_at", "pk")
+                .values_list("transaction_type", "sumber_dana__code", "quantity")
+            ),
+            [
+                (Transaction.TransactionType.IN, "ROWA", Decimal("10.00")),
+                (Transaction.TransactionType.IN, "ROWB", Decimal("10.00")),
+                (Transaction.TransactionType.OUT, "ROWA", Decimal("10.00")),
+                (Transaction.TransactionType.OUT, "ROWB", Decimal("10.00")),
             ],
         )
 
@@ -3873,6 +3974,40 @@ class ReceivingStockConcurrencyTest(TransactionTestCase):
         self.assertEqual(mock_filter.call_count, 3)
         _, second_call_kwargs = mock_filter.call_args_list[1]
         self.assertEqual(second_call_kwargs['expiry_date'], date(2030, 1, 1))
+
+    def test_increment_receiving_stock_rejects_zero_layer_metadata_rewrite_without_correction_flag(self):
+        from apps.receiving import models as receiving_models
+
+        Stock.objects.create(
+            item=self.item,
+            location=self.location,
+            batch_lot=self.batch_lot,
+            sumber_dana=self.funding,
+            expiry_date=date(2030, 1, 1),
+            quantity=Decimal("0"),
+            reserved=Decimal("0"),
+            unit_price=Decimal("1000"),
+            source_document_number="RCV-ZERO-STRICT",
+        )
+
+        with transaction.atomic():
+            with self.assertRaises(ValueError) as exc:
+                receiving_models.increment_receiving_stock(
+                    item=self.item,
+                    location=self.location,
+                    batch_lot=self.batch_lot,
+                    sumber_dana=self.funding,
+                    expiry_date=date(2031, 1, 1),
+                    quantity=Decimal("3"),
+                    unit_price=Decimal("1000"),
+                    receiving_ref=None,
+                    source_document_number="RCV-ZERO-STRICT",
+                )
+
+        self.assertIn("tanggal kedaluwarsa berbeda", str(exc.exception))
+        stock = Stock.objects.get(source_document_number="RCV-ZERO-STRICT")
+        self.assertEqual(stock.expiry_date, date(2030, 1, 1))
+        self.assertEqual(stock.quantity, Decimal("0"))
 
     def test_planned_receiving_concurrent_posts_create_source_document_layers(self):
         from apps.receiving import models as receiving_models

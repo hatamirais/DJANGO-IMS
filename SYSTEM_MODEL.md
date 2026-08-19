@@ -263,8 +263,9 @@ This section reflects model code in `backend/apps/*/models.py`.
   - `receiving_type_label` resolves labels from active `ReceivingTypeOption` rows, with a code-level fallback for migration-adjacent states.
 
 - `receiving.ReceivingItem` (`receiving_items`):
-  - FKs: `receiving`, `order_item` (nullable), `item`, `location` (nullable), `settlement_distribution_item` (nullable), `received_by` (nullable)
-  - Fields: `quantity`, `batch_lot`, `expiry_date` (nullable only when `item.requires_expiry_date=False`), `unit_price` (`max_digits=23`, `decimal_places=10`), `received_at`, `created_at`
+  - FKs: `receiving`, `order_item` (nullable), `item`, `location` (nullable), `settlement_distribution_item` (nullable), `posted_sumber_dana` (nullable), `received_by` (nullable)
+  - Fields: `quantity`, `batch_lot`, `expiry_date` (nullable only when `item.requires_expiry_date=False`), `unit_price` (`max_digits=23`, `decimal_places=10`), `posted_source_document_number`, `received_at`, `created_at`
+  - `posted_sumber_dana` and `posted_source_document_number` retain the exact stock layer written for the item so corrections can reverse imported row-level funding overrides deterministically.
   - Property: `total_price`
 
 - `receiving.ReceivingDocument` (`receiving_documents`):
@@ -472,12 +473,12 @@ Operational mutation points (from app behavior and admin import logic):
 - Procurement contract/amendment approval is restricted to Admin/Superuser or `KEPALA` with procurement approval scope and never mutates stock; it only creates or re-syncs the linked planned receiving execution document.
 - Procurement-linked receiving leftovers are closed audit-first through procurement amendments; direct receiving-side close-items cancellation is reserved for non-contract planned receivings.
 - Receiving verify/receive path posts `Transaction(IN)` and updates/creates `Stock` with the receiving source document number. This is normally `Receiving.document_number`; migrated historical collisions continue on their existing disambiguated receiving stock layer.
-- Regular receiving edit/delete is an auditable correction workflow for `VERIFIED` documents, restricted to superusers/Admin plus roles `GUDANG` and `KEPALA` with receiving operate access. It never deletes historical ledger rows: edit atomically reverses the current receiving stock effect with `Transaction(OUT)` rows, rewrites the current `ReceivingItem` rows, and posts corrected `Transaction(IN)` rows; delete marks the header `CANCELLED` and appends reversal `Transaction(OUT)` rows. Both actions are blocked when reversing would make stock quantity fall below reserved stock or below zero, and reversal preserves zero-quantity `Stock` rows instead of deleting them so draft workflows with protected stock references remain valid. Corrected reposting may reuse an unreserved zero-quantity receiving stock row with updated expiry or unit price; nonzero same-source rows still reject metadata mismatches. When a CSV-imported receiving item used a row-level `sumber_dana_code` override, the reversal resolves and writes the correction `OUT` against that actual posted funding layer rather than assuming the header `Receiving.sumber_dana`.
+- Regular receiving edit/delete is an auditable correction workflow for `VERIFIED` documents, restricted to superusers/Admin plus roles `GUDANG` and `KEPALA` with receiving operate access. It never deletes historical ledger rows: edit atomically reverses the current receiving stock effect with `Transaction(OUT)` rows, rewrites the current `ReceivingItem` rows, and posts corrected `Transaction(IN)` rows; delete marks the header `CANCELLED` and appends reversal `Transaction(OUT)` rows. Both actions are blocked when reversing would make stock quantity fall below reserved stock or below zero, and reversal preserves zero-quantity `Stock` rows instead of deleting them so draft workflows with protected stock references remain valid. Corrected reposting may reuse an unreserved zero-quantity receiving stock row with updated expiry or unit price; normal receiving and planned receiving execution still reject same-source metadata mismatches. When a CSV-imported receiving item used a row-level `sumber_dana_code` override, `ReceivingItem.posted_sumber_dana` and `posted_source_document_number` record the actual stock layer so reversal writes the correction `OUT` against that layer rather than assuming the header `Receiving.sumber_dana`.
 - Receiving `document_number` values are validated and claimed against posted opening-balance import document numbers, and generated receiving numbers skip opening-balance-owned `RCV-YYYY-NNNNN` values so source-layer identifiers remain workflow-unique.
 - Receiving `document_number` becomes immutable once stock rows or ledger transactions exist.
 - Receiving CSV admin import (`import-csv/`) posts:
   - `Receiving(status=VERIFIED)`
-  - `ReceivingItem`
+  - `ReceivingItem` with `posted_sumber_dana` / `posted_source_document_number` set to the effective row stock layer
   - `Stock(source_document_number=document_number)` update/create
   - `Transaction(IN, source_document_number=document_number)`
   - Rows are grouped by `document_number`; the first row supplies header-level values, while row-level `sumber_dana_code` and `location_code` can override header defaults
@@ -571,7 +572,7 @@ Defined in `backend/apps/receiving/admin.py` (`ReceivingAdmin.import_csv_view`):
 - Required columns: `document_number`, `receiving_date`, `item_code`, `sumber_dana_code`, `location_code`, `quantity` (`quantity` must be a finite decimal greater than `0`)
 - Optional columns: `receiving_type` (defaults to `GRANT`), `supplier_code`, `batch_lot`, `expiry_date`, `unit_price`
 - Rows are grouped by `document_number`; first-row supplier and header values seed the parent `Receiving`
-- Row-level `sumber_dana_code` and `location_code` may override the first-row values for each line item
+- Row-level `sumber_dana_code` and `location_code` may override the first-row values for each line item; the effective row funding/source layer is retained on `ReceivingItem` for later correction reversal.
 - Blank `expiry_date` values in the dedicated receiving import are accepted only for items with `requires_expiry_date=False`; older sentinel `2099-12-31` values are normalized by follow-up data migrations rather than being generated for new imports
 - The follow-up item backfill migration marks legacy catalog items with null-expiry stock/receiving history as `requires_expiry_date=False`, and stock admin import follows the same conditional blank-expiry rule
 - Historical copied sentinel dates in `DistributionItem.issued_expiry_date` and `PuskesmasReceiptConfirmationItem.expiry_date` are normalized to `NULL` by follow-up data migrations so downstream history and reports do not keep rendering `31/12/2099`
