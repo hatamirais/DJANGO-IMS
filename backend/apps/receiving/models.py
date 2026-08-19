@@ -147,9 +147,26 @@ def increment_receiving_stock(
     updated_at = timezone.now()
     existing_stock = (
         Stock.objects.filter(**stock_filters)
-        .values("pk", "expiry_date", "unit_price")
+        .values("pk", "expiry_date", "quantity", "reserved", "unit_price")
         .first()
     )
+    if (
+        existing_stock
+        and (
+            existing_stock["expiry_date"] != expiry_date
+            or existing_stock["unit_price"] != unit_price
+        )
+        and existing_stock["quantity"] == 0
+        and existing_stock["reserved"] == 0
+    ):
+        Stock.objects.filter(pk=existing_stock["pk"]).update(
+            expiry_date=expiry_date,
+            unit_price=unit_price,
+            receiving_ref=receiving_ref,
+            updated_at=updated_at,
+        )
+        existing_stock["expiry_date"] = expiry_date
+        existing_stock["unit_price"] = unit_price
     if existing_stock and existing_stock["expiry_date"] != expiry_date:
         raise ValueError(
             "Batch stok yang sama tidak boleh memiliki tanggal kedaluwarsa berbeda."
@@ -187,9 +204,26 @@ def increment_receiving_stock(
     except IntegrityError:
         existing_stock = (
             Stock.objects.filter(**stock_filters)
-            .values("pk", "expiry_date", "unit_price")
+            .values("pk", "expiry_date", "quantity", "reserved", "unit_price")
             .first()
         )
+        if (
+            existing_stock
+            and (
+                existing_stock["expiry_date"] != expiry_date
+                or existing_stock["unit_price"] != unit_price
+            )
+            and existing_stock["quantity"] == 0
+            and existing_stock["reserved"] == 0
+        ):
+            Stock.objects.filter(pk=existing_stock["pk"]).update(
+                expiry_date=expiry_date,
+                unit_price=unit_price,
+                receiving_ref=receiving_ref,
+                updated_at=updated_at,
+            )
+            existing_stock["expiry_date"] = expiry_date
+            existing_stock["unit_price"] = unit_price
         if existing_stock and existing_stock["expiry_date"] != expiry_date:
             raise ValueError(
                 "Batch stok yang sama tidak boleh memiliki tanggal kedaluwarsa berbeda."

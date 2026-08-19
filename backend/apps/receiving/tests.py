@@ -41,7 +41,14 @@ from apps.receiving.models import (
     ReceivingTypeOption,
     resolve_receiving_source_document_number,
 )
-from apps.stock.models import OpeningBalanceImport, SourceDocumentNumberClaim, Stock, Transaction
+from apps.stock.models import (
+    OpeningBalanceImport,
+    SourceDocumentNumberClaim,
+    Stock,
+    StockTransfer,
+    StockTransferItem,
+    Transaction,
+)
 from apps.users.access import ensure_default_module_access
 from apps.users.models import ModuleAccess, User
 
@@ -1728,12 +1735,11 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertEqual(receiving.sumber_dana, new_funding)
         self.assertEqual(receiving.receiving_date, date(2026, 3, 17))
         self.assertEqual(receiving.items.get().quantity, Decimal("7"))
-        self.assertFalse(
-            Stock.objects.filter(
-                source_document_number=receiving.document_number,
-                sumber_dana=self.funding,
-            ).exists()
+        reversed_stock = Stock.objects.get(
+            source_document_number=receiving.document_number,
+            sumber_dana=self.funding,
         )
+        self.assertEqual(reversed_stock.quantity, Decimal("0"))
         corrected_stock = Stock.objects.get(
             source_document_number=receiving.document_number,
             sumber_dana=new_funding,
@@ -1887,6 +1893,47 @@ class ReceivingWorkflowCleanupTest(TestCase):
             1,
         )
 
+    def test_regular_receiving_edit_preserves_zero_stock_with_draft_transfer_reference(self):
+        receiving = self._create_posted_regular_receiving()
+        stock = Stock.objects.get(source_document_number=receiving.document_number)
+        destination = Location.objects.create(
+            code="LOC-CORR-EDIT",
+            name="Gudang Koreksi Edit",
+        )
+        transfer = StockTransfer.objects.create(
+            source_location=self.location,
+            destination_location=destination,
+            created_by=self.user,
+            status=StockTransfer.Status.DRAFT,
+        )
+        StockTransferItem.objects.create(
+            transfer=transfer,
+            stock=stock,
+            item=self.item,
+            quantity=Decimal("4"),
+        )
+        new_funding = FundingSource.objects.create(code="BTT", name="BTT")
+
+        response = self.client.post(
+            reverse("receiving:receiving_edit", args=[receiving.pk]),
+            self._regular_edit_payload(receiving, funding=new_funding),
+            secure=True,
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("receiving:receiving_detail", args=[receiving.pk]),
+            fetch_redirect_response=False,
+        )
+        stock.refresh_from_db()
+        self.assertEqual(stock.quantity, Decimal("0"))
+        self.assertTrue(StockTransferItem.objects.filter(stock=stock).exists())
+        corrected_stock = Stock.objects.get(
+            source_document_number=receiving.document_number,
+            sumber_dana=new_funding,
+        )
+        self.assertEqual(corrected_stock.quantity, Decimal("7"))
+
     def test_regular_receiving_edit_displays_trimmed_unit_price(self):
         receiving = self._create_posted_regular_receiving(unit_price=Decimal("120"))
         form = ReceivingItemForm(instance=receiving.items.get(), prefix="items-0")
@@ -1936,9 +1983,10 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertEqual(receiving.status, Receiving.Status.CANCELLED)
         self.assertEqual(receiving.cancelled_by, self.user)
         self.assertEqual(receiving.cancel_reason, "Dobel input oleh petugas berbeda")
-        self.assertFalse(
-            Stock.objects.filter(source_document_number=receiving.document_number).exists()
+        reversed_stock = Stock.objects.get(
+            source_document_number=receiving.document_number
         )
+        self.assertEqual(reversed_stock.quantity, Decimal("0"))
         self.assertEqual(
             list(
                 Transaction.objects.filter(
@@ -1953,6 +2001,43 @@ class ReceivingWorkflowCleanupTest(TestCase):
                 (Transaction.TransactionType.OUT, Decimal("10.00")),
             ],
         )
+
+    def test_regular_receiving_delete_preserves_zero_stock_with_draft_transfer_reference(self):
+        receiving = self._create_posted_regular_receiving()
+        stock = Stock.objects.get(source_document_number=receiving.document_number)
+        destination = Location.objects.create(
+            code="LOC-CORR-DEST",
+            name="Gudang Koreksi Tujuan",
+        )
+        transfer = StockTransfer.objects.create(
+            source_location=self.location,
+            destination_location=destination,
+            created_by=self.user,
+            status=StockTransfer.Status.DRAFT,
+        )
+        StockTransferItem.objects.create(
+            transfer=transfer,
+            stock=stock,
+            item=self.item,
+            quantity=Decimal("4"),
+        )
+
+        response = self.client.post(
+            reverse("receiving:receiving_delete", args=[receiving.pk]),
+            {"cancel_reason": "Dobel input"},
+            secure=True,
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("receiving:receiving_detail", args=[receiving.pk]),
+            fetch_redirect_response=False,
+        )
+        receiving.refresh_from_db()
+        stock.refresh_from_db()
+        self.assertEqual(receiving.status, Receiving.Status.CANCELLED)
+        self.assertEqual(stock.quantity, Decimal("0"))
+        self.assertTrue(StockTransferItem.objects.filter(stock=stock).exists())
 
     def test_regular_receiving_delete_blocks_when_stock_was_consumed(self):
         receiving = self._create_posted_regular_receiving()

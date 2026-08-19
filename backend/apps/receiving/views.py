@@ -142,10 +142,7 @@ def _reverse_regular_receiving_stock(receiving, items, user, reason, *, action_l
                 )
             )
         stock.quantity = remaining_quantity
-        if stock.quantity == 0 and stock.reserved == 0:
-            stock.delete()
-        else:
-            stock.save(update_fields=["quantity", "updated_at"])
+        stock.save(update_fields=["quantity", "updated_at"])
         transactions.append(
             Transaction(
                 transaction_type=Transaction.TransactionType.OUT,
