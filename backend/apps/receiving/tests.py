@@ -1760,6 +1760,49 @@ class ReceivingWorkflowCleanupTest(TestCase):
             ],
         )
 
+    def test_regular_receiving_edit_reverses_imported_row_funding_override(self):
+        row_funding = FundingSource.objects.create(code="ROWEDIT", name="Row Edit")
+        receiving = self._create_posted_regular_receiving(funding=row_funding)
+        receiving.sumber_dana = self.funding
+        receiving.save(update_fields=["sumber_dana", "updated_at"])
+
+        response = self.client.post(
+            reverse("receiving:receiving_edit", args=[receiving.pk]),
+            self._regular_edit_payload(receiving, funding=self.funding),
+            secure=True,
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("receiving:receiving_detail", args=[receiving.pk]),
+            fetch_redirect_response=False,
+        )
+        row_stock = Stock.objects.get(
+            source_document_number=receiving.document_number,
+            sumber_dana=row_funding,
+        )
+        self.assertEqual(row_stock.quantity, Decimal("0"))
+        corrected_stock = Stock.objects.get(
+            source_document_number=receiving.document_number,
+            sumber_dana=self.funding,
+        )
+        self.assertEqual(corrected_stock.quantity, Decimal("7"))
+        self.assertEqual(
+            list(
+                Transaction.objects.filter(
+                    reference_type=Transaction.ReferenceType.RECEIVING,
+                    reference_id=receiving.pk,
+                )
+                .order_by("created_at", "pk")
+                .values_list("transaction_type", "sumber_dana", "quantity")
+            ),
+            [
+                (Transaction.TransactionType.IN, row_funding.pk, Decimal("10.00")),
+                (Transaction.TransactionType.OUT, row_funding.pk, Decimal("10.00")),
+                (Transaction.TransactionType.IN, self.funding.pk, Decimal("7.00")),
+            ],
+        )
+
     def test_regular_receiving_edit_preserves_effective_received_at_date(self):
         original_received_at = timezone.make_aware(datetime(2026, 3, 16, 8, 30, 0))
         receiving = self._create_posted_regular_receiving()
@@ -1999,6 +2042,45 @@ class ReceivingWorkflowCleanupTest(TestCase):
             [
                 (Transaction.TransactionType.IN, Decimal("10.00")),
                 (Transaction.TransactionType.OUT, Decimal("10.00")),
+            ],
+        )
+
+    def test_regular_receiving_delete_reverses_imported_row_funding_override(self):
+        row_funding = FundingSource.objects.create(code="ROWDEL", name="Row Delete")
+        receiving = self._create_posted_regular_receiving(funding=row_funding)
+        receiving.sumber_dana = self.funding
+        receiving.save(update_fields=["sumber_dana", "updated_at"])
+
+        response = self.client.post(
+            reverse("receiving:receiving_delete", args=[receiving.pk]),
+            {"cancel_reason": "Dobel input impor CSV"},
+            secure=True,
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("receiving:receiving_detail", args=[receiving.pk]),
+            fetch_redirect_response=False,
+        )
+        receiving.refresh_from_db()
+        self.assertEqual(receiving.status, Receiving.Status.CANCELLED)
+        row_stock = Stock.objects.get(
+            source_document_number=receiving.document_number,
+            sumber_dana=row_funding,
+        )
+        self.assertEqual(row_stock.quantity, Decimal("0"))
+        self.assertEqual(
+            list(
+                Transaction.objects.filter(
+                    reference_type=Transaction.ReferenceType.RECEIVING,
+                    reference_id=receiving.pk,
+                )
+                .order_by("created_at", "pk")
+                .values_list("transaction_type", "sumber_dana", "quantity")
+            ),
+            [
+                (Transaction.TransactionType.IN, row_funding.pk, Decimal("10.00")),
+                (Transaction.TransactionType.OUT, row_funding.pk, Decimal("10.00")),
             ],
         )
 
@@ -3682,6 +3764,8 @@ class ReceivingStockConcurrencyTest(TransactionTestCase):
                 return {
                     "pk": 99,
                     "expiry_date": date(2031, 1, 1),
+                    "quantity": Decimal("3"),
+                    "reserved": Decimal("0"),
                     "unit_price": Decimal("1500"),
                 }
 

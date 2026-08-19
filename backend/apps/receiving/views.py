@@ -103,32 +103,118 @@ def _require_regular_receiving_correction_role(user):
         )
 
 
-def _stock_lookup_kwargs(receiving, item):
+def _stock_identity_filters(item):
+    return {
+        "item": item.item,
+        "location": item.location,
+        "batch_lot": item.batch_lot,
+    }
+
+
+def _matching_original_receiving_transaction_filters(receiving, item):
+    return {
+        "reference_type": Transaction.ReferenceType.RECEIVING,
+        "reference_id": receiving.pk,
+        "transaction_type": Transaction.TransactionType.IN,
+        "item": item.item,
+        "location": item.location,
+        "batch_lot": item.batch_lot,
+        "quantity": item.quantity,
+        "unit_price": item.unit_price,
+    }
+
+
+def _filter_stocks_by_item_metadata(stocks, item):
+    return [
+        stock
+        for stock in stocks
+        if stock.expiry_date == item.expiry_date and stock.unit_price == item.unit_price
+    ]
+
+
+def _select_single_stock_candidate(receiving, item, stocks):
+    if len(stocks) == 1:
+        return stocks[0]
+
+    metadata_matches = _filter_stocks_by_item_metadata(stocks, item)
+    if len(metadata_matches) == 1:
+        return metadata_matches[0]
+
+    transaction_layer = (
+        Transaction.objects.filter(
+            **_matching_original_receiving_transaction_filters(receiving, item)
+        )
+        .exclude(sumber_dana__isnull=True)
+        .values_list("sumber_dana_id", "source_document_number")
+        .distinct()
+    )
+    transaction_layers = list(transaction_layer)
+    if len(transaction_layers) == 1:
+        funding_id, source_document_number = transaction_layers[0]
+        transaction_matches = [
+            stock
+            for stock in stocks
+            if stock.sumber_dana_id == funding_id
+            and stock.source_document_number == source_document_number
+        ]
+        if len(transaction_matches) == 1:
+            return transaction_matches[0]
+
+    return None
+
+
+def _get_original_receiving_stock(receiving, item):
     source_document_number = resolve_receiving_source_document_number(
         receiving,
         item=item.item,
         location=item.location,
         batch_lot=item.batch_lot,
-        sumber_dana=receiving.sumber_dana,
     )
-    return {
-        "item": item.item,
-        "location": item.location,
-        "batch_lot": item.batch_lot,
-        "sumber_dana": receiving.sumber_dana,
+    stock_filters = {
+        **_stock_identity_filters(item),
         "source_document_number": source_document_number,
     }
+    candidates = list(
+        Stock.objects.select_for_update(of=("self",))
+        .select_related("sumber_dana")
+        .filter(receiving_ref=receiving, **stock_filters)
+    )
+    if not candidates:
+        transaction_layers = list(
+            Transaction.objects.filter(
+                **_matching_original_receiving_transaction_filters(receiving, item),
+                source_document_number=source_document_number,
+            )
+            .exclude(sumber_dana__isnull=True)
+            .values_list("sumber_dana_id", "source_document_number")
+            .distinct()
+        )
+        if len(transaction_layers) == 1:
+            funding_id, source_document_number = transaction_layers[0]
+            candidates = list(
+                Stock.objects.select_for_update(of=("self",))
+                .select_related("sumber_dana")
+                .filter(
+                    **stock_filters,
+                    sumber_dana_id=funding_id,
+                )
+            )
+
+    stock = _select_single_stock_candidate(receiving, item, candidates)
+    if stock is None and candidates:
+        raise ReceivingCorrectionError(
+            (
+                f"Lapisan stok untuk {item.item} batch {item.batch_lot} ambigu. "
+                "Periksa sumber dana stok sebelum koreksi."
+            )
+        )
+    return stock
 
 
 def _reverse_regular_receiving_stock(receiving, items, user, reason, *, action_label):
     transactions = []
     for item in items:
-        stock_kwargs = _stock_lookup_kwargs(receiving, item)
-        stock = (
-            Stock.objects.select_for_update(of=("self",))
-            .filter(**stock_kwargs)
-            .first()
-        )
+        stock = _get_original_receiving_stock(receiving, item)
         if stock is None:
             raise ReceivingCorrectionError(
                 f"Stok untuk {item.item} batch {item.batch_lot} tidak ditemukan."
@@ -152,7 +238,7 @@ def _reverse_regular_receiving_stock(receiving, items, user, reason, *, action_l
                 quantity=item.quantity,
                 unit_price=item.unit_price,
                 source_document_number=stock.source_document_number,
-                sumber_dana=receiving.sumber_dana,
+                sumber_dana=stock.sumber_dana,
                 reference_type=Transaction.ReferenceType.RECEIVING,
                 reference_id=receiving.pk,
                 user=user,
