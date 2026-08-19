@@ -89,7 +89,6 @@ def receiving_type_requires_supplier(value):
         return False
     return ReceivingTypeOption.objects.filter(
         code=receiving_type,
-        is_active=True,
         requires_supplier=True,
     ).exists()
 

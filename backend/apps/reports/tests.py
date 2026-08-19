@@ -625,6 +625,48 @@ class RekapOpeningBalanceReportTests(TestCase):
 		self.assertContains(response, "1.000,124")
 		self.assertNotContains(response, "1000.12")
 
+	def test_detailed_report_nets_receiving_reversal_rows(self):
+		Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.IN,
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-RCV-CORR",
+			source_document_number="RCV-CORR-001",
+			quantity=Decimal("10"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+			reference_type=Transaction.ReferenceType.RECEIVING,
+			reference_id=41,
+			user=self.user,
+		)
+		Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.OUT,
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-RCV-CORR",
+			source_document_number="RCV-CORR-001",
+			quantity=Decimal("3"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+			reference_type=Transaction.ReferenceType.RECEIVING,
+			reference_id=41,
+			user=self.user,
+		)
+
+		response = self.client.get(
+			reverse("reports:index"),
+			{"start_date": "2026-01-01", "end_date": "2026-12-31"},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		row = next(
+			row
+			for row in response.context["report_data"]
+			if row["batch_lot"] == "RO-BATCH-RCV-CORR"
+		)
+		self.assertEqual(row["received"], Decimal("7"))
+		self.assertEqual(row["ending_stock"], Decimal("7"))
+
 	def test_detailed_report_separates_same_source_batch_by_location_expiry(self):
 		other_location = Location.objects.create(
 			code="RO-LOC-OTHER",
@@ -879,6 +921,45 @@ class RekapOpeningBalanceReportTests(TestCase):
 		self.assertEqual(row["saldo_awal"], Decimal("1200"))
 		self.assertEqual(row["nilai_terima"], Decimal("0"))
 		self.assertEqual(row["saldo_akhir"], Decimal("1200"))
+
+	def test_rekap_nets_receiving_reversal_values(self):
+		Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.IN,
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-RCV-CORR",
+			source_document_number="RCV-CORR-REKAP-001",
+			quantity=Decimal("10"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+			reference_type=Transaction.ReferenceType.RECEIVING,
+			reference_id=42,
+			user=self.user,
+		)
+		Transaction.objects.create(
+			transaction_type=Transaction.TransactionType.OUT,
+			item=self.item,
+			location=self.location,
+			batch_lot="RO-BATCH-RCV-CORR",
+			source_document_number="RCV-CORR-REKAP-001",
+			quantity=Decimal("3"),
+			unit_price=Decimal("100"),
+			sumber_dana=self.funding,
+			reference_type=Transaction.ReferenceType.RECEIVING,
+			reference_id=42,
+			user=self.user,
+		)
+
+		response = self.client.get(
+			reverse("reports:rekap"),
+			{"start_date": "2026-01-01", "end_date": "2026-12-31"},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		row = self._category_row(response)
+		self.assertEqual(row["saldo_awal"], Decimal("1000"))
+		self.assertEqual(row["nilai_terima"], Decimal("700"))
+		self.assertEqual(row["saldo_akhir"], Decimal("1700"))
 
 
 class PengeluaranReportTests(TestCase):

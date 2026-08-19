@@ -1844,6 +1844,49 @@ class ReceivingWorkflowCleanupTest(TestCase):
         receiving.refresh_from_db()
         self.assertEqual(receiving.receiving_type, "HIBAH_KHUSUS")
 
+    def test_regular_receiving_edit_enforces_supplier_for_inactive_historical_type(self):
+        supplier = Supplier.objects.create(
+            code="SUP-HIST",
+            name="Supplier Historical",
+        )
+        receiving_type = ReceivingTypeOption.objects.create(
+            code="PENGADAAN_LAMA",
+            name="Pengadaan Lama",
+            is_active=True,
+            requires_supplier=True,
+        )
+        receiving = self._create_posted_regular_receiving()
+        receiving.receiving_type = receiving_type.code
+        receiving.supplier = supplier
+        receiving.save(update_fields=["receiving_type", "supplier", "updated_at"])
+        receiving_type.is_active = False
+        receiving_type.save(update_fields=["is_active", "updated_at"])
+
+        payload = self._regular_edit_payload(receiving)
+        payload["receiving_type"] = "PENGADAAN_LAMA"
+        payload["supplier"] = ""
+        response = self.client.post(
+            reverse("receiving:receiving_edit", args=[receiving.pk]),
+            payload,
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Supplier wajib diisi untuk tipe penerimaan ini.",
+        )
+        receiving.refresh_from_db()
+        self.assertEqual(receiving.supplier, supplier)
+        self.assertEqual(receiving.items.get().quantity, Decimal("10"))
+        self.assertEqual(
+            Transaction.objects.filter(
+                reference_type=Transaction.ReferenceType.RECEIVING,
+                reference_id=receiving.pk,
+            ).count(),
+            1,
+        )
+
     def test_regular_receiving_edit_displays_trimmed_unit_price(self):
         receiving = self._create_posted_regular_receiving(unit_price=Decimal("120"))
         form = ReceivingItemForm(instance=receiving.items.get(), prefix="items-0")

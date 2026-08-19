@@ -154,6 +154,12 @@ def reports_index(request):
                             then=F('quantity')
                         ),
                         When(
+                            created_at__date__range=[start_date, end_date],
+                            reference_type='RECEIVING',
+                            transaction_type='OUT',
+                            then=-F('quantity')
+                        ),
+                        When(
                             initial_import_as_period_receiving,
                             then=F('quantity')
                         ),
@@ -501,6 +507,12 @@ def reports_rekap(request):
                             reference_type='RECEIVING',
                             transaction_type='IN',
                             then=F('quantity') * F('unit_price')
+                        ),
+                        When(
+                            created_at__date__range=[start_date, end_date],
+                            reference_type='RECEIVING',
+                            transaction_type='OUT',
+                            then=-F('quantity') * F('unit_price')
                         ),
                         When(
                             initial_import_as_period_receiving,
