@@ -113,9 +113,12 @@ def synchronize_contract_receiving_plan(contract, *, approved_by):
     receiving = _get_linked_receiving(contract)
     effective_lines = _build_effective_line_state(contract)
 
-    if receiving and receiving.status == Receiving.Status.CLOSED:
+    if receiving and receiving.status in {
+        Receiving.Status.CLOSED,
+        Receiving.Status.CANCELLED,
+    }:
         raise ProcurementWorkflowError(
-            "Rencana penerimaan kontrak ini sudah ditutup dan tidak dapat disinkronkan lagi."
+            "Rencana penerimaan kontrak ini sudah ditutup/dibatalkan dan tidak dapat disinkronkan lagi."
         )
 
     if receiving is None:
@@ -201,16 +204,22 @@ def synchronize_contract_receiving_plan(contract, *, approved_by):
 
 
 def submit_contract(contract, user):
-    _validate_contract_lines(contract)
-    contract.status = ProcurementContract.Status.SUBMITTED
-    contract.submitted_by = user
-    contract.submitted_at = timezone.now()
-    _save_model(contract, ["status", "submitted_by", "submitted_at"])
+    with transaction.atomic():
+        contract = ProcurementContract.objects.select_for_update().get(pk=contract.pk)
+        if contract.status != ProcurementContract.Status.DRAFT:
+            raise ProcurementWorkflowError("Hanya kontrak Draft yang dapat diajukan.")
+        _validate_contract_lines(contract)
+        contract.status = ProcurementContract.Status.SUBMITTED
+        contract.submitted_by = user
+        contract.submitted_at = timezone.now()
+        _save_model(contract, ["status", "submitted_by", "submitted_at"])
 
 
 def approve_contract(contract, user):
     with transaction.atomic():
         contract = ProcurementContract.objects.select_for_update().get(pk=contract.pk)
+        if contract.status != ProcurementContract.Status.SUBMITTED:
+            raise ProcurementWorkflowError("Hanya kontrak Diajukan yang dapat disetujui.")
         _validate_contract_lines(contract)
         contract.status = ProcurementContract.Status.APPROVED
         contract.approved_by = user
@@ -222,6 +231,8 @@ def approve_contract(contract, user):
 def close_contract(contract, user):
     with transaction.atomic():
         contract = ProcurementContract.objects.select_for_update().get(pk=contract.pk)
+        if contract.status != ProcurementContract.Status.APPROVED:
+            raise ProcurementWorkflowError("Hanya kontrak Disetujui yang dapat ditutup.")
         receiving = _get_linked_receiving(contract)
         if receiving is None:
             raise ProcurementWorkflowError("Kontrak belum memiliki rencana penerimaan untuk ditutup.")
@@ -307,15 +318,28 @@ def cancel_contract(contract, user, reason):
 
 
 def submit_amendment(amendment, user):
-    lines = list(amendment.lines.select_related("contract_line", "contract_line__item"))
-    if not lines:
-        raise ProcurementWorkflowError("Tambahkan minimal 1 baris amandemen sebelum diajukan.")
-    if amendment.contract.status != ProcurementContract.Status.APPROVED:
-        raise ProcurementWorkflowError("Hanya kontrak yang sudah disetujui yang dapat diajukan amandemennya.")
-    amendment.status = ProcurementAmendment.Status.SUBMITTED
-    amendment.submitted_by = user
-    amendment.submitted_at = timezone.now()
-    _save_model(amendment, ["status", "submitted_by", "submitted_at"])
+    with transaction.atomic():
+        amendment = (
+            ProcurementAmendment.objects.select_for_update()
+            .select_related("contract")
+            .get(pk=amendment.pk)
+        )
+        contract = ProcurementContract.objects.select_for_update().get(
+            pk=amendment.contract_id
+        )
+        if amendment.status != ProcurementAmendment.Status.DRAFT:
+            raise ProcurementWorkflowError("Hanya amandemen Draft yang dapat diajukan.")
+        lines = list(
+            amendment.lines.select_related("contract_line", "contract_line__item")
+        )
+        if not lines:
+            raise ProcurementWorkflowError("Tambahkan minimal 1 baris amandemen sebelum diajukan.")
+        if contract.status != ProcurementContract.Status.APPROVED:
+            raise ProcurementWorkflowError("Hanya kontrak yang sudah disetujui yang dapat diajukan amandemennya.")
+        amendment.status = ProcurementAmendment.Status.SUBMITTED
+        amendment.submitted_by = user
+        amendment.submitted_at = timezone.now()
+        _save_model(amendment, ["status", "submitted_by", "submitted_at"])
 
 
 def approve_amendment(amendment, user):
@@ -326,6 +350,8 @@ def approve_amendment(amendment, user):
             .get(pk=amendment.pk)
         )
         contract = ProcurementContract.objects.select_for_update().get(pk=amendment.contract_id)
+        if amendment.status != ProcurementAmendment.Status.SUBMITTED:
+            raise ProcurementWorkflowError("Hanya amandemen Diajukan yang dapat disetujui.")
         if contract.status != ProcurementContract.Status.APPROVED:
             raise ProcurementWorkflowError("Kontrak harus berstatus disetujui sebelum amandemen dapat disetujui.")
         if contract.closed_at is not None:

@@ -16,8 +16,14 @@ from apps.procurement.models import (
     ProcurementAmendmentLine,
     ProcurementContract,
     ProcurementContractLine,
+    ProcurementWorkflowError,
 )
-from apps.procurement.services import approve_amendment, approve_contract
+from apps.procurement.services import (
+    approve_amendment,
+    approve_contract,
+    close_contract,
+    submit_contract,
+)
 from apps.receiving.models import Receiving, ReceivingItem, ReceivingOrderItem
 from apps.stock.models import Stock, Transaction
 from apps.users.access import ensure_default_module_access
@@ -546,6 +552,68 @@ class ProcurementWorkflowTests(TestCase):
         self.assertEqual(close_response.status_code, 302)
         contract.refresh_from_db()
         self.assertEqual(contract.status, ProcurementContract.Status.CANCELLED)
+
+    def test_stale_submit_cannot_resurrect_cancelled_contract(self):
+        contract, _line = self._create_contract(quantity="10", unit_price="5000")
+        ProcurementContract.objects.filter(pk=contract.pk).update(
+            status=ProcurementContract.Status.CANCELLED,
+            cancelled_by=self.admin,
+            cancelled_at=timezone.now(),
+            cancel_reason="Dibatalkan request lain",
+        )
+
+        with self.assertRaisesMessage(
+            ProcurementWorkflowError,
+            "Hanya kontrak Draft yang dapat diajukan.",
+        ):
+            submit_contract(contract, self.admin)
+
+        contract.refresh_from_db()
+        self.assertEqual(contract.status, ProcurementContract.Status.CANCELLED)
+        self.assertEqual(Receiving.objects.filter(contract=contract).count(), 0)
+
+    def test_stale_approve_cannot_resurrect_cancelled_contract(self):
+        contract, _line = self._create_contract(quantity="10", unit_price="5000")
+        contract.status = ProcurementContract.Status.SUBMITTED
+        contract.submitted_by = self.admin
+        contract.submitted_at = timezone.now()
+        contract.save(update_fields=["status", "submitted_by", "submitted_at", "updated_at"])
+        ProcurementContract.objects.filter(pk=contract.pk).update(
+            status=ProcurementContract.Status.CANCELLED,
+            cancelled_by=self.admin,
+            cancelled_at=timezone.now(),
+            cancel_reason="Dibatalkan request lain",
+        )
+
+        with self.assertRaisesMessage(
+            ProcurementWorkflowError,
+            "Hanya kontrak Diajukan yang dapat disetujui.",
+        ):
+            approve_contract(contract, self.kepala)
+
+        contract.refresh_from_db()
+        self.assertEqual(contract.status, ProcurementContract.Status.CANCELLED)
+        self.assertEqual(Receiving.objects.filter(contract=contract).count(), 0)
+
+    def test_stale_close_cannot_mutate_cancelled_contract(self):
+        contract, _line = self._approve_contract(quantity="10", unit_price="5000")
+        ProcurementContract.objects.filter(pk=contract.pk).update(
+            status=ProcurementContract.Status.CANCELLED,
+            cancelled_by=self.admin,
+            cancelled_at=timezone.now(),
+            cancel_reason="Dibatalkan request lain",
+        )
+
+        with self.assertRaisesMessage(
+            ProcurementWorkflowError,
+            "Hanya kontrak Disetujui yang dapat ditutup.",
+        ):
+            close_contract(contract, self.admin)
+
+        contract.refresh_from_db()
+        receiving = Receiving.objects.get(contract=contract)
+        self.assertEqual(contract.status, ProcurementContract.Status.CANCELLED)
+        self.assertEqual(receiving.status, Receiving.Status.APPROVED)
 
     def test_procurement_view_permissions_context_flag_and_notifications(self):
         contract, line = self._create_contract(quantity="10", unit_price="5000")
