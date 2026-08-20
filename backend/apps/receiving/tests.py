@@ -1297,6 +1297,7 @@ class ReceivingCSVImportTest(TestCase):
         self.assertContains(response, "Download Template CSV")
 
 
+@override_settings(SECURE_SSL_REDIRECT=False)
 class ReceivingWorkflowCleanupTest(TestCase):
     def setUp(self):
         self.user = User.objects.create_superuser(
@@ -2704,11 +2705,14 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "js/item-picker-table.js?v=")
 
-    def test_receiving_plan_create_includes_item_picker_table_script(self):
-        response = self.client.get(reverse("receiving:receiving_plan_create"))
+    def test_receiving_plan_create_redirects_to_spj_create(self):
+        response = self.client.get(reverse("receiving:receiving_plan_create"), secure=True)
 
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "js/item-picker-table.js?v=")
+        self.assertRedirects(
+            response,
+            reverse("procurement:contract_create"),
+            fetch_redirect_response=False,
+        )
 
     def test_regular_receiving_list_does_not_show_redundant_status_filter(self):
         Receiving.objects.create(
@@ -2770,36 +2774,56 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertContains(response, 'Receiving date <span class="text-danger">*</span>', html=False)
         self.assertContains(response, 'Sumber dana <span class="text-danger">*</span>', html=False)
 
-    def test_planned_receiving_create_page_shows_required_markers_and_placeholder(self):
-        response = self.client.get(reverse("receiving:receiving_plan_create"))
+    def test_receiving_plan_create_post_redirects_without_creating_manual_plan(self):
+        response = self.client.post(
+            reverse("receiving:receiving_plan_create"),
+            {
+                "document_number": "",
+                "receiving_type": Receiving.ReceivingType.GRANT,
+                "receiving_date": "2026-03-16",
+                "supplier": "",
+                "sumber_dana": self.funding.pk,
+                "notes": "",
+                "items-TOTAL_FORMS": "1",
+                "items-INITIAL_FORMS": "0",
+                "items-MIN_NUM_FORMS": "0",
+                "items-MAX_NUM_FORMS": "1000",
+                "items-0-item": self.item.pk,
+                "items-0-planned_quantity": "5",
+                "items-0-unit_price": "1000",
+                "items-0-notes": "",
+            },
+            secure=True,
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("procurement:contract_create"),
+            fetch_redirect_response=False,
+        )
+        self.assertFalse(Receiving.objects.filter(is_planned=True, contract__isnull=True).exists())
+
+    def test_planned_receiving_list_hides_manual_create_for_new_plans(self):
+        response = self.client.get(reverse("receiving:receiving_plan_list"), secure=True)
 
         self.assertEqual(response.status_code, 200)
-        self.assertNotContains(response, 'name="facility"', html=False)
-        self.assertContains(response, 'placeholder="Kosongkan untuk generate otomatis"', html=False)
+        self.assertNotContains(response, reverse("receiving:receiving_plan_create"))
+        self.assertNotContains(response, "Buat Rencana")
         self.assertContains(
             response,
-            'Receiving type <span class="text-danger">*</span>',
-            html=False,
+            "Rencana penerimaan pengadaan dibuat dari",
         )
-        self.assertContains(
-            response,
-            'Receiving date <span class="text-danger">*</span>',
-            html=False,
-        )
-        self.assertContains(response, 'Sumber dana <span class="text-danger">*</span>', html=False)
-        self.assertContains(response, '>Pengadaan</option>', html=False)
-        self.assertContains(response, '>Hibah</option>', html=False)
 
-    def test_planned_receiving_list_keeps_manual_create_for_unlinked_plans(self):
-        response = self.client.get(reverse("receiving:receiving_plan_list"))
+    def test_receiving_sidebar_orders_spj_before_planned_receiving_queue(self):
+        response = self.client.get(reverse("receiving:receiving_plan_list"), secure=True)
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, reverse("receiving:receiving_plan_create"))
-        self.assertContains(response, "Buat Rencana")
-        self.assertContains(
-            response,
-            "Form manual dapat digunakan untuk rencana penerimaan tanpa kontrak.",
-        )
+        content = response.content.decode()
+        regular_index = content.index('data-label="Buat Penerimaan"')
+        spj_index = content.index('data-label="SPJ / Pengadaan"')
+        planned_index = content.index('data-label="Rencana Penerimaan"')
+        self.assertLess(regular_index, spj_index)
+        self.assertLess(spj_index, planned_index)
 
     def test_planned_receiving_list_uses_preloaded_type_labels(self):
         Receiving.objects.create(
@@ -3033,70 +3057,6 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertFalse(planned_form.is_valid())
         self.assertEqual(regular_form.errors["receiving_type"], ["Tipe penerimaan wajib dipilih."])
         self.assertEqual(planned_form.errors["receiving_type"], ["Tipe penerimaan wajib dipilih."])
-
-    def test_planned_receiving_create_accepts_custom_receiving_type(self):
-        ReceivingTypeOption.objects.create(code="DON", name="Donasi")
-
-        response = self.client.post(
-            reverse("receiving:receiving_plan_create"),
-            {
-                "document_number": "",
-                "receiving_type": "DON",
-                "receiving_date": "2026-03-16",
-                "supplier": "",
-                "sumber_dana": self.funding.pk,
-                "notes": "",
-                "items-TOTAL_FORMS": "1",
-                "items-INITIAL_FORMS": "0",
-                "items-MIN_NUM_FORMS": "0",
-                "items-MAX_NUM_FORMS": "1000",
-                "items-0-item": self.item.pk,
-                "items-0-planned_quantity": "5",
-                "items-0-unit_price": "1000",
-                "items-0-notes": "",
-            },
-            secure=True,
-        )
-
-        self.assertEqual(response.status_code, 302)
-        receiving = Receiving.objects.get(is_planned=True)
-        self.assertEqual(receiving.receiving_type, "DON")
-        self.assertEqual(receiving.receiving_type_label, "Donasi")
-        self.assertEqual(receiving.status, Receiving.Status.DRAFT)
-        self.assertTrue(receiving.order_items.filter(item=self.item).exists())
-
-    def test_planned_receiving_create_accepts_manual_procurement_type(self):
-        supplier = Supplier.objects.create(
-            code="SUP-RCV-PROC",
-            name="PT Manual Procurement",
-        )
-
-        response = self.client.post(
-            reverse("receiving:receiving_plan_create"),
-            {
-                "document_number": "",
-                "receiving_type": Receiving.ReceivingType.PROCUREMENT,
-                "receiving_date": "2026-03-16",
-                "supplier": supplier.pk,
-                "sumber_dana": self.funding.pk,
-                "notes": "",
-                "items-TOTAL_FORMS": "1",
-                "items-INITIAL_FORMS": "0",
-                "items-MIN_NUM_FORMS": "0",
-                "items-MAX_NUM_FORMS": "1000",
-                "items-0-item": self.item.pk,
-                "items-0-planned_quantity": "5",
-                "items-0-unit_price": "1000",
-                "items-0-notes": "",
-            },
-            secure=True,
-        )
-
-        self.assertEqual(response.status_code, 302)
-        receiving = Receiving.objects.get(is_planned=True)
-        self.assertEqual(receiving.receiving_type, Receiving.ReceivingType.PROCUREMENT)
-        self.assertEqual(receiving.supplier, supplier)
-        self.assertIsNone(receiving.contract)
 
     def test_receiving_full_clean_rejects_duplicate_planned_contract_link(self):
         supplier = Supplier.objects.create(code="SUP-RCV-001", name="PT Supplier Receiving")

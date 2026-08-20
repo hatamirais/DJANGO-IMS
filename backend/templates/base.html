@@ -95,17 +95,19 @@
                         data-label="Buat Penerimaan" title="Buat Penerimaan">
                         <i class="bi bi-inbox-arrow-down"></i><span>Buat Penerimaan</span>
                     </a>
-                    <a href="{% url 'receiving:receiving_plan_list' %}"
-                        class="sidebar-link {% if request.resolver_match.url_name == 'receiving_plan_list' %}active{% endif %}"
-                        data-label="Rencana Penerimaan" title="Rencana Penerimaan">
-                        <i class="bi bi-clipboard-check"></i><span>Rencana Penerimaan</span>
-                    </a>
                     {% endif %}
                     {% if can_view_procurement %}
                     <a href="{% url 'procurement:contract_list' %}"
                         class="sidebar-link {% if request.resolver_match.app_name == 'procurement' %}active{% endif %}"
                         data-label="SPJ / Pengadaan" title="SPJ / Pengadaan">
                         <i class="bi bi-file-earmark-text"></i><span>SPJ / Pengadaan</span>
+                    </a>
+                    {% endif %}
+                    {% if can_view_receiving %}
+                    <a href="{% url 'receiving:receiving_plan_list' %}"
+                        class="sidebar-link {% if request.resolver_match.url_name == 'receiving_plan_list' %}active{% endif %}"
+                        data-label="Rencana Penerimaan" title="Rencana Penerimaan">
+                        <i class="bi bi-clipboard-check"></i><span>Rencana Penerimaan</span>
                     </a>
                     {% endif %}
                 </div>

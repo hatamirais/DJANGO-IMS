@@ -33,14 +33,12 @@ from .models import (
 )
 from .forms import (
     build_planned_receipt_item_formset,
-    PlannedReceivingForm,
     ReceivingCancelForm,
     ReceivingCloseForm,
     ReceivingEditForm,
     ReceivingForm,
     ReceivingItemFormSet,
     ReceivingOrderCloseItemFormSet,
-    ReceivingOrderItemFormSet,
     ReceivingQuickCreateFundingSourceForm,
     ReceivingQuickCreateReceivingTypeForm,
     ReceivingQuickCreateSupplierForm,
@@ -814,38 +812,11 @@ def receiving_delete(request, pk):
 @login_required
 @perm_required("receiving.add_receiving")
 def receiving_plan_create(request):
-    if request.method == "POST":
-        form = PlannedReceivingForm(request.POST)
-        formset = ReceivingOrderItemFormSet(request.POST, prefix="items")
-
-        if form.is_valid() and formset.is_valid():
-            receiving = form.save(commit=False)
-            receiving.created_by = request.user
-            receiving.is_planned = True
-            receiving.status = Receiving.Status.DRAFT
-            receiving.save()
-
-            formset.instance = receiving
-            formset.save()
-
-            messages.success(
-                request,
-                f"Rencana penerimaan {receiving.document_number} berhasil dibuat.",
-            )
-            return redirect("receiving:receiving_plan_detail", pk=receiving.pk)
-    else:
-        form = PlannedReceivingForm()
-        formset = ReceivingOrderItemFormSet(prefix="items")
-
-    return render(
+    messages.info(
         request,
-        "receiving/receiving_plan_form.html",
-        {
-            "form": form,
-            "formset": formset,
-            "title": "Buat Rencana Penerimaan",
-        },
+        "Rencana penerimaan pengadaan baru dibuat melalui SPJ / Pengadaan.",
     )
+    return redirect("procurement:contract_create")
 
 
 @login_required

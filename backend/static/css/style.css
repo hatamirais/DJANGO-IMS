@@ -553,6 +553,7 @@ body {
 .badge-partial { background: rgba(245, 158, 11, 0.12); color: #d97706; }
 .badge-received { background: rgba(34, 197, 94, 0.12); color: #16a34a; }
 .badge-closed { background: rgba(148, 163, 184, 0.2); color: #64748b; }
+.badge-cancelled { background: rgba(239, 68, 68, 0.12); color: #dc2626; }
 .badge-verified { background: rgba(34, 197, 94, 0.12); color: #16a34a; }
 .badge-prepared { background: rgba(245, 158, 11, 0.12); color: #d97706; }
 .badge-distributed { background: rgba(34, 197, 94, 0.12); color: #16a34a; }

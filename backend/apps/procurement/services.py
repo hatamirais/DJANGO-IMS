@@ -3,7 +3,7 @@ from django.db.models import F
 from django.utils import timezone
 
 from apps.core.decimal_validation import multiply_decimals
-from apps.receiving.models import Receiving, ReceivingOrderItem
+from apps.receiving.models import Receiving, ReceivingItem, ReceivingOrderItem
 
 from .models import (
     ProcurementAmendment,
@@ -79,6 +79,33 @@ def _receiving_status_from_order_items(receiving):
     if has_receipts:
         return Receiving.Status.PARTIAL
     return Receiving.Status.APPROVED
+
+
+def contract_is_cancellable(contract, linked_receiving=None):
+    if contract.status in {
+        ProcurementContract.Status.DRAFT,
+        ProcurementContract.Status.SUBMITTED,
+    }:
+        return True
+    if contract.status != ProcurementContract.Status.APPROVED:
+        return False
+
+    receiving = linked_receiving
+    if receiving is None:
+        receiving = (
+            Receiving.objects.filter(contract=contract, is_planned=True)
+            .prefetch_related("order_items")
+            .first()
+        )
+    if receiving is None:
+        return True
+
+    has_received_quantity = any(
+        item.received_quantity > 0 for item in receiving.order_items.all()
+    )
+    if has_received_quantity:
+        return False
+    return not ReceivingItem.objects.filter(receiving=receiving).exists()
 
 
 def synchronize_contract_receiving_plan(contract, *, approved_by):
@@ -220,6 +247,60 @@ def close_contract(contract, user):
                     "closed_by",
                     "closed_at",
                     "closed_reason",
+                    "updated_at",
+                ]
+            )
+
+
+def cancel_contract(contract, user, reason):
+    with transaction.atomic():
+        contract = ProcurementContract.objects.select_for_update().get(pk=contract.pk)
+        if contract.status not in {
+            ProcurementContract.Status.DRAFT,
+            ProcurementContract.Status.SUBMITTED,
+            ProcurementContract.Status.APPROVED,
+        }:
+            raise ProcurementWorkflowError(
+                "Hanya SPJ Draft, Diajukan, atau Disetujui yang dapat dibatalkan."
+            )
+
+        receiving = _get_linked_receiving(contract)
+        if contract.status == ProcurementContract.Status.APPROVED and receiving is not None:
+            order_items = list(
+                ReceivingOrderItem.objects.select_for_update()
+                .filter(receiving=receiving)
+                .only("received_quantity")
+            )
+            has_received_quantity = any(item.received_quantity > 0 for item in order_items)
+            has_receipt_rows = ReceivingItem.objects.select_for_update().filter(
+                receiving=receiving
+            ).exists()
+            if has_received_quantity or has_receipt_rows:
+                raise ProcurementWorkflowError(
+                    "SPJ yang sudah memiliki realisasi penerimaan tidak dapat dibatalkan. Gunakan amandemen atau penutupan kontrak."
+                )
+
+        now = timezone.now()
+        contract.status = ProcurementContract.Status.CANCELLED
+        contract.cancelled_by = user
+        contract.cancelled_at = now
+        contract.cancel_reason = reason
+        _save_model(
+            contract,
+            ["status", "cancelled_by", "cancelled_at", "cancel_reason"],
+        )
+
+        if receiving is not None and receiving.status != Receiving.Status.CANCELLED:
+            receiving.status = Receiving.Status.CANCELLED
+            receiving.cancelled_by = user
+            receiving.cancelled_at = now
+            receiving.cancel_reason = reason
+            receiving.save(
+                update_fields=[
+                    "status",
+                    "cancelled_by",
+                    "cancelled_at",
+                    "cancel_reason",
                     "updated_at",
                 ]
             )

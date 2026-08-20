@@ -32,7 +32,8 @@ App-specific guidance for receiving workflows.
 - SPJ-linked procurement receiving plans are no longer manually approved.
 - Approved SPJ contracts auto-create or re-sync exactly one linked planned `Receiving(contract!=NULL)` document.
 - SPJ-linked planned receiving leftovers must be corrected through procurement amendments rather than the receiving-side `Tutup Sisa` close-items action.
-- Manual `Receiving(is_planned=True, contract IS NULL)` rows can be created from the receiving plan form and remain executable through receiving routes.
+- New no-contract planned receiving creation is disabled; `/receiving/plans/create/` redirects to the SPJ create flow.
+- Legacy manual `Receiving(is_planned=True, contract IS NULL)` rows remain readable and executable through receiving routes for compatibility.
 
 ## Attachments
 

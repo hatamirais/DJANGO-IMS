@@ -27,9 +27,17 @@
                     <dt class="col-5 text-muted">Disetujui</dt>
                     <dd class="col-7">{{ contract.approved_by }}<br><small class="text-muted">{{ contract.approved_at|date:"d/m/Y H:i" }}</small></dd>
                     {% endif %}
+                    {% if contract.cancelled_by %}
+                    <dt class="col-5 text-muted">Dibatalkan</dt>
+                    <dd class="col-7">{{ contract.cancelled_by }}<br><small class="text-muted">{{ contract.cancelled_at|date:"d/m/Y H:i" }}</small></dd>
+                    {% endif %}
                     {% if linked_receiving %}
                     <dt class="col-5 text-muted">Rencana</dt>
                     <dd class="col-7"><a href="{% url 'receiving:receiving_plan_detail' linked_receiving.pk %}">{{ linked_receiving.document_number }}</a></dd>
+                    {% endif %}
+                    {% if contract.cancel_reason %}
+                    <dt class="col-5 text-muted">Alasan Batal</dt>
+                    <dd class="col-7">{{ contract.cancel_reason }}</dd>
                     {% endif %}
                     {% if contract.notes %}
                     <dt class="col-5 text-muted">Catatan</dt>
@@ -60,6 +68,18 @@
             {% endif %}
             <a href="{% url 'procurement:contract_list' %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i>Kembali</a>
         </div>
+
+        {% if can_cancel_contract %}
+        <form method="post" action="{% url 'procurement:contract_cancel' contract.pk %}" class="mt-3">
+            {% csrf_token %}
+            <div class="mb-2">
+                {{ cancel_form.cancel_reason }}
+            </div>
+            <button type="submit" class="btn btn-outline-danger btn-sm" data-confirm-submit="Batalkan SPJ ini?">
+                <i class="bi bi-x-circle me-1"></i>Batalkan SPJ
+            </button>
+        </form>
+        {% endif %}
     </div>
 
     <div class="col-12 col-xl-8">

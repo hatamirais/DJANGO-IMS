@@ -374,6 +374,179 @@ class ProcurementWorkflowTests(TestCase):
             1,
         )
 
+    def test_draft_contract_can_be_cancelled_with_reason(self):
+        contract, _line = self._create_contract(quantity="10", unit_price="5000")
+
+        response = self.client.post(
+            reverse("procurement:contract_cancel", args=[contract.pk]),
+            {"cancel_reason": "Duplikat input"},
+            secure=True,
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("procurement:contract_detail", args=[contract.pk]),
+            fetch_redirect_response=False,
+        )
+        contract.refresh_from_db()
+        self.assertEqual(contract.status, ProcurementContract.Status.CANCELLED)
+        self.assertEqual(contract.cancel_reason, "Duplikat input")
+        self.assertEqual(contract.cancelled_by, self.admin)
+        self.assertIsNotNone(contract.cancelled_at)
+
+    def test_contract_detail_shows_cancel_action_when_cancellable(self):
+        contract, _line = self._create_contract(quantity="10", unit_price="5000")
+
+        response = self.client.get(
+            reverse("procurement:contract_detail", args=[contract.pk]),
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Batalkan SPJ")
+        self.assertContains(response, reverse("procurement:contract_cancel", args=[contract.pk]))
+
+    def test_submitted_contract_can_be_cancelled_with_reason(self):
+        contract, _line = self._create_contract(quantity="10", unit_price="5000")
+        contract.status = ProcurementContract.Status.SUBMITTED
+        contract.submitted_by = self.admin
+        contract.submitted_at = timezone.now()
+        contract.save(update_fields=["status", "submitted_by", "submitted_at", "updated_at"])
+
+        response = self.client.post(
+            reverse("procurement:contract_cancel", args=[contract.pk]),
+            {"cancel_reason": "Pengadaan dibatalkan"},
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        contract.refresh_from_db()
+        self.assertEqual(contract.status, ProcurementContract.Status.CANCELLED)
+        self.assertEqual(contract.cancel_reason, "Pengadaan dibatalkan")
+
+    def test_approved_contract_with_unused_plan_cancels_linked_receiving(self):
+        contract, _line = self._approve_contract(quantity="10", unit_price="5000")
+        receiving = Receiving.objects.get(contract=contract)
+
+        response = self.client.post(
+            reverse("procurement:contract_cancel", args=[contract.pk]),
+            {"cancel_reason": "Supplier gagal memenuhi kontrak"},
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        contract.refresh_from_db()
+        receiving.refresh_from_db()
+        self.assertEqual(contract.status, ProcurementContract.Status.CANCELLED)
+        self.assertEqual(receiving.status, Receiving.Status.CANCELLED)
+        self.assertEqual(receiving.cancel_reason, "Supplier gagal memenuhi kontrak")
+        self.assertEqual(receiving.cancelled_by, self.admin)
+
+    def test_approved_contract_with_received_quantity_cannot_be_cancelled(self):
+        contract, _line = self._approve_contract(quantity="10", unit_price="5000")
+        receiving = Receiving.objects.get(contract=contract)
+        order_item = ReceivingOrderItem.objects.get(receiving=receiving)
+        order_item.received_quantity = Decimal("1")
+        order_item.save(update_fields=["received_quantity", "updated_at"])
+
+        response = self.client.post(
+            reverse("procurement:contract_cancel", args=[contract.pk]),
+            {"cancel_reason": "Batal setelah realisasi"},
+            secure=True,
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        contract.refresh_from_db()
+        receiving.refresh_from_db()
+        self.assertEqual(contract.status, ProcurementContract.Status.APPROVED)
+        self.assertEqual(receiving.status, Receiving.Status.APPROVED)
+        messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertTrue(any("sudah memiliki realisasi penerimaan" in message for message in messages))
+
+    def test_approved_contract_with_receipt_rows_cannot_be_cancelled(self):
+        contract, _line = self._approve_contract(quantity="10", unit_price="5000")
+        receiving = Receiving.objects.get(contract=contract)
+        order_item = ReceivingOrderItem.objects.get(receiving=receiving)
+        ReceivingItem.objects.create(
+            receiving=receiving,
+            order_item=order_item,
+            item=self.item,
+            quantity=Decimal("1"),
+            batch_lot="PROC-CANCEL-ROW",
+            expiry_date=date(2030, 1, 1),
+            unit_price=Decimal("5000"),
+            location=self.location,
+        )
+
+        response = self.client.post(
+            reverse("procurement:contract_cancel", args=[contract.pk]),
+            {"cancel_reason": "Batal setelah baris realisasi"},
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        contract.refresh_from_db()
+        receiving.refresh_from_db()
+        self.assertEqual(contract.status, ProcurementContract.Status.APPROVED)
+        self.assertEqual(receiving.status, Receiving.Status.APPROVED)
+
+    def test_contract_cancel_requires_post_and_procurement_access(self):
+        contract, _line = self._create_contract(quantity="10", unit_price="5000")
+
+        get_response = self.client.get(
+            reverse("procurement:contract_cancel", args=[contract.pk]),
+            secure=True,
+        )
+        self.assertEqual(get_response.status_code, 405)
+
+        self.client.force_login(self.puskesmas)
+        denied = self.client.post(
+            reverse("procurement:contract_cancel", args=[contract.pk]),
+            {"cancel_reason": "Tidak berwenang"},
+            secure=True,
+        )
+        self.assertEqual(denied.status_code, 403)
+
+    def test_cancelled_contract_cannot_be_mutated_through_other_actions(self):
+        contract, _line = self._create_contract(quantity="10", unit_price="5000")
+        self.client.post(
+            reverse("procurement:contract_cancel", args=[contract.pk]),
+            {"cancel_reason": "Batal permanen"},
+            secure=True,
+        )
+        contract.refresh_from_db()
+        self.assertEqual(contract.status, ProcurementContract.Status.CANCELLED)
+
+        edit_response = self.client.get(
+            reverse("procurement:contract_edit", args=[contract.pk]),
+            secure=True,
+        )
+        submit_response = self.client.post(
+            reverse("procurement:contract_submit", args=[contract.pk]),
+            secure=True,
+        )
+        approve_response = self.client.post(
+            reverse("procurement:contract_approve", args=[contract.pk]),
+            secure=True,
+        )
+        amend_response = self.client.get(
+            reverse("procurement:amendment_create", args=[contract.pk]),
+            secure=True,
+        )
+        close_response = self.client.post(
+            reverse("procurement:contract_close", args=[contract.pk]),
+            secure=True,
+        )
+
+        self.assertEqual(edit_response.status_code, 302)
+        self.assertEqual(submit_response.status_code, 302)
+        self.assertEqual(approve_response.status_code, 302)
+        self.assertEqual(amend_response.status_code, 302)
+        self.assertEqual(close_response.status_code, 302)
+        contract.refresh_from_db()
+        self.assertEqual(contract.status, ProcurementContract.Status.CANCELLED)
+
     def test_procurement_view_permissions_context_flag_and_notifications(self):
         contract, line = self._create_contract(quantity="10", unit_price="5000")
         contract.status = ProcurementContract.Status.SUBMITTED

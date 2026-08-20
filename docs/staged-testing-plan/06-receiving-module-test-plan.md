@@ -19,7 +19,7 @@ Komponen dalam cakupan plan ini:
 - view `receiving_create`
 - view `receiving_detail`
 - view `receiving_plan_list`
-- view `receiving_plan_create`
+- compatibility redirect `receiving_plan_create`
 - view `receiving_plan_detail`
 - view `receiving_plan_submit`
 - view `receiving_plan_approve`
@@ -98,7 +98,7 @@ Fokus:
 Fokus:
 
 - regular receiving: create, detail, verify
-- planned receiving: create, submit, approve, receive, close
+- planned receiving: SPJ-created plan queue, legacy no-contract compatibility, submit, approve, receive, close
 - guard terhadap transisi status invalid
 
 ### Tingkat 3: Pengujian Side Effect Stok dan Transaksi
@@ -179,7 +179,7 @@ Prioritas: Kritis
 
 Prioritas: Tinggi
 
-1. User dengan scope `OPERATE` dapat membuat planned receiving dengan status awal `DRAFT`.
+1. Route create planned receiving manual mengarah ke form SPJ dan tidak membuat dokumen baru tanpa kontrak.
 2. Planned receiving dapat di-submit ke status `SUBMITTED`.
 3. User dengan scope `APPROVE` dapat meng-approve planned receiving ke status `APPROVED`.
 4. `APPROVED` receiving dapat di-receive menghasilkan `RECEIVED` atau `PARTIAL`.
@@ -220,6 +220,7 @@ Prioritas: Tinggi
 3. Search bekerja untuk `document_number`, nama supplier, dan tanggal.
 4. Pagination `25 per page` bekerja untuk boundary 25 dan 26 baris.
 5. `receiving_plan_list` hanya menampilkan planned receiving.
+6. `receiving_plan_list` tidak menampilkan tombol create manual dan menjelaskan bahwa rencana pengadaan baru berasal dari SPJ.
 
 ### I. Quick-Create Endpoints
 

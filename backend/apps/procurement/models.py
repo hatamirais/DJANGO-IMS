@@ -68,6 +68,7 @@ class ProcurementContract(TimeStampedModel):
         SUBMITTED = "SUBMITTED", "Diajukan"
         APPROVED = "APPROVED", "Disetujui"
         CLOSED = "CLOSED", "Ditutup"
+        CANCELLED = "CANCELLED", "Dibatalkan"
 
     document_number = models.CharField(
         max_length=PROCUREMENT_DOCUMENT_NUMBER_MAX_LENGTH,
@@ -113,9 +114,18 @@ class ProcurementContract(TimeStampedModel):
         blank=True,
         related_name="closed_procurement_contracts",
     )
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="cancelled_procurement_contracts",
+    )
     submitted_at = models.DateTimeField(null=True, blank=True)
     approved_at = models.DateTimeField(null=True, blank=True)
     closed_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancel_reason = models.TextField(blank=True)
 
     class Meta:
         db_table = "procurement_contracts"
@@ -136,6 +146,10 @@ class ProcurementContract(TimeStampedModel):
             max_length=PROCUREMENT_CONTRACT_NUMBER_MAX_LENGTH,
         )
         self.notes = _normalize_text(self.notes, field_label="Catatan")
+        self.cancel_reason = _normalize_text(
+            self.cancel_reason,
+            field_label="Alasan pembatalan",
+        )
         if self.supplier_id and not self.supplier.is_active:
             raise ValidationError({"supplier": "Supplier harus aktif."})
         if self.sumber_dana_id and not self.sumber_dana.is_active:
@@ -291,8 +305,11 @@ class ProcurementAmendment(TimeStampedModel):
             max_length=PROCUREMENT_DOCUMENT_NUMBER_MAX_LENGTH,
         )
         self.notes = _normalize_text(self.notes, field_label="Catatan")
-        if self.contract_id and self.contract.status == ProcurementContract.Status.CLOSED:
-            raise ValidationError({"contract": "Kontrak yang sudah ditutup tidak dapat diamandemen."})
+        if self.contract_id and self.contract.status in {
+            ProcurementContract.Status.CLOSED,
+            ProcurementContract.Status.CANCELLED,
+        }:
+            raise ValidationError({"contract": "Kontrak yang sudah ditutup/dibatalkan tidak dapat diamandemen."})
 
     def generate_document_number(self):
         if not self.contract_id:
