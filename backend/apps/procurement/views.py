@@ -400,11 +400,8 @@ def contract_cancel(request, pk):
 @procurement_mutation_ratelimit
 def amendment_create(request, pk):
     contract = get_object_or_404(ProcurementContract, pk=pk)
-    if contract.status != ProcurementContract.Status.APPROVED:
+    if not _contract_accepts_amendment_changes(contract):
         messages.error(request, "Amandemen hanya dapat dibuat untuk kontrak yang sudah disetujui.")
-        return _redirect_contract_detail(pk)
-    if contract.closed_at is not None:
-        messages.error(request, "Kontrak yang sudah ditutup tidak dapat diamandemen.")
         return _redirect_contract_detail(pk)
     summary_rows, _linked_receiving = build_contract_summary_rows(contract)
     contract_line_summary = {
@@ -413,29 +410,46 @@ def amendment_create(request, pk):
     }
 
     if request.method == "POST":
-        form = ProcurementAmendmentForm(request.POST)
-        formset = ProcurementAmendmentLineFormSet(
-            request.POST,
-            prefix="lines",
-            form_kwargs={
-                "contract": contract,
-                "contract_line_summary": contract_line_summary,
-            },
-        )
-        if form.is_valid() and formset.is_valid():
-            amendment = form.save(commit=False)
-            amendment.contract = contract
-            amendment.created_by = request.user
-            amendment.status = ProcurementAmendment.Status.DRAFT
-            try:
-                amendment.save()
-            except ValidationError as exc:
-                _add_form_model_errors(form, exc)
-            else:
-                formset.instance = amendment
-                formset.save()
-                messages.success(request, f"Amandemen {amendment.document_number} berhasil dibuat.")
-                return redirect("procurement:amendment_detail", pk=amendment.pk)
+        with transaction.atomic():
+            contract = ProcurementContract.objects.select_for_update().get(pk=pk)
+            if not _contract_accepts_amendment_changes(contract):
+                messages.error(request, "Amandemen hanya dapat dibuat untuk kontrak yang sudah disetujui.")
+                return _redirect_contract_detail(pk)
+            summary_rows, _linked_receiving = build_contract_summary_rows(contract)
+            contract_line_summary = {
+                row["contract_line"].pk: row
+                for row in summary_rows
+            }
+            form = ProcurementAmendmentForm(request.POST)
+            formset = ProcurementAmendmentLineFormSet(
+                request.POST,
+                prefix="lines",
+                form_kwargs={
+                    "contract": contract,
+                    "contract_line_summary": contract_line_summary,
+                },
+            )
+            if form.is_valid() and formset.is_valid():
+                current_contract = (
+                    ProcurementContract.objects.only("status", "closed_at")
+                    .get(pk=contract.pk)
+                )
+                if not _contract_accepts_amendment_changes(current_contract):
+                    messages.error(request, "Amandemen hanya dapat dibuat untuk kontrak yang sudah disetujui.")
+                    return _redirect_contract_detail(pk)
+                amendment = form.save(commit=False)
+                amendment.contract = contract
+                amendment.created_by = request.user
+                amendment.status = ProcurementAmendment.Status.DRAFT
+                try:
+                    amendment.save()
+                except ValidationError as exc:
+                    _add_form_model_errors(form, exc)
+                else:
+                    formset.instance = amendment
+                    formset.save()
+                    messages.success(request, f"Amandemen {amendment.document_number} berhasil dibuat.")
+                    return redirect("procurement:amendment_detail", pk=amendment.pk)
     else:
         form = ProcurementAmendmentForm(initial={"amendment_date": timezone.now().date()})
         formset = ProcurementAmendmentLineFormSet(

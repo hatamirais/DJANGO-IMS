@@ -9,7 +9,11 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.items.models import Category, FundingSource, Item, Location, Supplier, Unit
-from apps.procurement.forms import ProcurementAmendmentLineForm, ProcurementContractForm
+from apps.procurement.forms import (
+    ProcurementAmendmentForm,
+    ProcurementAmendmentLineForm,
+    ProcurementContractForm,
+)
 from apps.procurement.models import (
     PROCUREMENT_CONTRACT_NUMBER_MAX_LENGTH,
     ProcurementAmendment,
@@ -865,6 +869,48 @@ class ProcurementWorkflowTests(TestCase):
         self.assertContains(response, "Saat ini: 10,00")
         self.assertContains(response, "Diterima: 4,00")
         self.assertContains(response, "Sisa: 6,00")
+
+    def test_stale_amendment_create_cannot_attach_to_cancelled_contract(self):
+        contract, line = self._approve_contract(quantity="10", unit_price="5000")
+        original_is_valid = ProcurementAmendmentForm.is_valid
+
+        def cancel_during_validation(form):
+            ProcurementContract.objects.filter(pk=contract.pk).update(
+                status=ProcurementContract.Status.CANCELLED,
+                cancelled_by=self.admin,
+                cancelled_at=timezone.now(),
+                cancel_reason="Dibatalkan request lain",
+            )
+            return original_is_valid(form)
+
+        with patch.object(
+            ProcurementAmendmentForm,
+            "is_valid",
+            autospec=True,
+            side_effect=cancel_during_validation,
+        ):
+            response = self.client.post(
+                reverse("procurement:amendment_create", args=[contract.pk]),
+                {
+                    "amendment_date": "2026-07-08",
+                    "notes": "Amandemen stale",
+                    "lines-TOTAL_FORMS": "1",
+                    "lines-INITIAL_FORMS": "0",
+                    "lines-MIN_NUM_FORMS": "0",
+                    "lines-MAX_NUM_FORMS": "1000",
+                    "lines-0-contract_line": str(line.pk),
+                    "lines-0-revised_quantity": "12",
+                    "lines-0-revised_unit_price": "6000",
+                    "lines-0-notes": "Tidak boleh dibuat",
+                },
+                secure=True,
+            )
+
+        self.assertEqual(response.status_code, 302)
+        contract.refresh_from_db()
+        self.assertEqual(contract.status, ProcurementContract.Status.CANCELLED)
+        self.assertEqual(contract.cancel_reason, "Dibatalkan request lain")
+        self.assertEqual(ProcurementAmendment.objects.filter(contract=contract).count(), 0)
 
     def test_amendment_edit_allows_deleting_line(self):
         contract, line = self._approve_contract(quantity="10", unit_price="5000")
