@@ -3,6 +3,7 @@ from unittest.mock import patch
 from decimal import Decimal
 
 from django.contrib.messages import get_messages
+from django.contrib.auth.models import Permission
 from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -537,6 +538,61 @@ class ProcurementWorkflowTests(TestCase):
             secure=True,
         )
         self.assertEqual(denied.status_code, 403)
+
+    def test_contract_cancel_honors_direct_django_change_permission(self):
+        contract, _line = self._create_contract(quantity="10", unit_price="5000")
+        permission_user = User.objects.create_user(
+            username="proc-direct-permission",
+            password="secret12345",
+            role=User.Role.AUDITOR,
+        )
+        ModuleAccess.objects.update_or_create(
+            user=permission_user,
+            module=ModuleAccess.Module.PROCUREMENT,
+            defaults={"scope": ModuleAccess.Scope.VIEW},
+        )
+        permission_user.user_permissions.add(
+            Permission.objects.get(
+                content_type__app_label="procurement",
+                codename="view_procurementcontract",
+            ),
+            Permission.objects.get(
+                content_type__app_label="procurement",
+                codename="change_procurementcontract",
+            ),
+        )
+
+        self.client.force_login(permission_user)
+        detail_response = self.client.get(
+            reverse("procurement:contract_detail", args=[contract.pk]),
+            secure=True,
+        )
+
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertContains(detail_response, "Batalkan SPJ")
+        self.assertContains(
+            detail_response,
+            reverse("procurement:contract_cancel", args=[contract.pk]),
+        )
+
+        cancel_response = self.client.post(
+            reverse("procurement:contract_cancel", args=[contract.pk]),
+            {"cancel_reason": "Dibatalkan oleh pemegang izin Django"},
+            secure=True,
+        )
+
+        self.assertRedirects(
+            cancel_response,
+            reverse("procurement:contract_detail", args=[contract.pk]),
+            fetch_redirect_response=False,
+        )
+        contract.refresh_from_db()
+        self.assertEqual(contract.status, ProcurementContract.Status.CANCELLED)
+        self.assertEqual(
+            contract.cancel_reason,
+            "Dibatalkan oleh pemegang izin Django",
+        )
+        self.assertEqual(contract.cancelled_by, permission_user)
 
     def test_cancelled_contract_cannot_be_mutated_through_other_actions(self):
         contract, _line = self._create_contract(quantity="10", unit_price="5000")

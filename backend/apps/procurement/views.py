@@ -13,7 +13,7 @@ from django.views.decorators.http import require_POST
 
 from apps.core.decorators import module_scope_required, perm_required
 from apps.core.rate_limits import item_mutation_ratelimit, procurement_mutation_ratelimit
-from apps.users.access import has_module_scope, is_super_admin
+from apps.users.access import has_module_permission, has_module_scope, is_super_admin
 from apps.users.models import ModuleAccess, User
 from apps.receiving.forms import (
     ReceivingQuickCreateFundingSourceForm,
@@ -59,6 +59,14 @@ def _can_approve_procurement_documents(user):
             ModuleAccess.Module.PROCUREMENT,
             ModuleAccess.Scope.APPROVE,
         )
+    )
+
+
+def _can_change_procurement_contract(user):
+    return (
+        getattr(user, "is_superuser", False)
+        or user.has_perm("procurement.change_procurementcontract")
+        or has_module_permission(user, "procurement.change_procurementcontract")
     )
 
 
@@ -203,14 +211,7 @@ def contract_detail(request, pk):
     summary_rows, linked_receiving = build_contract_summary_rows(contract)
     can_cancel_contract = (
         contract_is_cancellable(contract, linked_receiving)
-        and (
-            is_super_admin(request.user)
-            or has_module_scope(
-                request.user,
-                ModuleAccess.Module.PROCUREMENT,
-                ModuleAccess.Scope.OPERATE,
-            )
-        )
+        and _can_change_procurement_contract(request.user)
     )
     return render(
         request,
@@ -375,7 +376,6 @@ def contract_close(request, pk):
 
 @login_required
 @perm_required("procurement.change_procurementcontract")
-@module_scope_required(ModuleAccess.Module.PROCUREMENT, ModuleAccess.Scope.OPERATE)
 @procurement_mutation_ratelimit
 @require_POST
 def contract_cancel(request, pk):
