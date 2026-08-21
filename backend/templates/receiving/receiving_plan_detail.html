@@ -56,6 +56,16 @@
                     <dd class="col-7">{{ receiving.closed_reason }}</dd>
                     {% endif %}
 
+                    {% if receiving.cancelled_by %}
+                    <dt class="col-5 text-muted">Dibatalkan</dt>
+                    <dd class="col-7">{{ receiving.cancelled_by }} <br><small class="text-muted">{{ receiving.cancelled_at|date:"d/m/Y H:i" }}</small></dd>
+                    {% endif %}
+
+                    {% if receiving.cancel_reason %}
+                    <dt class="col-5 text-muted">Alasan Batal</dt>
+                    <dd class="col-7">{{ receiving.cancel_reason }}</dd>
+                    {% endif %}
+
                     {% if receiving.notes %}
                     <dt class="col-5 text-muted">Catatan</dt>
                     <dd class="col-7">{{ receiving.notes }}</dd>

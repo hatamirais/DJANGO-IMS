@@ -452,6 +452,26 @@ class ProcurementWorkflowTests(TestCase):
         self.assertEqual(receiving.cancel_reason, "Supplier gagal memenuhi kontrak")
         self.assertEqual(receiving.cancelled_by, self.admin)
 
+    def test_cancelled_approved_contract_plan_detail_shows_cancellation_metadata(self):
+        contract, _line = self._approve_contract(quantity="10", unit_price="5000")
+        self.client.post(
+            reverse("procurement:contract_cancel", args=[contract.pk]),
+            {"cancel_reason": "Supplier gagal memenuhi kontrak"},
+            secure=True,
+        )
+        receiving = Receiving.objects.get(contract=contract)
+
+        response = self.client.get(
+            reverse("receiving:receiving_plan_detail", args=[receiving.pk]),
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Dibatalkan")
+        self.assertContains(response, self.admin.username)
+        self.assertContains(response, "Alasan Batal")
+        self.assertContains(response, "Supplier gagal memenuhi kontrak")
+
     def test_approved_contract_with_received_quantity_cannot_be_cancelled(self):
         contract, _line = self._approve_contract(quantity="10", unit_price="5000")
         receiving = Receiving.objects.get(contract=contract)
