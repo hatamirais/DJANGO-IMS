@@ -7,6 +7,31 @@ The format is based on Keep a Changelog and follows Semantic Versioning (`MAJOR.
 
 ## [Unreleased]
 
+## [1.31.6] - 2026-08-21
+
+### Added
+
+- Added soft cancellation for SPJ / Pengadaan documents, including required cancellation reason plus actor and timestamp audit metadata.
+- Added cancellation support for approved SPJ only when the linked planned receiving has no receipt rows and no received quantities.
+- Added cancellation metadata visibility on linked planned receiving detail pages.
+
+### Changed
+
+- Planned procurement receiving now starts from approved SPJ / Pengadaan; the legacy receiving-side manual plan create route redirects to SPJ creation.
+- Reordered receiving navigation so SPJ / Pengadaan appears before Rencana Penerimaan.
+- Rencana Penerimaan copy now presents manual no-contract planned receiving as legacy compatibility while keeping existing legacy rows executable.
+- SPJ cancellation now honors the documented Django-permission-or-module-scope fallback used by other procurement mutations.
+
+### Fixed
+
+- Prevented stale procurement transitions, edits, amendment creation, amendment edits, and planned receiving execution from resurrecting or mutating cancelled SPJ / linked receiving plans.
+- Added cancelled planned receiving records to the Rencana Penerimaan status filter.
+- Blocked cancellation once procurement receiving has any recorded realization.
+
+### Security
+
+- Updated Django from `6.0.7` to `6.0.8`.
+
 ## [1.31.5] - 2026-08-19
 
 ### Added

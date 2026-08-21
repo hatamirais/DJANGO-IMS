@@ -11,7 +11,7 @@ For app-specific rules, see `backend/apps/<app_name>/AGENTS.md` if present.
 | Item | Value |
 | --- | --- |
 | Python | 3.13+ |
-| Django | 6.0.7 |
+| Django | 6.0.8 |
 | Database | PostgreSQL 16 |
 | Cache/Broker | None (In-Memory / LocMemCache) |
 | UI | Django templates + Bootstrap 5 |

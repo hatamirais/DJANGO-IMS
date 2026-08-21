@@ -33,14 +33,12 @@ from .models import (
 )
 from .forms import (
     build_planned_receipt_item_formset,
-    PlannedReceivingForm,
     ReceivingCancelForm,
     ReceivingCloseForm,
     ReceivingEditForm,
     ReceivingForm,
     ReceivingItemFormSet,
     ReceivingOrderCloseItemFormSet,
-    ReceivingOrderItemFormSet,
     ReceivingQuickCreateFundingSourceForm,
     ReceivingQuickCreateReceivingTypeForm,
     ReceivingQuickCreateSupplierForm,
@@ -593,6 +591,9 @@ def receiving_plan_list(request):
             if status == Receiving.Status.RECEIVED
             else "",
             "status_closed": "selected" if status == Receiving.Status.CLOSED else "",
+            "status_cancelled": "selected"
+            if status == Receiving.Status.CANCELLED
+            else "",
             "receiving_type_options": receiving_type_options,
         },
     )
@@ -814,38 +815,11 @@ def receiving_delete(request, pk):
 @login_required
 @perm_required("receiving.add_receiving")
 def receiving_plan_create(request):
-    if request.method == "POST":
-        form = PlannedReceivingForm(request.POST)
-        formset = ReceivingOrderItemFormSet(request.POST, prefix="items")
-
-        if form.is_valid() and formset.is_valid():
-            receiving = form.save(commit=False)
-            receiving.created_by = request.user
-            receiving.is_planned = True
-            receiving.status = Receiving.Status.DRAFT
-            receiving.save()
-
-            formset.instance = receiving
-            formset.save()
-
-            messages.success(
-                request,
-                f"Rencana penerimaan {receiving.document_number} berhasil dibuat.",
-            )
-            return redirect("receiving:receiving_plan_detail", pk=receiving.pk)
-    else:
-        form = PlannedReceivingForm()
-        formset = ReceivingOrderItemFormSet(prefix="items")
-
-    return render(
+    messages.info(
         request,
-        "receiving/receiving_plan_form.html",
-        {
-            "form": form,
-            "formset": formset,
-            "title": "Buat Rencana Penerimaan",
-        },
+        "Rencana penerimaan pengadaan baru dibuat melalui SPJ / Pengadaan.",
     )
+    return redirect("procurement:contract_create")
 
 
 @login_required
@@ -1196,6 +1170,19 @@ def receiving_plan_receive(request, pk):
 
         try:
             with transaction.atomic():
+                locked_receiving = get_object_or_404(
+                    Receiving.objects.select_for_update(of=("self",)),
+                    pk=pk,
+                    is_planned=True,
+                )
+                if locked_receiving.status not in [
+                    Receiving.Status.APPROVED,
+                    Receiving.Status.PARTIAL,
+                ]:
+                    raise ValueError(
+                        "Status rencana penerimaan sudah berubah dan tidak dapat menerima barang."
+                    )
+
                 locked_order_items = _get_locked_planned_receiving_order_items(
                     totals.keys()
                 )
@@ -1216,18 +1203,18 @@ def receiving_plan_receive(request, pk):
                 for form in receipt_forms:
                     item = form.save(commit=False)
                     order_item = locked_order_items[item.order_item_id]
-                    item.receiving = receiving
+                    item.receiving = locked_receiving
                     item.received_by = request.user
                     item.received_at = timezone.now()
                     item.item = order_item.item
                     source_document_number = resolve_receiving_source_document_number(
-                        receiving,
+                        locked_receiving,
                         item=item.item,
                         location=item.location,
                         batch_lot=item.batch_lot,
-                        sumber_dana=receiving.sumber_dana,
+                        sumber_dana=locked_receiving.sumber_dana,
                     )
-                    item.posted_sumber_dana = receiving.sumber_dana
+                    item.posted_sumber_dana = locked_receiving.sumber_dana
                     item.posted_source_document_number = source_document_number
                     item.save()
 
@@ -1240,11 +1227,11 @@ def receiving_plan_receive(request, pk):
                         item=item.item,
                         location=item.location,
                         batch_lot=item.batch_lot,
-                        sumber_dana=receiving.sumber_dana,
+                        sumber_dana=locked_receiving.sumber_dana,
                         expiry_date=item.expiry_date,
                         quantity=item.quantity,
                         unit_price=item.unit_price,
-                        receiving_ref=receiving,
+                        receiving_ref=locked_receiving,
                         source_document_number=source_document_number,
                     )
 
@@ -1257,11 +1244,11 @@ def receiving_plan_receive(request, pk):
                             quantity=item.quantity,
                             unit_price=item.unit_price,
                             source_document_number=source_document_number,
-                            sumber_dana=receiving.sumber_dana,
+                            sumber_dana=locked_receiving.sumber_dana,
                             reference_type=Transaction.ReferenceType.RECEIVING,
-                            reference_id=receiving.pk,
+                            reference_id=locked_receiving.pk,
                             user=request.user,
-                            notes=f"Penerimaan dari rencana {receiving.document_number}",
+                            notes=f"Penerimaan dari rencana {locked_receiving.document_number}",
                         )
                     )
 
@@ -1269,14 +1256,14 @@ def receiving_plan_receive(request, pk):
                     Transaction.objects.bulk_create(pending_transactions)
 
                 remaining = (
-                    receiving.order_items.filter(is_cancelled=False)
+                    locked_receiving.order_items.filter(is_cancelled=False)
                     .exclude(planned_quantity__lte=F("received_quantity"))
                     .exists()
                 )
-                receiving.status = (
+                locked_receiving.status = (
                     Receiving.Status.PARTIAL if remaining else Receiving.Status.RECEIVED
                 )
-                receiving.save(update_fields=["status", "updated_at"])
+                locked_receiving.save(update_fields=["status", "updated_at"])
 
         except PlannedReceiptQuantityConflict as exc:
             _add_planned_receipt_form_error(formset, exc.order_item_id, str(exc))

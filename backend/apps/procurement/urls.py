@@ -22,6 +22,7 @@ urlpatterns = [
     path("<int:pk>/submit/", views.contract_submit, name="contract_submit"),
     path("<int:pk>/approve/", views.contract_approve, name="contract_approve"),
     path("<int:pk>/close/", views.contract_close, name="contract_close"),
+    path("<int:pk>/cancel/", views.contract_cancel, name="contract_cancel"),
     path("<int:pk>/amend/", views.amendment_create, name="amendment_create"),
     path("amendments/<int:pk>/", views.amendment_detail, name="amendment_detail"),
     path("amendments/<int:pk>/edit/", views.amendment_edit, name="amendment_edit"),

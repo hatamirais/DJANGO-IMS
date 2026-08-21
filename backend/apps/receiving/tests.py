@@ -1297,6 +1297,7 @@ class ReceivingCSVImportTest(TestCase):
         self.assertContains(response, "Download Template CSV")
 
 
+@override_settings(SECURE_SSL_REDIRECT=False)
 class ReceivingWorkflowCleanupTest(TestCase):
     def setUp(self):
         self.user = User.objects.create_superuser(
@@ -2704,11 +2705,14 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "js/item-picker-table.js?v=")
 
-    def test_receiving_plan_create_includes_item_picker_table_script(self):
-        response = self.client.get(reverse("receiving:receiving_plan_create"))
+    def test_receiving_plan_create_redirects_to_spj_create(self):
+        response = self.client.get(reverse("receiving:receiving_plan_create"), secure=True)
 
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "js/item-picker-table.js?v=")
+        self.assertRedirects(
+            response,
+            reverse("procurement:contract_create"),
+            fetch_redirect_response=False,
+        )
 
     def test_regular_receiving_list_does_not_show_redundant_status_filter(self):
         Receiving.objects.create(
@@ -2770,35 +2774,91 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertContains(response, 'Receiving date <span class="text-danger">*</span>', html=False)
         self.assertContains(response, 'Sumber dana <span class="text-danger">*</span>', html=False)
 
-    def test_planned_receiving_create_page_shows_required_markers_and_placeholder(self):
-        response = self.client.get(reverse("receiving:receiving_plan_create"))
+    def test_receiving_plan_create_post_redirects_without_creating_manual_plan(self):
+        response = self.client.post(
+            reverse("receiving:receiving_plan_create"),
+            {
+                "document_number": "",
+                "receiving_type": Receiving.ReceivingType.GRANT,
+                "receiving_date": "2026-03-16",
+                "supplier": "",
+                "sumber_dana": self.funding.pk,
+                "notes": "",
+                "items-TOTAL_FORMS": "1",
+                "items-INITIAL_FORMS": "0",
+                "items-MIN_NUM_FORMS": "0",
+                "items-MAX_NUM_FORMS": "1000",
+                "items-0-item": self.item.pk,
+                "items-0-planned_quantity": "5",
+                "items-0-unit_price": "1000",
+                "items-0-notes": "",
+            },
+            secure=True,
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("procurement:contract_create"),
+            fetch_redirect_response=False,
+        )
+        self.assertFalse(Receiving.objects.filter(is_planned=True, contract__isnull=True).exists())
+
+    def test_planned_receiving_list_hides_manual_create_for_new_plans(self):
+        response = self.client.get(reverse("receiving:receiving_plan_list"), secure=True)
 
         self.assertEqual(response.status_code, 200)
-        self.assertNotContains(response, 'name="facility"', html=False)
-        self.assertContains(response, 'placeholder="Kosongkan untuk generate otomatis"', html=False)
+        self.assertNotContains(response, reverse("receiving:receiving_plan_create"))
+        self.assertNotContains(response, "Buat Rencana")
         self.assertContains(
             response,
-            'Receiving type <span class="text-danger">*</span>',
-            html=False,
+            "Rencana penerimaan pengadaan dibuat dari",
         )
-        self.assertContains(
-            response,
-            'Receiving date <span class="text-danger">*</span>',
-            html=False,
-        )
-        self.assertContains(response, 'Sumber dana <span class="text-danger">*</span>', html=False)
-        self.assertContains(response, '>Pengadaan</option>', html=False)
-        self.assertContains(response, '>Hibah</option>', html=False)
 
-    def test_planned_receiving_list_keeps_manual_create_for_unlinked_plans(self):
-        response = self.client.get(reverse("receiving:receiving_plan_list"))
+    def test_receiving_sidebar_orders_spj_before_planned_receiving_queue(self):
+        response = self.client.get(reverse("receiving:receiving_plan_list"), secure=True)
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, reverse("receiving:receiving_plan_create"))
-        self.assertContains(response, "Buat Rencana")
+        content = response.content.decode()
+        regular_index = content.index('data-label="Buat Penerimaan"')
+        spj_index = content.index('data-label="SPJ / Pengadaan"')
+        planned_index = content.index('data-label="Rencana Penerimaan"')
+        self.assertLess(regular_index, spj_index)
+        self.assertLess(spj_index, planned_index)
+
+    def test_planned_receiving_list_can_filter_cancelled_plans(self):
+        cancelled = Receiving.objects.create(
+            document_number="RCV-2026-CANCELLED-FILTER",
+            receiving_type=Receiving.ReceivingType.PROCUREMENT,
+            receiving_date=date(2026, 3, 16),
+            sumber_dana=self.funding,
+            status=Receiving.Status.CANCELLED,
+            is_planned=True,
+            created_by=self.user,
+        )
+        active = Receiving.objects.create(
+            document_number="RCV-2026-ACTIVE-FILTER",
+            receiving_type=Receiving.ReceivingType.GRANT,
+            receiving_date=date(2026, 3, 17),
+            sumber_dana=self.funding,
+            status=Receiving.Status.APPROVED,
+            is_planned=True,
+            created_by=self.user,
+        )
+
+        response = self.client.get(
+            reverse("receiving:receiving_plan_list"),
+            {"status": Receiving.Status.CANCELLED},
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Dibatalkan")
+        self.assertContains(response, cancelled.document_number)
+        self.assertNotContains(response, active.document_number)
         self.assertContains(
             response,
-            "Form manual dapat digunakan untuk rencana penerimaan tanpa kontrak.",
+            '<option value="CANCELLED" selected>Dibatalkan</option>',
+            html=False,
         )
 
     def test_planned_receiving_list_uses_preloaded_type_labels(self):
@@ -3033,70 +3093,6 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertFalse(planned_form.is_valid())
         self.assertEqual(regular_form.errors["receiving_type"], ["Tipe penerimaan wajib dipilih."])
         self.assertEqual(planned_form.errors["receiving_type"], ["Tipe penerimaan wajib dipilih."])
-
-    def test_planned_receiving_create_accepts_custom_receiving_type(self):
-        ReceivingTypeOption.objects.create(code="DON", name="Donasi")
-
-        response = self.client.post(
-            reverse("receiving:receiving_plan_create"),
-            {
-                "document_number": "",
-                "receiving_type": "DON",
-                "receiving_date": "2026-03-16",
-                "supplier": "",
-                "sumber_dana": self.funding.pk,
-                "notes": "",
-                "items-TOTAL_FORMS": "1",
-                "items-INITIAL_FORMS": "0",
-                "items-MIN_NUM_FORMS": "0",
-                "items-MAX_NUM_FORMS": "1000",
-                "items-0-item": self.item.pk,
-                "items-0-planned_quantity": "5",
-                "items-0-unit_price": "1000",
-                "items-0-notes": "",
-            },
-            secure=True,
-        )
-
-        self.assertEqual(response.status_code, 302)
-        receiving = Receiving.objects.get(is_planned=True)
-        self.assertEqual(receiving.receiving_type, "DON")
-        self.assertEqual(receiving.receiving_type_label, "Donasi")
-        self.assertEqual(receiving.status, Receiving.Status.DRAFT)
-        self.assertTrue(receiving.order_items.filter(item=self.item).exists())
-
-    def test_planned_receiving_create_accepts_manual_procurement_type(self):
-        supplier = Supplier.objects.create(
-            code="SUP-RCV-PROC",
-            name="PT Manual Procurement",
-        )
-
-        response = self.client.post(
-            reverse("receiving:receiving_plan_create"),
-            {
-                "document_number": "",
-                "receiving_type": Receiving.ReceivingType.PROCUREMENT,
-                "receiving_date": "2026-03-16",
-                "supplier": supplier.pk,
-                "sumber_dana": self.funding.pk,
-                "notes": "",
-                "items-TOTAL_FORMS": "1",
-                "items-INITIAL_FORMS": "0",
-                "items-MIN_NUM_FORMS": "0",
-                "items-MAX_NUM_FORMS": "1000",
-                "items-0-item": self.item.pk,
-                "items-0-planned_quantity": "5",
-                "items-0-unit_price": "1000",
-                "items-0-notes": "",
-            },
-            secure=True,
-        )
-
-        self.assertEqual(response.status_code, 302)
-        receiving = Receiving.objects.get(is_planned=True)
-        self.assertEqual(receiving.receiving_type, Receiving.ReceivingType.PROCUREMENT)
-        self.assertEqual(receiving.supplier, supplier)
-        self.assertIsNone(receiving.contract)
 
     def test_receiving_full_clean_rejects_duplicate_planned_contract_link(self):
         supplier = Supplier.objects.create(code="SUP-RCV-001", name="PT Supplier Receiving")
@@ -3514,6 +3510,87 @@ class ReceivingWorkflowCleanupTest(TestCase):
         )
         self.assertFalse(Stock.objects.filter(batch_lot="BATCH-STALE").exists())
 
+    def test_plan_receive_revalidates_status_after_form_validation(self):
+        from apps.receiving import views as receiving_views
+
+        receiving = Receiving.objects.create(
+            document_number="RCV-2026-99992",
+            receiving_type=Receiving.ReceivingType.PROCUREMENT,
+            receiving_date=date(2026, 3, 16),
+            sumber_dana=self.funding,
+            status=Receiving.Status.APPROVED,
+            is_planned=True,
+            created_by=self.user,
+            approved_by=self.user,
+        )
+        order_item = ReceivingOrderItem.objects.create(
+            receiving=receiving,
+            item=self.item,
+            planned_quantity=Decimal("5"),
+            received_quantity=Decimal("0"),
+            unit_price=Decimal("1000"),
+            is_cancelled=False,
+        )
+        original_builder = receiving_views.build_planned_receipt_item_formset
+        cancelling_user = self.user
+
+        def build_cancelling_formset(*args, **kwargs):
+            base_formset = original_builder(*args, **kwargs)
+
+            class CancellingFormSet(base_formset):
+                def is_valid(self):
+                    result = super().is_valid()
+                    Receiving.objects.filter(pk=receiving.pk).update(
+                        status=Receiving.Status.CANCELLED,
+                        cancelled_by_id=cancelling_user.pk,
+                        cancelled_at=timezone.now(),
+                        cancel_reason="Dibatalkan request lain",
+                    )
+                    return result
+
+            return CancellingFormSet
+
+        with patch(
+            "apps.receiving.views.build_planned_receipt_item_formset",
+            side_effect=build_cancelling_formset,
+        ):
+            response = self.client.post(
+                reverse("receiving:receiving_plan_receive", args=[receiving.pk]),
+                {
+                    "items-TOTAL_FORMS": "1",
+                    "items-INITIAL_FORMS": "0",
+                    "items-MIN_NUM_FORMS": "0",
+                    "items-MAX_NUM_FORMS": "1000",
+                    "items-0-order_item": str(order_item.pk),
+                    "items-0-quantity": "3",
+                    "items-0-batch_lot": "BATCH-CANCELLED-RACE",
+                    "items-0-expiry_date": "2030-01-01",
+                    "items-0-unit_price": "1000",
+                    "items-0-location": str(self.location.pk),
+                },
+                secure=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Status rencana penerimaan sudah berubah dan tidak dapat menerima barang.",
+        )
+        receiving.refresh_from_db()
+        order_item.refresh_from_db()
+        self.assertEqual(receiving.status, Receiving.Status.CANCELLED)
+        self.assertEqual(order_item.received_quantity, Decimal("0"))
+        self.assertEqual(ReceivingItem.objects.filter(receiving=receiving).count(), 0)
+        self.assertFalse(
+            Stock.objects.filter(batch_lot="BATCH-CANCELLED-RACE").exists()
+        )
+        self.assertFalse(
+            Transaction.objects.filter(
+                reference_type=Transaction.ReferenceType.RECEIVING,
+                reference_id=receiving.pk,
+            ).exists()
+        )
+
     def test_plan_receive_invalid_post_rerenders_row_errors(self):
         receiving = Receiving.objects.create(
             document_number="RCV-2026-99989",
@@ -3680,11 +3757,18 @@ class PlannedReceivingConcurrencyTest(TransactionTestCase):
         )
 
         barrier = threading.Barrier(2)
-        original_helper = receiving_views._get_locked_planned_receiving_order_items
+        original_builder = receiving_views.build_planned_receipt_item_formset
 
-        def synchronized_lock(order_item_ids):
-            barrier.wait(timeout=5)
-            return original_helper(order_item_ids)
+        def build_synchronized_formset(*args, **kwargs):
+            base_formset = original_builder(*args, **kwargs)
+
+            class SynchronizedFormSet(base_formset):
+                def is_valid(self):
+                    result = super().is_valid()
+                    barrier.wait(timeout=5)
+                    return result
+
+            return SynchronizedFormSet
 
         client_one = Client()
         client_two = Client()
@@ -3693,8 +3777,8 @@ class PlannedReceivingConcurrencyTest(TransactionTestCase):
         results = {}
 
         with patch(
-            "apps.receiving.views._get_locked_planned_receiving_order_items",
-            side_effect=synchronized_lock,
+            "apps.receiving.views.build_planned_receipt_item_formset",
+            side_effect=build_synchronized_formset,
         ):
             thread_one = threading.Thread(
                 target=self._post_receipt,
@@ -3715,6 +3799,8 @@ class PlannedReceivingConcurrencyTest(TransactionTestCase):
         self.assertTrue(
             any(
                 "Jumlah melebihi sisa pesanan." in result["body"]
+                or "Status rencana penerimaan sudah berubah dan tidak dapat menerima barang."
+                in result["body"]
                 for result in results.values()
                 if result["status_code"] == 200
             )

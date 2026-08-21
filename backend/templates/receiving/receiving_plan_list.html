@@ -12,11 +12,8 @@
     <div class="px-3 py-3 border-bottom bg-light">
         <div class="d-flex flex-column flex-lg-row gap-3 justify-content-between align-items-lg-center mb-3">
             <div class="alert alert-info mb-0 flex-grow-1">
-                Rencana penerimaan dari kontrak tetap disinkronkan melalui modul <strong>SPJ / Pengadaan</strong>. Form manual dapat digunakan untuk rencana penerimaan tanpa kontrak.
+                Rencana penerimaan pengadaan dibuat dari <strong>SPJ / Pengadaan</strong> yang disetujui. Dokumen lama tanpa kontrak tetap ditampilkan untuk penyelesaian.
             </div>
-            <a href="{% url 'receiving:receiving_plan_create' %}" class="btn btn-primary btn-sm align-self-start">
-                <i class="bi bi-plus-lg me-1"></i>Buat Rencana
-            </a>
         </div>
         <form method="get" class="filter-form">
             <input type="text" name="q" class="form-control" placeholder="Cari no. dokumen / supplier..." value="{{ search }}">
@@ -28,6 +25,7 @@
                 <option value="PARTIAL" {{ status_partial }}>Diterima Sebagian</option>
                 <option value="RECEIVED" {{ status_received }}>Diterima Lengkap</option>
                 <option value="CLOSED" {{ status_closed }}>Ditutup</option>
+                <option value="CANCELLED" {{ status_cancelled }}>Dibatalkan</option>
             </select>
             <select name="type" class="form-select">
                 <option value="">Semua Tipe</option>

@@ -108,6 +108,28 @@ class ProcurementContractForm(forms.ModelForm):
         return value
 
 
+class ProcurementContractCancelForm(forms.Form):
+    cancel_reason = forms.CharField(
+        label="Alasan Pembatalan",
+        required=True,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 2,
+                "placeholder": "Alasan pembatalan SPJ",
+            }
+        ),
+    )
+
+    def clean_cancel_reason(self):
+        return _normalize_text_value(
+            self.cleaned_data.get("cancel_reason"),
+            field_label="Alasan pembatalan",
+            max_length=1000,
+            allow_blank=False,
+        )
+
+
 class ProcurementContractLineForm(forms.ModelForm):
     class Meta:
         model = ProcurementContractLine

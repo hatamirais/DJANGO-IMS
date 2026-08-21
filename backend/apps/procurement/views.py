@@ -4,6 +4,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import Count, Prefetch, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -12,7 +13,7 @@ from django.views.decorators.http import require_POST
 
 from apps.core.decorators import module_scope_required, perm_required
 from apps.core.rate_limits import item_mutation_ratelimit, procurement_mutation_ratelimit
-from apps.users.access import has_module_scope, is_super_admin
+from apps.users.access import has_module_permission, has_module_scope, is_super_admin
 from apps.users.models import ModuleAccess, User
 from apps.receiving.forms import (
     ReceivingQuickCreateFundingSourceForm,
@@ -22,6 +23,7 @@ from apps.receiving.forms import (
 from .forms import (
     ProcurementAmendmentForm,
     ProcurementAmendmentLineFormSet,
+    ProcurementContractCancelForm,
     ProcurementContractForm,
     ProcurementContractLineFormSet,
 )
@@ -36,7 +38,9 @@ from .services import (
     approve_amendment,
     approve_contract,
     build_contract_summary_rows,
+    cancel_contract,
     close_contract,
+    contract_is_cancellable,
     submit_amendment,
     submit_contract,
 )
@@ -58,6 +62,14 @@ def _can_approve_procurement_documents(user):
     )
 
 
+def _can_change_procurement_contract(user):
+    return (
+        getattr(user, "is_superuser", False)
+        or user.has_perm("procurement.change_procurementcontract")
+        or has_module_permission(user, "procurement.change_procurementcontract")
+    )
+
+
 def _add_form_model_errors(form, exc):
     if hasattr(exc, "message_dict"):
         for field, errors in exc.message_dict.items():
@@ -67,6 +79,13 @@ def _add_form_model_errors(form, exc):
         return
     for error in exc.messages:
         form.add_error(None, error)
+
+
+def _contract_accepts_amendment_changes(contract):
+    return (
+        contract.status == ProcurementContract.Status.APPROVED
+        and contract.closed_at is None
+    )
 
 
 def _json_form_errors(form):
@@ -172,6 +191,7 @@ def contract_detail(request, pk):
             "submitted_by",
             "approved_by",
             "closed_by",
+            "cancelled_by",
         ).prefetch_related(
             Prefetch(
                 "lines",
@@ -189,6 +209,10 @@ def contract_detail(request, pk):
         pk=pk,
     )
     summary_rows, linked_receiving = build_contract_summary_rows(contract)
+    can_cancel_contract = (
+        contract_is_cancellable(contract, linked_receiving)
+        and _can_change_procurement_contract(request.user)
+    )
     return render(
         request,
         "procurement/contract_detail.html",
@@ -196,6 +220,8 @@ def contract_detail(request, pk):
             "contract": contract,
             "summary_rows": summary_rows,
             "linked_receiving": linked_receiving,
+            "cancel_form": ProcurementContractCancelForm(),
+            "can_cancel_contract": can_cancel_contract,
             "can_approve_procurement_documents": _can_approve_procurement_documents(
                 request.user
             ),
@@ -247,13 +273,26 @@ def contract_edit(request, pk):
         return _redirect_contract_detail(pk)
 
     if request.method == "POST":
-        form = ProcurementContractForm(request.POST, instance=contract)
-        formset = ProcurementContractLineFormSet(request.POST, instance=contract, prefix="lines")
-        if form.is_valid() and formset.is_valid():
-            form.save()
-            formset.save()
-            messages.success(request, f"Kontrak {contract.document_number} berhasil diperbarui.")
-            return _redirect_contract_detail(pk)
+        with transaction.atomic():
+            contract = ProcurementContract.objects.select_for_update().get(pk=pk)
+            if contract.status != ProcurementContract.Status.DRAFT:
+                messages.error(request, "Hanya kontrak Draft yang dapat diubah.")
+                return _redirect_contract_detail(pk)
+            form = ProcurementContractForm(request.POST, instance=contract)
+            formset = ProcurementContractLineFormSet(request.POST, instance=contract, prefix="lines")
+            if form.is_valid() and formset.is_valid():
+                current_status = (
+                    ProcurementContract.objects.only("status")
+                    .get(pk=contract.pk)
+                    .status
+                )
+                if current_status != ProcurementContract.Status.DRAFT:
+                    messages.error(request, "Hanya kontrak Draft yang dapat diubah.")
+                    return _redirect_contract_detail(pk)
+                contract = form.save()
+                formset.save()
+                messages.success(request, f"Kontrak {contract.document_number} berhasil diperbarui.")
+                return _redirect_contract_detail(pk)
     else:
         form = ProcurementContractForm(instance=contract)
         formset = ProcurementContractLineFormSet(instance=contract, prefix="lines")
@@ -336,15 +375,33 @@ def contract_close(request, pk):
 
 
 @login_required
+@perm_required("procurement.change_procurementcontract")
+@procurement_mutation_ratelimit
+@require_POST
+def contract_cancel(request, pk):
+    contract = get_object_or_404(ProcurementContract, pk=pk)
+    form = ProcurementContractCancelForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Alasan pembatalan wajib diisi.")
+        return _redirect_contract_detail(pk)
+
+    try:
+        cancel_contract(contract, request.user, form.cleaned_data["cancel_reason"])
+    except ProcurementWorkflowError as exc:
+        messages.error(request, str(exc))
+        return _redirect_contract_detail(pk)
+
+    messages.success(request, f"SPJ {contract.document_number} berhasil dibatalkan.")
+    return _redirect_contract_detail(pk)
+
+
+@login_required
 @perm_required("procurement.add_procurementamendment")
 @procurement_mutation_ratelimit
 def amendment_create(request, pk):
     contract = get_object_or_404(ProcurementContract, pk=pk)
-    if contract.status != ProcurementContract.Status.APPROVED:
+    if not _contract_accepts_amendment_changes(contract):
         messages.error(request, "Amandemen hanya dapat dibuat untuk kontrak yang sudah disetujui.")
-        return _redirect_contract_detail(pk)
-    if contract.closed_at is not None:
-        messages.error(request, "Kontrak yang sudah ditutup tidak dapat diamandemen.")
         return _redirect_contract_detail(pk)
     summary_rows, _linked_receiving = build_contract_summary_rows(contract)
     contract_line_summary = {
@@ -353,29 +410,46 @@ def amendment_create(request, pk):
     }
 
     if request.method == "POST":
-        form = ProcurementAmendmentForm(request.POST)
-        formset = ProcurementAmendmentLineFormSet(
-            request.POST,
-            prefix="lines",
-            form_kwargs={
-                "contract": contract,
-                "contract_line_summary": contract_line_summary,
-            },
-        )
-        if form.is_valid() and formset.is_valid():
-            amendment = form.save(commit=False)
-            amendment.contract = contract
-            amendment.created_by = request.user
-            amendment.status = ProcurementAmendment.Status.DRAFT
-            try:
-                amendment.save()
-            except ValidationError as exc:
-                _add_form_model_errors(form, exc)
-            else:
-                formset.instance = amendment
-                formset.save()
-                messages.success(request, f"Amandemen {amendment.document_number} berhasil dibuat.")
-                return redirect("procurement:amendment_detail", pk=amendment.pk)
+        with transaction.atomic():
+            contract = ProcurementContract.objects.select_for_update().get(pk=pk)
+            if not _contract_accepts_amendment_changes(contract):
+                messages.error(request, "Amandemen hanya dapat dibuat untuk kontrak yang sudah disetujui.")
+                return _redirect_contract_detail(pk)
+            summary_rows, _linked_receiving = build_contract_summary_rows(contract)
+            contract_line_summary = {
+                row["contract_line"].pk: row
+                for row in summary_rows
+            }
+            form = ProcurementAmendmentForm(request.POST)
+            formset = ProcurementAmendmentLineFormSet(
+                request.POST,
+                prefix="lines",
+                form_kwargs={
+                    "contract": contract,
+                    "contract_line_summary": contract_line_summary,
+                },
+            )
+            if form.is_valid() and formset.is_valid():
+                current_contract = (
+                    ProcurementContract.objects.only("status", "closed_at")
+                    .get(pk=contract.pk)
+                )
+                if not _contract_accepts_amendment_changes(current_contract):
+                    messages.error(request, "Amandemen hanya dapat dibuat untuk kontrak yang sudah disetujui.")
+                    return _redirect_contract_detail(pk)
+                amendment = form.save(commit=False)
+                amendment.contract = contract
+                amendment.created_by = request.user
+                amendment.status = ProcurementAmendment.Status.DRAFT
+                try:
+                    amendment.save()
+                except ValidationError as exc:
+                    _add_form_model_errors(form, exc)
+                else:
+                    formset.instance = amendment
+                    formset.save()
+                    messages.success(request, f"Amandemen {amendment.document_number} berhasil dibuat.")
+                    return redirect("procurement:amendment_detail", pk=amendment.pk)
     else:
         form = ProcurementAmendmentForm(initial={"amendment_date": timezone.now().date()})
         formset = ProcurementAmendmentLineFormSet(
@@ -427,6 +501,9 @@ def amendment_detail(request, pk):
         {
             "amendment": amendment,
             "contract": amendment.contract,
+            "can_mutate_amendment": _contract_accepts_amendment_changes(
+                amendment.contract
+            ),
             "can_approve_procurement_documents": _can_approve_procurement_documents(
                 request.user
             ),
@@ -443,6 +520,9 @@ def amendment_edit(request, pk):
     if amendment.status != ProcurementAmendment.Status.DRAFT:
         messages.error(request, "Hanya amandemen Draft yang dapat diubah.")
         return _redirect_amendment_detail(pk)
+    if not _contract_accepts_amendment_changes(amendment.contract):
+        messages.error(request, "Amandemen hanya dapat diubah untuk kontrak yang masih disetujui.")
+        return _redirect_amendment_detail(pk)
     summary_rows, _linked_receiving = build_contract_summary_rows(amendment.contract)
     contract_line_summary = {
         row["contract_line"].pk: row
@@ -450,21 +530,44 @@ def amendment_edit(request, pk):
     }
 
     if request.method == "POST":
-        form = ProcurementAmendmentForm(request.POST, instance=amendment)
-        formset = ProcurementAmendmentLineFormSet(
-            request.POST,
-            instance=amendment,
-            prefix="lines",
-            form_kwargs={
-                "contract": amendment.contract,
-                "contract_line_summary": contract_line_summary,
-            },
-        )
-        if form.is_valid() and formset.is_valid():
-            form.save()
-            formset.save()
-            messages.success(request, f"Amandemen {amendment.document_number} berhasil diperbarui.")
-            return _redirect_amendment_detail(pk)
+        with transaction.atomic():
+            amendment = (
+                ProcurementAmendment.objects.select_for_update()
+                .select_related("contract")
+                .get(pk=pk)
+            )
+            contract = ProcurementContract.objects.select_for_update().get(
+                pk=amendment.contract_id
+            )
+            amendment.contract = contract
+            if amendment.status != ProcurementAmendment.Status.DRAFT:
+                messages.error(request, "Hanya amandemen Draft yang dapat diubah.")
+                return _redirect_amendment_detail(pk)
+            if not _contract_accepts_amendment_changes(contract):
+                messages.error(request, "Amandemen hanya dapat diubah untuk kontrak yang masih disetujui.")
+                return _redirect_amendment_detail(pk)
+            form = ProcurementAmendmentForm(request.POST, instance=amendment)
+            formset = ProcurementAmendmentLineFormSet(
+                request.POST,
+                instance=amendment,
+                prefix="lines",
+                form_kwargs={
+                    "contract": contract,
+                    "contract_line_summary": contract_line_summary,
+                },
+            )
+            if form.is_valid() and formset.is_valid():
+                current_status = (
+                    ProcurementContract.objects.only("status", "closed_at")
+                    .get(pk=contract.pk)
+                )
+                if not _contract_accepts_amendment_changes(current_status):
+                    messages.error(request, "Amandemen hanya dapat diubah untuk kontrak yang masih disetujui.")
+                    return _redirect_amendment_detail(pk)
+                form.save()
+                formset.save()
+                messages.success(request, f"Amandemen {amendment.document_number} berhasil diperbarui.")
+                return _redirect_amendment_detail(pk)
     else:
         form = ProcurementAmendmentForm(instance=amendment)
         formset = ProcurementAmendmentLineFormSet(
