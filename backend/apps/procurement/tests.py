@@ -615,6 +615,55 @@ class ProcurementWorkflowTests(TestCase):
         self.assertEqual(contract.status, ProcurementContract.Status.CANCELLED)
         self.assertEqual(receiving.status, Receiving.Status.APPROVED)
 
+    def test_stale_contract_edit_cannot_resurrect_cancelled_contract(self):
+        contract, line = self._create_contract(quantity="10", unit_price="5000")
+        original_is_valid = ProcurementContractForm.is_valid
+
+        def cancel_during_validation(form):
+            ProcurementContract.objects.filter(pk=contract.pk).update(
+                status=ProcurementContract.Status.CANCELLED,
+                cancelled_by=self.admin,
+                cancelled_at=timezone.now(),
+                cancel_reason="Dibatalkan request lain",
+            )
+            return original_is_valid(form)
+
+        with patch.object(
+            ProcurementContractForm,
+            "is_valid",
+            autospec=True,
+            side_effect=cancel_during_validation,
+        ):
+            response = self.client.post(
+                reverse("procurement:contract_edit", args=[contract.pk]),
+                {
+                    "document_number": contract.document_number,
+                    "contract_date": "2026-07-01",
+                    "supplier": str(self.supplier.pk),
+                    "sumber_dana": str(self.funding.pk),
+                    "notes": "Edit setelah batal",
+                    "lines-TOTAL_FORMS": "1",
+                    "lines-INITIAL_FORMS": "1",
+                    "lines-MIN_NUM_FORMS": "0",
+                    "lines-MAX_NUM_FORMS": "1000",
+                    "lines-0-id": str(line.pk),
+                    "lines-0-item": str(self.item.pk),
+                    "lines-0-original_quantity": "12",
+                    "lines-0-original_unit_price": "6000",
+                    "lines-0-notes": "Baris stale",
+                },
+                secure=True,
+            )
+
+        self.assertEqual(response.status_code, 302)
+        contract.refresh_from_db()
+        line.refresh_from_db()
+        self.assertEqual(contract.status, ProcurementContract.Status.CANCELLED)
+        self.assertEqual(contract.cancel_reason, "Dibatalkan request lain")
+        self.assertEqual(contract.notes, "Kontrak awal")
+        self.assertEqual(line.original_quantity, Decimal("10.00"))
+        self.assertEqual(line.original_unit_price, Decimal("5000.0000000000"))
+
     def test_procurement_view_permissions_context_flag_and_notifications(self):
         contract, line = self._create_contract(quantity="10", unit_price="5000")
         contract.status = ProcurementContract.Status.SUBMITTED
@@ -856,6 +905,64 @@ class ProcurementWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 302)
         amendment.refresh_from_db()
         self.assertEqual(amendment.lines.count(), 0)
+
+    def test_cancelled_contract_hides_and_rejects_draft_amendment_edit(self):
+        contract, line = self._approve_contract(quantity="10", unit_price="5000")
+        amendment = ProcurementAmendment.objects.create(
+            contract=contract,
+            amendment_date=date(2026, 7, 8),
+            notes="Draft sebelum batal",
+            status=ProcurementAmendment.Status.DRAFT,
+            created_by=self.admin,
+        )
+        ProcurementAmendmentLine.objects.create(
+            amendment=amendment,
+            contract_line=line,
+            revised_quantity=Decimal("12"),
+            revised_unit_price=Decimal("6000"),
+            notes="Draft line",
+        )
+        self.client.post(
+            reverse("procurement:contract_cancel", args=[contract.pk]),
+            {"cancel_reason": "Pengadaan dibatalkan"},
+            secure=True,
+        )
+
+        detail_response = self.client.get(
+            reverse("procurement:amendment_detail", args=[amendment.pk]),
+            secure=True,
+        )
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertNotContains(
+            detail_response,
+            reverse("procurement:amendment_edit", args=[amendment.pk]),
+        )
+        self.assertNotContains(
+            detail_response,
+            reverse("procurement:amendment_submit", args=[amendment.pk]),
+        )
+
+        edit_response = self.client.post(
+            reverse("procurement:amendment_edit", args=[amendment.pk]),
+            {
+                "amendment_date": "2026-07-08",
+                "notes": "Edit setelah kontrak batal",
+                "lines-TOTAL_FORMS": "1",
+                "lines-INITIAL_FORMS": "1",
+                "lines-MIN_NUM_FORMS": "0",
+                "lines-MAX_NUM_FORMS": "1000",
+                "lines-0-id": str(amendment.lines.get().pk),
+                "lines-0-contract_line": str(line.pk),
+                "lines-0-revised_quantity": "14",
+                "lines-0-revised_unit_price": "6500",
+                "lines-0-notes": "Tidak boleh tersimpan",
+            },
+            secure=True,
+        )
+
+        self.assertEqual(edit_response.status_code, 302)
+        amendment.refresh_from_db()
+        self.assertEqual(amendment.notes, "Draft sebelum batal")
 
     def test_procurement_quick_create_supplier_creates_lookup(self):
         response = self.client.post(
