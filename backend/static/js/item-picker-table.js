@@ -46,6 +46,9 @@ function bindItemPickerTable(form) {
         const dependentFields = dependentFieldNames
             .map((fieldName) => row.querySelector(`[name$="-${fieldName}"]`))
             .filter(Boolean);
+        const getDependentField = (fieldName) => row.querySelector(`[name$="-${fieldName}"]`);
+        const getDependentCell = (fieldName) =>
+            row.querySelector(`.js-item-picker-dependent[data-field-name="${fieldName}"]`);
         const fieldError = requiredFieldName
             ? row.querySelector(`.js-item-picker-field-error[data-field-name="${requiredFieldName}"]`)
             : null;
@@ -56,6 +59,8 @@ function bindItemPickerTable(form) {
             focusField,
             dependentCells,
             dependentFields,
+            getDependentField,
+            getDependentCell,
             fieldError,
         };
     };
@@ -87,7 +92,14 @@ function bindItemPickerTable(form) {
     };
 
     const syncRowState = (row, options = {}) => {
-        const { item, focusField, dependentCells, dependentFields } = getRowFields(row);
+        const {
+            item,
+            focusField,
+            dependentCells,
+            dependentFields,
+            getDependentField,
+            getDependentCell,
+        } = getRowFields(row);
         if (!item) {
             return;
         }
@@ -100,6 +112,28 @@ function bindItemPickerTable(form) {
         dependentCells.forEach((cell) => {
             cell.classList.toggle('is-disabled', !hasItem);
         });
+
+        const selectedOption = item.selectedOptions?.[0] || null;
+        const requiresExpiryDate = selectedOption?.dataset.requiresExpiryDate !== 'false';
+        const expiryField = getDependentField('expiry_date');
+        const expiryCell = getDependentCell('expiry_date');
+        if (hasItem && expiryField && !requiresExpiryDate) {
+            const hasExistingExpiryDate = Boolean(expiryField.value);
+            expiryField.disabled = !hasExistingExpiryDate;
+            expiryCell?.classList.toggle('is-disabled', !hasExistingExpiryDate);
+            if (hasExistingExpiryDate) {
+                expiryField.setAttribute(
+                    'title',
+                    'Tanggal kedaluwarsa tersimpan dipertahankan untuk koreksi ini.'
+                );
+            } else {
+                expiryField.setAttribute('title', 'Barang ini tidak memerlukan tanggal kedaluwarsa.');
+            }
+        } else if (hasItem && expiryField) {
+            expiryField.disabled = false;
+            expiryCell?.classList.remove('is-disabled');
+            expiryField.removeAttribute('title');
+        }
 
         if (!hasItem) {
             clearRowError(row);

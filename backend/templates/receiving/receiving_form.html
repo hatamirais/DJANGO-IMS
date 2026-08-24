@@ -54,38 +54,77 @@
                         <table class="table table-sm w-100 align-middle" id="itemTable" style="min-width: 1280px;">
                             <thead>
                                 <tr>
-                                    <th style="min-width:360px;">Barang</th>
-                                    <th style="min-width:130px;">Kuantitas</th>
+                                    <th style="min-width:360px;">Barang <span class="text-danger">*</span></th>
+                                    <th style="min-width:130px;">Kuantitas <span class="text-danger">*</span></th>
                                     <th style="min-width:150px;">Batch/Lot</th>
-                                    <th style="min-width:190px;">Tanggal Kedaluwarsa</th>
-                                    <th style="min-width:150px;">Harga Satuan</th>
-                                    <th style="min-width:260px;">Lokasi</th>
+                                    <th style="min-width:190px;">Tanggal Kedaluwarsa <span class="text-muted fw-normal">(jika wajib)</span></th>
+                                    <th style="min-width:150px;">Harga Satuan <span class="text-danger">*</span></th>
+                                    <th style="min-width:260px;">Lokasi <span class="text-danger">*</span></th>
                                     <th class="text-center" style="min-width:70px;">Hapus</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for item_form in formset %}
                                 <tr class="formset-row">
-                                    <td>{{ item_form.item }}</td>
+                                    <td>
+                                        {{ item_form.item }}
+                                        {% for error in item_form.item.errors %}
+                                        <div class="text-danger small py-1">{{ error }}</div>
+                                        {% endfor %}
+                                    </td>
                                     <td class="item-picker-dependent-cell js-item-picker-dependent" data-field-name="quantity">
                                         {{ item_form.quantity }}
                                         <div class="item-picker-field-error d-none js-item-picker-field-error" data-field-name="quantity">Kuantitas wajib diisi.</div>
+                                        {% for error in item_form.quantity.errors %}
+                                        <div class="text-danger small py-1">{{ error }}</div>
+                                        {% endfor %}
                                     </td>
-                                    <td class="item-picker-dependent-cell js-item-picker-dependent" data-field-name="batch_lot">{{ item_form.batch_lot }}</td>
-                                    <td class="item-picker-dependent-cell js-item-picker-dependent" data-field-name="expiry_date">{{ item_form.expiry_date }}</td>
-                                    <td class="item-picker-dependent-cell js-item-picker-dependent" data-field-name="unit_price">{{ item_form.unit_price }}</td>
-                                    <td class="item-picker-dependent-cell js-item-picker-dependent" data-field-name="location">{{ item_form.location }}</td>
+                                    <td class="item-picker-dependent-cell js-item-picker-dependent" data-field-name="batch_lot">
+                                        {{ item_form.batch_lot }}
+                                        {% for error in item_form.batch_lot.errors %}
+                                        <div class="text-danger small py-1">{{ error }}</div>
+                                        {% endfor %}
+                                    </td>
+                                    <td class="item-picker-dependent-cell js-item-picker-dependent" data-field-name="expiry_date">
+                                        {{ item_form.expiry_date }}
+                                        {% for error in item_form.expiry_date.errors %}
+                                        <div class="text-danger small py-1">{{ error }}</div>
+                                        {% endfor %}
+                                    </td>
+                                    <td class="item-picker-dependent-cell js-item-picker-dependent" data-field-name="unit_price">
+                                        {{ item_form.unit_price }}
+                                        {% for error in item_form.unit_price.errors %}
+                                        <div class="text-danger small py-1">{{ error }}</div>
+                                        {% endfor %}
+                                    </td>
+                                    <td class="item-picker-dependent-cell js-item-picker-dependent" data-field-name="location">
+                                        {{ item_form.location }}
+                                        {% for error in item_form.location.errors %}
+                                        <div class="text-danger small py-1">{{ error }}</div>
+                                        {% endfor %}
+                                    </td>
                                     <td class="text-center">
                                         <button type="button" class="btn btn-outline-danger btn-sm formset-remove" title="Hapus Baris">
                                             <i class="bi bi-trash"></i>
                                         </button>
                                         <div class="d-none">{{ item_form.DELETE }}</div>
                                     </td>
-                                    {{ item_form.id }}
-                                    {% for error in item_form.errors.values %}
-                                    <tr><td colspan="7" class="text-danger small py-1">{{ error }}</td></tr>
+                                    {% for hidden_field in item_form.hidden_fields %}
+                                    {{ hidden_field }}
                                     {% endfor %}
                                 </tr>
+                                {% for hidden_field in item_form.hidden_fields %}
+                                    {% for error in hidden_field.errors %}
+                                <tr>
+                                    <td colspan="7" class="text-danger small py-1">Baris item tidak valid: {{ error }}</td>
+                                </tr>
+                                    {% endfor %}
+                                {% endfor %}
+                                {% if item_form.non_field_errors %}
+                                <tr>
+                                    <td colspan="7" class="text-danger small py-1">{{ item_form.non_field_errors }}</td>
+                                </tr>
+                                {% endif %}
                                 {% endfor %}
                             </tbody>
                         </table>
