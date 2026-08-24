@@ -30,6 +30,16 @@ export const ROLE_DEFINITIONS = [
     },
   },
   {
+    code: "GUDANG2",
+    slug: "gudang-2",
+    label: "Gudang 2",
+    landingPath: "/lplpo/",
+    env: {
+      username: "PW_GUDANG2_USERNAME",
+      password: "PW_GUDANG2_PASSWORD",
+    },
+  },
+  {
     code: "KEPALA",
     slug: "kepala",
     label: "Kepala",
