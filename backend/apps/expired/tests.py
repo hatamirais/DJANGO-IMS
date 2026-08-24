@@ -428,6 +428,26 @@ class ExpiredWorkflowTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, '<i class="bi bi-patch-check me-1"></i>Verifikasi', html=False)
 
+    def test_expired_detail_displays_stock_expiry_date_next_to_batch(self):
+        expired_doc = self._create_expired(status=Expired.Status.DRAFT)
+
+        response = self.client.get(
+            reverse("expired:expired_detail", args=[expired_doc.pk]),
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "<th>Batch</th>\n                                <th>Kedaluwarsa</th>",
+            html=False,
+        )
+        self.assertContains(
+            response,
+            "<td>BATCH-EXP-01</td>\n                                <td>01/01/2026</td>",
+            html=False,
+        )
+
     # --- Pending quantity handling ---
 
     def test_expired_create_prefills_only_remaining_quantity_after_submitted_docs(self):
