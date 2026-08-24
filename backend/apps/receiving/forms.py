@@ -460,6 +460,19 @@ class ReceivingItemForm(forms.ModelForm):
             raise forms.ValidationError(
                 "Tanggal kedaluwarsa harus berada pada rentang tahun 1000-9999."
             )
+        if (
+            value is None
+            and self.instance.pk
+            and self.instance.expiry_date is not None
+            and self.add_prefix("expiry_date") not in self.data
+        ):
+            item = self.cleaned_data.get("item")
+            if (
+                item
+                and self.instance.item_id == item.pk
+                and not _item_requires_expiry_date(item)
+            ):
+                return self.instance.expiry_date
         return value
 
     def clean(self):

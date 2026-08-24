@@ -118,10 +118,17 @@ function bindItemPickerTable(form) {
         const expiryField = getDependentField('expiry_date');
         const expiryCell = getDependentCell('expiry_date');
         if (hasItem && expiryField && !requiresExpiryDate) {
-            expiryField.value = '';
-            expiryField.disabled = true;
-            expiryCell?.classList.add('is-disabled');
-            expiryField.setAttribute('title', 'Barang ini tidak memerlukan tanggal kedaluwarsa.');
+            const hasExistingExpiryDate = Boolean(expiryField.value);
+            expiryField.disabled = !hasExistingExpiryDate;
+            expiryCell?.classList.toggle('is-disabled', !hasExistingExpiryDate);
+            if (hasExistingExpiryDate) {
+                expiryField.setAttribute(
+                    'title',
+                    'Tanggal kedaluwarsa tersimpan dipertahankan untuk koreksi ini.'
+                );
+            } else {
+                expiryField.setAttribute('title', 'Barang ini tidak memerlukan tanggal kedaluwarsa.');
+            }
         } else if (hasItem && expiryField) {
             expiryField.disabled = false;
             expiryCell?.classList.remove('is-disabled');

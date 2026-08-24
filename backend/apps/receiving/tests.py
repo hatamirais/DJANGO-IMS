@@ -1842,6 +1842,34 @@ class ReceivingWorkflowCleanupTest(TestCase):
             ],
         )
 
+    def test_regular_receiving_edit_preserves_omitted_optional_expiry_date(self):
+        self.item.requires_expiry_date = False
+        self.item.save(update_fields=["requires_expiry_date", "updated_at"])
+        receiving = self._create_posted_regular_receiving()
+        payload = self._regular_edit_payload(receiving, quantity="8")
+        payload.pop("items-0-expiry_date")
+
+        response = self.client.post(
+            reverse("receiving:receiving_edit", args=[receiving.pk]),
+            payload,
+            secure=True,
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("receiving:receiving_detail", args=[receiving.pk]),
+            fetch_redirect_response=False,
+        )
+        corrected_item = receiving.items.get()
+        self.assertEqual(corrected_item.quantity, Decimal("8"))
+        self.assertEqual(corrected_item.expiry_date, date(2030, 1, 1))
+        corrected_stock = Stock.objects.get(
+            source_document_number=receiving.document_number,
+            sumber_dana=self.funding,
+        )
+        self.assertEqual(corrected_stock.quantity, Decimal("8"))
+        self.assertEqual(corrected_stock.expiry_date, date(2030, 1, 1))
+
     def test_regular_receiving_edit_reverses_imported_row_funding_override(self):
         row_funding = FundingSource.objects.create(code="ROWEDIT", name="Row Edit")
         receiving = self._create_posted_regular_receiving(funding=row_funding)
