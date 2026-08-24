@@ -18,6 +18,7 @@ The format is based on Keep a Changelog and follows Semantic Versioning (`MAJOR.
 
 - Non-expiring items now gray out blank expiry-date inputs on manual receiving rows.
 - Regular receiving correction now preserves existing expiry metadata for non-expiring items when the browser omits the optional expiry field.
+- Regular receiving correction now shows hidden formset row errors, such as stale item-row IDs after another user has already submitted a correction.
 
 ## [1.31.6] - 2026-08-21
 

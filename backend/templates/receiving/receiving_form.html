@@ -109,8 +109,17 @@
                                         </button>
                                         <div class="d-none">{{ item_form.DELETE }}</div>
                                     </td>
-                                    {{ item_form.id }}
+                                    {% for hidden_field in item_form.hidden_fields %}
+                                    {{ hidden_field }}
+                                    {% endfor %}
                                 </tr>
+                                {% for hidden_field in item_form.hidden_fields %}
+                                    {% for error in hidden_field.errors %}
+                                <tr>
+                                    <td colspan="7" class="text-danger small py-1">Baris item tidak valid: {{ error }}</td>
+                                </tr>
+                                    {% endfor %}
+                                {% endfor %}
                                 {% if item_form.non_field_errors %}
                                 <tr>
                                     <td colspan="7" class="text-danger small py-1">{{ item_form.non_field_errors }}</td>

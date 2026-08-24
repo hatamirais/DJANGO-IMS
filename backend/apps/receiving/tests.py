@@ -1870,6 +1870,21 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertEqual(corrected_stock.quantity, Decimal("8"))
         self.assertEqual(corrected_stock.expiry_date, date(2030, 1, 1))
 
+    def test_regular_receiving_edit_renders_stale_hidden_id_error(self):
+        receiving = self._create_posted_regular_receiving()
+        payload = self._regular_edit_payload(receiving, quantity="8")
+        ReceivingItem.objects.filter(pk=payload["items-0-id"]).delete()
+
+        response = self.client.post(
+            reverse("receiving:receiving_edit", args=[receiving.pk]),
+            payload,
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Baris item tidak valid")
+        self.assertContains(response, "Masukkan pilihan yang valid")
+
     def test_regular_receiving_edit_reverses_imported_row_funding_override(self):
         row_funding = FundingSource.objects.create(code="ROWEDIT", name="Row Edit")
         receiving = self._create_posted_regular_receiving(funding=row_funding)
