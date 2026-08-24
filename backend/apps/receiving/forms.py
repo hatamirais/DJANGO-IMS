@@ -78,6 +78,24 @@ class TrimmedDecimalNumberInput(forms.NumberInput):
         return format(decimal_value.normalize(), "f")
 
 
+class ItemExpirySelect(forms.Select):
+    def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
+        option = super().create_option(
+            name,
+            value,
+            label,
+            selected,
+            index,
+            subindex,
+            attrs,
+        )
+        if value and hasattr(value, "instance"):
+            option["attrs"]["data-requires-expiry-date"] = (
+                "true" if value.instance.requires_expiry_date else "false"
+            )
+        return option
+
+
 def _normalize_text_value(value, *, field_label, max_length=None, allow_blank=True):
     if value is None:
         return "" if allow_blank else value
@@ -384,7 +402,7 @@ class ReceivingItemForm(forms.ModelForm):
             "location",
         ]
         widgets = {
-            "item": forms.Select(
+            "item": ItemExpirySelect(
                 attrs={"class": "form-select form-select-sm js-typeahead-select"}
             ),
             "quantity": forms.NumberInput(
@@ -410,6 +428,7 @@ class ReceivingItemForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["item"].label_from_instance = lambda obj: obj.picker_label
         self.fields["location"].required = True
+        self.fields["batch_lot"].required = False
         self.fields["expiry_date"].required = False
 
     def clean_quantity(self):
@@ -427,12 +446,13 @@ class ReceivingItemForm(forms.ModelForm):
         return unit_price
 
     def clean_batch_lot(self):
-        return _normalize_text_value(
+        batch_lot = _normalize_text_value(
             self.cleaned_data.get("batch_lot"),
             field_label="Batch/Lot",
             max_length=100,
-            allow_blank=False,
+            allow_blank=True,
         )
+        return batch_lot or "-"
 
     def clean_expiry_date(self):
         value = self.cleaned_data.get("expiry_date")

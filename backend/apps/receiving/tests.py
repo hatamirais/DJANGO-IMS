@@ -1463,6 +1463,42 @@ class ReceivingWorkflowCleanupTest(TestCase):
         stock = Stock.objects.get(item=self.item, batch_lot="BATCH-NO-EXP")
         self.assertIsNone(stock.expiry_date)
 
+    def test_regular_receiving_create_normalizes_blank_batch_to_dash(self):
+        self.item.requires_expiry_date = False
+        self.item.save(update_fields=["requires_expiry_date", "updated_at"])
+
+        response = self.client.post(
+            reverse("receiving:receiving_create"),
+            {
+                "document_number": "",
+                "receiving_type": Receiving.ReceivingType.GRANT,
+                "receiving_date": "2026-03-16",
+                "supplier": "",
+                "sumber_dana": self.funding.pk,
+                "notes": "",
+                "items-TOTAL_FORMS": "1",
+                "items-INITIAL_FORMS": "0",
+                "items-MIN_NUM_FORMS": "0",
+                "items-MAX_NUM_FORMS": "1000",
+                "items-0-item": self.item.pk,
+                "items-0-quantity": "10",
+                "items-0-batch_lot": "",
+                "items-0-expiry_date": "",
+                "items-0-unit_price": "1500",
+                "items-0-location": self.location.pk,
+            },
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        receiving_item = ReceivingItem.objects.get(batch_lot="-")
+        self.assertEqual(receiving_item.item, self.item)
+        self.assertIsNone(receiving_item.expiry_date)
+        stock = Stock.objects.get(item=self.item, batch_lot="-")
+        self.assertIsNone(stock.expiry_date)
+        transaction = Transaction.objects.get(reference_id=receiving_item.receiving_id)
+        self.assertEqual(transaction.batch_lot, "-")
+
     def test_regular_receiving_create_rejects_opening_balance_document_number_collision(self):
         OpeningBalanceImport.objects.create(
             document_number="RCV-2026-WF-COLLISION",
@@ -1526,6 +1562,34 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Tanggal kedaluwarsa wajib diisi untuk barang ini.")
         self.assertEqual(Receiving.objects.count(), 0)
+
+    def test_regular_receiving_create_allows_blank_batch_for_expiring_item(self):
+        response = self.client.post(
+            reverse("receiving:receiving_create"),
+            {
+                "document_number": "",
+                "receiving_type": Receiving.ReceivingType.GRANT,
+                "receiving_date": "2026-03-16",
+                "supplier": "",
+                "sumber_dana": self.funding.pk,
+                "notes": "",
+                "items-TOTAL_FORMS": "1",
+                "items-INITIAL_FORMS": "0",
+                "items-MIN_NUM_FORMS": "0",
+                "items-MAX_NUM_FORMS": "1000",
+                "items-0-item": self.item.pk,
+                "items-0-quantity": "10",
+                "items-0-batch_lot": "",
+                "items-0-expiry_date": "2030-01-01",
+                "items-0-unit_price": "1500",
+                "items-0-location": self.location.pk,
+            },
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(ReceivingItem.objects.filter(batch_lot="-").exists())
+        self.assertTrue(Stock.objects.filter(item=self.item, batch_lot="-").exists())
 
     def test_regular_receiving_create_allows_same_batch_with_different_expiry_for_new_document(self):
         Stock.objects.create(
@@ -2704,6 +2768,31 @@ class ReceivingWorkflowCleanupTest(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "js/item-picker-table.js?v=")
+
+    def test_receiving_create_marks_required_item_table_headers(self):
+        response = self.client.get(reverse("receiving:receiving_create"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Barang <span class=\"text-danger\">*</span>", html=False)
+        self.assertContains(response, "Kuantitas <span class=\"text-danger\">*</span>", html=False)
+        self.assertContains(response, "Harga Satuan <span class=\"text-danger\">*</span>", html=False)
+        self.assertContains(response, "Lokasi <span class=\"text-danger\">*</span>", html=False)
+        self.assertContains(response, "Tanggal Kedaluwarsa", html=False)
+        self.assertContains(response, "(jika wajib)", html=False)
+
+    def test_receiving_create_item_options_include_expiry_requirement_metadata(self):
+        self.item.requires_expiry_date = False
+        self.item.save(update_fields=["requires_expiry_date", "updated_at"])
+
+        response = self.client.get(reverse("receiving:receiving_create"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'value="{}"'.format(self.item.pk), html=False)
+        self.assertContains(
+            response,
+            'data-requires-expiry-date="false"',
+            html=False,
+        )
 
     def test_receiving_plan_create_redirects_to_spj_create(self):
         response = self.client.get(reverse("receiving:receiving_plan_create"), secure=True)
