@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% load number_format %}
+{% load l10n number_format %}
 
 {% block title %}Input Hitung — {{ opname.document_number }} — Healthcare IMS{% endblock %}
 {% block page_title %}Input Hitung Fisik{% endblock %}
@@ -66,7 +66,7 @@
                                     <td>{{ item.stock.item.satuan.name|default:'-' }}</td>
                                     <td class="text-end">{{ item.system_quantity }}</td>
                                     <td>
-                                        <input type="number" name="qty_{{ item.pk }}" class="form-control form-control-sm {% if item.quantity_error %}is-invalid{% endif %}" step="0.01" min="0" value="{% if item.input_quantity is not None %}{{ item.input_quantity }}{% endif %}">
+                                        <input type="number" name="qty_{{ item.pk }}" class="form-control form-control-sm {% if item.quantity_error %}is-invalid{% endif %}" step="0.01" min="0" value="{% if item.input_quantity is not None %}{{ item.input_quantity|unlocalize }}{% endif %}">
                                         {% if item.quantity_error %}
                                         <div class="invalid-feedback d-block">{{ item.quantity_error }}</div>
                                         {% endif %}

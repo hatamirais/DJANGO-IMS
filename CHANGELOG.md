@@ -7,6 +7,14 @@ The format is based on Keep a Changelog and follows Semantic Versioning (`MAJOR.
 
 ## [Unreleased]
 
+### Added
+
+- Expired document detail pages now show each batch's expiry date next to the Batch column.
+
+### Fixed
+
+- Expired alert bulk-create selections now submit raw stock IDs instead of localized IDs with thousand separators, so selected rows prefill the create form correctly.
+
 ## [1.31.7] - 2026-08-24
 
 ### Changed
