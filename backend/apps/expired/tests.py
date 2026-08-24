@@ -441,6 +441,32 @@ class ExpiredWorkflowTest(TestCase):
         formset = response.context["formset"]
         self.assertEqual(formset.forms[0].initial["quantity"], Decimal("45"))
 
+    def test_expired_create_prefills_high_stock_id_without_localized_separator(self):
+        high_id_stock = Stock.objects.create(
+            id=1965,
+            item=self.item,
+            location=self.location,
+            batch_lot="BATCH-EXP-1965",
+            source_document_number="TEST-1965",
+            expiry_date="2026-01-15",
+            quantity=Decimal("12"),
+            reserved=Decimal("0"),
+            unit_price=Decimal("2500"),
+            sumber_dana=self.funding_source,
+        )
+
+        response = self.client.get(
+            reverse("expired:expired_create") + f"?stocks={high_id_stock.pk}",
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        formset = response.context["formset"]
+        self.assertEqual(formset.total_form_count(), 1)
+        self.assertEqual(formset.forms[0].initial["item"], self.item.pk)
+        self.assertEqual(formset.forms[0].initial["stock"], high_id_stock.pk)
+        self.assertEqual(formset.forms[0].initial["quantity"], Decimal("12"))
+
     def test_expired_create_prefills_one_form_per_selected_stock(self):
         other_item = Item.objects.create(
             nama_barang="Paracetamol 500mg",
@@ -844,6 +870,30 @@ class ExpiredWorkflowTest(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(list(response.context["items"].object_list), [])
+
+    def test_expired_alerts_render_high_stock_id_without_localized_separator(self):
+        Stock.objects.create(
+            id=1965,
+            item=self.item,
+            location=self.location,
+            batch_lot="BATCH-EXP-1965",
+            source_document_number="TEST-1965",
+            expiry_date="2026-01-15",
+            quantity=Decimal("12"),
+            reserved=Decimal("0"),
+            unit_price=Decimal("2500"),
+            sumber_dana=self.funding_source,
+        )
+
+        response = self.client.get(reverse("expired:expired_alerts"), secure=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            '<input type="checkbox" class="expired-stock-check" value="1965">',
+            html=True,
+        )
+        self.assertNotContains(response, 'value="1.965"')
 
     def test_expired_alerts_forbid_user_without_expired_view_scope(self):
         limited_user = User.objects.create_user(

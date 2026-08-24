@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load l10n %}
 
 {% block title %}Stok Mendekati/Kedaluwarsa - Healthcare IMS{% endblock %}
 {% block page_title %}Stok Mendekati/Kedaluwarsa{% endblock %}
@@ -134,7 +135,7 @@
                 <tr>
                     <td>
                         {% if row.actionable > 0 %}
-                        <input type="checkbox" class="expired-stock-check" value="{{ row.stock.id }}">
+                        <input type="checkbox" class="expired-stock-check" value="{{ row.stock.id|unlocalize }}">
                         {% endif %}
                     </td>
                     <td><code>{{ row.stock.item.kode_barang }}</code></td>
