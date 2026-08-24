@@ -118,6 +118,7 @@
                                 <th>Kode</th>
                                 <th>Nama Barang</th>
                                 <th>Batch</th>
+                                <th>Kedaluwarsa</th>
                                 <th>Lokasi</th>
                                 <th class="text-end">Kuantitas</th>
                                 <th>Keterangan</th>
@@ -130,13 +131,14 @@
                                 <td><code>{{ ei.item.kode_barang }}</code></td>
                                 <td>{{ ei.item.nama_barang }}</td>
                                 <td>{{ ei.stock.batch_lot }}</td>
+                                <td>{{ ei.stock.expiry_date|date:"d/m/Y"|default:"Tanpa kedaluwarsa" }}</td>
                                 <td>{{ ei.stock.location.name }}</td>
                                 <td class="text-end fw-semibold">{{ ei.quantity }}</td>
                                 <td class="text-muted small">{{ ei.notes|default:"-" }}</td>
                             </tr>
                             {% empty %}
                             <tr>
-                                <td colspan="7">
+                                <td colspan="8">
                                     <div class="empty-state">
                                         <i class="bi bi-inbox d-block"></i>
                                         <p>Belum ada item kedaluwarsa</p>
