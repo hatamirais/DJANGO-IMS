@@ -1,5 +1,4 @@
 import logging
-from urllib.parse import urlencode
 from decimal import Decimal, InvalidOperation
 
 from django.shortcuts import render, get_object_or_404, redirect
@@ -9,7 +8,6 @@ from django.core.paginator import Paginator
 from django.core.exceptions import ValidationError
 from django.db import DatabaseError, transaction
 from django.db.models import F
-from django.urls import reverse
 from django.utils import timezone
 
 from apps.core.decorators import module_scope_required, perm_required
@@ -420,11 +418,7 @@ def opname_input(request, pk):
             return redirect("stock_opname:opname_detail", pk=opname.pk)
 
         messages.success(request, f"{len(updated_items)} item berhasil diperbarui.")
-        # Redirect back with same location filter
-        url = reverse("stock_opname:opname_input", args=[pk])
-        if location_id:
-            url = f"{url}?{urlencode({'location': location_id})}"
-        return redirect(url)
+        return redirect("stock_opname:opname_detail", pk=opname.pk)
 
     return render(
         request,

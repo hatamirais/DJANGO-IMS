@@ -292,9 +292,10 @@ class StockOpnameInputValidationTests(StockOpnameTestMixin, TestCase):
         self.opname_item.refresh_from_db()
         self.assertGreater(self.opname_item.updated_at, earlier)
 
-    def test_location_filter_is_preserved_after_post(self):
+    def test_input_post_redirects_to_detail_after_save(self):
         self.client.force_login(self.gudang)
         input_url = reverse("stock_opname:opname_input", args=[self.opname.pk])
+        detail_url = reverse("stock_opname:opname_detail", args=[self.opname.pk])
 
         get_response = self.client.get(
             f"{input_url}?location={self.location.pk}",
@@ -318,10 +319,7 @@ class StockOpnameInputValidationTests(StockOpnameTestMixin, TestCase):
         )
 
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(
-            response.headers["Location"],
-            f"{input_url}?location={self.location.pk}",
-        )
+        self.assertEqual(response.headers["Location"], detail_url)
 
     def test_input_post_rejects_when_opname_was_completed_before_submit(self):
         self.client.force_login(self.gudang)
