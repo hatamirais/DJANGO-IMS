@@ -243,6 +243,37 @@ class StockOpnameInputValidationTests(StockOpnameTestMixin, TestCase):
         self.assertEqual(self.opname_item.actual_quantity, Decimal("95.50"))
         self.assertEqual(self.opname_item.notes, "Disesuaikan")
 
+    def test_input_form_prefills_saved_actual_quantity_without_localized_separator(self):
+        self.opname_item.actual_quantity = Decimal("1000.00")
+        self.opname_item.notes = "Sudah dihitung"
+        self.opname_item.save(update_fields=["actual_quantity", "notes", "updated_at"])
+        self.client.force_login(self.gudang)
+
+        response = self.client.get(
+            reverse("stock_opname:opname_input", args=[self.opname.pk]),
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            (
+                f'<input type="number" name="qty_{self.opname_item.pk}" '
+                'class="form-control form-control-sm " step="0.01" min="0" '
+                'value="1000.00">'
+            ),
+            html=True,
+        )
+        self.assertNotContains(response, f'value="1.000,00"')
+        self.assertContains(
+            response,
+            (
+                f'<input type="text" name="notes_{self.opname_item.pk}" '
+                'class="form-control form-control-sm" value="Sudah dihitung">'
+            ),
+            html=True,
+        )
+
     def test_valid_actual_quantity_updates_item_timestamp(self):
         self.client.force_login(self.gudang)
         earlier = timezone.now() - timedelta(days=1)
