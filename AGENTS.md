@@ -64,6 +64,8 @@ Super Admin (`is_superuser` / role `ADMIN`) remains exempt from `puskesmas` and 
 
 `AUDITOR` keeps read-only module scopes for direct authorized pages; its sidebar is report-focused and only renders the `Laporan` group. Its dashboard hides linked drill-through components that open operational menu pages.
 
+Stock opname completion is split by current discrepancy state: `GUDANG` / operate-scope users may complete when refreshed current stock matches the physical count for all rows, while completion with any remaining discrepancy requires stock-opname approve scope (`KEPALA`/Admin/superuser by default).
+
 ## Cross-App Data Flow
 
 Stock movement is ledger-first: historical `stock.Transaction` rows are append-only, stock-changing checkpoints happen during workflow actions, and reports should not replace stock movement reporting with auditlog entries.

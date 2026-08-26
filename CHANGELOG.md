@@ -7,13 +7,26 @@ The format is based on Keep a Changelog and follows Semantic Versioning (`MAJOR.
 
 ## [Unreleased]
 
+## [1.31.8] - 2026-08-26
+
 ### Added
 
 - Expired document detail pages now show each batch's expiry date next to the Batch column.
+- Stock opname detail pages now include a refreshed `Stok Update` column alongside the frozen `Stok Sistem` snapshot and the counted `Stok Fisik` value.
+- Added a full stock opname print report at `/stock-opname/<pk>/report/`, including all counted rows and signature blocks for `KEPALA` plus every assigned stock-opname user.
 
 ### Fixed
 
 - Expired alert bulk-create selections now submit raw stock IDs instead of localized IDs with thousand separators, so selected rows prefill the create form correctly.
+- Stock opname input now preserves already-entered physical counts when users reopen `Input Hitung`.
+- Stock opname input now accepts existing actual quantities without localized thousand separators causing validation failures.
+- Stock opname saves now redirect back to the stock opname detail page.
+- Stock opname discrepancy counts and discrepancy print reports now compare `Stok Fisik` against refreshed current stock after operational corrections, while keeping `Stok Sistem` as the frozen snapshot.
+
+### Changed
+
+- Stock opname tables now use the clearer `Stok Fisik` label, hide compacted `Kode` and `Dokumen Sumber` columns, and keep exact unit-price precision in opname views.
+- Stock opname completion now allows `GUDANG` / operate-scope users to complete only when no refreshed current discrepancy remains; completion with remaining discrepancies still requires approve scope.
 
 ## [1.31.7] - 2026-08-24
 

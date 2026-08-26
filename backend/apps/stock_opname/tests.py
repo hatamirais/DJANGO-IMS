@@ -113,6 +113,7 @@ class StockOpnameAccessAndWorkflowTests(StockOpnameTestMixin, TestCase):
         urls = [
             reverse("stock_opname:opname_list"),
             reverse("stock_opname:opname_detail", args=[opname.pk]),
+            reverse("stock_opname:opname_report_print", args=[opname.pk]),
             reverse("stock_opname:opname_print", args=[opname.pk]),
         ]
         for url in urls:
@@ -471,13 +472,114 @@ class StockOpnameApprovalAccessTest(StockOpnameTestMixin, TestCase):
             )
         )
 
-    def test_gudang_cannot_complete_opname(self):
+    def test_gudang_can_complete_opname_without_current_discrepancy(self):
         self.client.force_login(self.gudang)
         response = self.client.post(
             reverse("stock_opname:opname_complete", args=[self.opname.pk]),
             secure=True,
         )
+        self.assertEqual(response.status_code, 302)
+        self.opname.refresh_from_db()
+        self.assertEqual(self.opname.status, StockOpname.Status.COMPLETED)
+        self.assertEqual(self.opname.completed_by, self.gudang)
+
+    def test_gudang_cannot_complete_opname_with_current_discrepancy(self):
+        self.stock.quantity = Decimal("90")
+        self.stock.save(update_fields=["quantity", "updated_at"])
+
+        self.client.force_login(self.gudang)
+        response = self.client.post(
+            reverse("stock_opname:opname_complete", args=[self.opname.pk]),
+            secure=True,
+        )
+
         self.assertEqual(response.status_code, 403)
+        self.opname.refresh_from_db()
+        self.assertEqual(self.opname.status, StockOpname.Status.IN_PROGRESS)
+        self.assertIsNone(self.opname.completed_by)
+
+    def test_complete_button_visible_for_gudang_operator_without_current_discrepancy(self):
+        self.client.force_login(self.gudang)
+        response = self.client.get(
+            reverse("stock_opname:opname_detail", args=[self.opname.pk]),
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Input Hitung")
+        self.assertContains(response, "Selesaikan")
+
+    def test_complete_button_hidden_for_gudang_operator_with_current_discrepancy(self):
+        self.stock.quantity = Decimal("90")
+        self.stock.save(update_fields=["quantity", "updated_at"])
+
+        self.client.force_login(self.gudang)
+        response = self.client.get(
+            reverse("stock_opname:opname_detail", args=[self.opname.pk]),
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Input Hitung")
+        self.assertNotContains(response, "Selesaikan")
+        self.assertContains(response, "Cetak Selisih")
+
+    def test_kepala_can_complete_opname(self):
+        kepala = User.objects.create_user(
+            username="kepala_opname",
+            password="secret12345",
+            role=User.Role.KEPALA,
+        )
+        ensure_default_module_access(kepala, overwrite=True)
+        self.client.force_login(kepala)
+
+        response = self.client.post(
+            reverse("stock_opname:opname_complete", args=[self.opname.pk]),
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.opname.refresh_from_db()
+        self.assertEqual(self.opname.status, StockOpname.Status.COMPLETED)
+        self.assertEqual(self.opname.completed_by, kepala)
+
+    def test_kepala_can_complete_opname_with_current_discrepancy(self):
+        self.stock.quantity = Decimal("90")
+        self.stock.save(update_fields=["quantity", "updated_at"])
+        kepala = User.objects.create_user(
+            username="kepala_opname_discrepancy",
+            password="secret12345",
+            role=User.Role.KEPALA,
+        )
+        ensure_default_module_access(kepala, overwrite=True)
+        self.client.force_login(kepala)
+
+        response = self.client.post(
+            reverse("stock_opname:opname_complete", args=[self.opname.pk]),
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.opname.refresh_from_db()
+        self.assertEqual(self.opname.status, StockOpname.Status.COMPLETED)
+        self.assertEqual(self.opname.completed_by, kepala)
+
+    def test_complete_button_visible_for_kepala_approver(self):
+        kepala = User.objects.create_user(
+            username="kepala_opname_button",
+            password="secret12345",
+            role=User.Role.KEPALA,
+        )
+        ensure_default_module_access(kepala, overwrite=True)
+        self.client.force_login(kepala)
+
+        response = self.client.get(
+            reverse("stock_opname:opname_detail", args=[self.opname.pk]),
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Selesaikan")
 
 
 class StockOpnameModelTests(StockOpnameTestMixin, TestCase):
@@ -562,11 +664,80 @@ class StockOpnamePresentationAndAuditTests(StockOpnameTestMixin, TestCase):
         self.assertContains(response, "DINAS KESEHATAN KABUPATEN")
         self.assertContains(response, "Instalasi Farmasi Daerah")
 
-    def test_opname_surfaces_show_source_layer_and_unit_price(self):
+    def test_detail_shows_full_stock_opname_report_button_for_gudang(self):
+        opname = self.create_opname(status=StockOpname.Status.IN_PROGRESS)
+        StockOpnameItem.objects.create(
+            stock_opname=opname,
+            stock=self.stock,
+            system_quantity=Decimal("100"),
+            actual_quantity=Decimal("100"),
+        )
+
+        self.client.force_login(self.gudang)
+        response = self.client.get(
+            reverse("stock_opname:opname_detail", args=[opname.pk]),
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Cetak Opname")
+        self.assertContains(
+            response,
+            reverse("stock_opname:opname_report_print", args=[opname.pk]),
+        )
+
+    def test_full_stock_opname_report_prints_assignee_signatures(self):
+        opname = self.create_opname(status=StockOpname.Status.IN_PROGRESS)
+        self.gudang.full_name = "Petugas Gudang Satu"
+        self.gudang.nip = "198001012006041001"
+        self.gudang.save(update_fields=["full_name", "nip"])
+        second_assignee = User.objects.create_user(
+            username="gudang_opname_report",
+            password="secret12345",
+            role=User.Role.GUDANG,
+            full_name="Petugas Gudang Dua",
+            nip="198201012006041002",
+        )
+        opname.assigned_to.add(self.gudang, second_assignee)
+        StockOpnameItem.objects.create(
+            stock_opname=opname,
+            stock=self.stock,
+            system_quantity=Decimal("100"),
+            actual_quantity=Decimal("100"),
+            notes="Cocok",
+        )
+
+        self.client.force_login(self.gudang)
+        response = self.client.get(
+            reverse("stock_opname:opname_report_print", args=[opname.pk]),
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Laporan Stock Opname")
+        self.assertContains(response, "Masker Medis")
+        self.assertContains(response, "Stok Sistem")
+        self.assertContains(response, "Stok Update")
+        self.assertContains(response, "Stok Fisik")
+        self.assertContains(response, "Mengetahui")
+        self.assertContains(response, "Kepala")
+        self.assertContains(response, "Petugas Gudang Satu")
+        self.assertContains(response, "198001012006041001")
+        self.assertContains(response, "Petugas Gudang Dua")
+        self.assertContains(response, "198201012006041002")
+        self.assertContains(response, "Cocok")
+
+    def test_opname_surfaces_show_stock_update_and_compact_columns(self):
         self.stock.source_document_number = "RCV-OPNAME-LAYER"
+        self.stock.quantity = Decimal("95")
         self.stock.unit_price = Decimal("1234.1234567890")
         self.stock.save(
-            update_fields=["source_document_number", "unit_price", "updated_at"]
+            update_fields=[
+                "source_document_number",
+                "quantity",
+                "unit_price",
+                "updated_at",
+            ]
         )
         opname = self.create_opname(status=StockOpname.Status.IN_PROGRESS)
         StockOpnameItem.objects.create(
@@ -577,7 +748,7 @@ class StockOpnamePresentationAndAuditTests(StockOpnameTestMixin, TestCase):
         )
 
         self.client.force_login(self.admin)
-        for url_name in ["opname_detail", "opname_input", "opname_print"]:
+        for url_name in ["opname_detail", "opname_input"]:
             with self.subTest(url_name=url_name):
                 response = self.client.get(
                     reverse(f"stock_opname:{url_name}", args=[opname.pk]),
@@ -585,13 +756,34 @@ class StockOpnamePresentationAndAuditTests(StockOpnameTestMixin, TestCase):
                 )
 
                 self.assertEqual(response.status_code, 200)
-                self.assertContains(response, "RCV-OPNAME-LAYER")
+                self.assertContains(response, "Stok Update")
+                self.assertContains(response, "Stok Fisik")
+                self.assertContains(response, "95")
                 self.assertContains(response, "1.234,123456789")
+                self.assertNotContains(response, "RCV-OPNAME-LAYER")
+                self.assertNotContains(response, "Dokumen Sumber")
                 self.assertNotContains(
                     response,
                     '<td class="text-end">1.234,12</td>',
                     html=True,
                 )
+        detail_response = self.client.get(
+            reverse("stock_opname:opname_detail", args=[opname.pk]),
+            secure=True,
+        )
+        self.assertContains(
+            detail_response,
+            '<span class="text-danger"><strong>0</strong> selisih</span>',
+            html=True,
+        )
+
+        print_response = self.client.get(
+            reverse("stock_opname:opname_print", args=[opname.pk]),
+            secure=True,
+        )
+        self.assertEqual(print_response.status_code, 200)
+        self.assertContains(print_response, "Tidak ada item dengan selisih.")
+        self.assertNotContains(print_response, "Masker Medis")
 
     def test_delete_completed_opname_returns_404(self):
         opname = self.create_opname(status=StockOpname.Status.COMPLETED)

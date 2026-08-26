@@ -11,6 +11,7 @@ urlpatterns = [
     path('<int:pk>/start/', views.opname_start, name='opname_start'),
     path('<int:pk>/input/', views.opname_input, name='opname_input'),
     path('<int:pk>/complete/', views.opname_complete, name='opname_complete'),
+    path('<int:pk>/report/', views.opname_report_print, name='opname_report_print'),
     path('<int:pk>/print/', views.opname_print, name='opname_print'),
     path('<int:pk>/delete/', views.opname_delete, name='opname_delete'),
 ]

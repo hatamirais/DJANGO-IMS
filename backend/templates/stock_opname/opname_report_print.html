@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+{% load number_format %}
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>Laporan Stock Opname - {{ opname.document_number }}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: "Segoe UI", Tahoma, sans-serif; font-size: 11px; color: #222; padding: 20px; }
+        h1 { font-size: 16px; text-align: center; margin-bottom: 4px; text-transform: uppercase; }
+        .subtitle { text-align: center; font-size: 12px; color: #555; margin-bottom: 16px; }
+        .meta { display: flex; justify-content: space-between; gap: 24px; margin-bottom: 12px; font-size: 11px; }
+        .meta div { flex: 1; }
+        .meta strong { display: inline-block; min-width: 110px; }
+        .summary { margin-bottom: 12px; font-size: 11px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
+        th, td { border: 1px solid #ccc; padding: 4px 6px; text-align: left; vertical-align: top; }
+        th { background: #f0f0f0; font-weight: 700; font-size: 10px; text-transform: uppercase; }
+        .text-end { text-align: right; }
+        .text-center { text-align: center; }
+        .loc-header { background: #e8e8e8; font-weight: 700; padding: 6px; border: 1px solid #ccc; margin-top: 12px; }
+        .discrepancy { color: #c0392b; font-weight: 700; }
+        .signatures { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 24px; margin-top: 28px; page-break-inside: avoid; }
+        .sign-box { width: 220px; min-height: 112px; text-align: center; }
+        .sign-role { min-height: 32px; }
+        .sign-name { border-top: 1px solid #333; margin-top: 60px; padding-top: 4px; font-weight: 700; }
+        .sign-meta { margin-top: 3px; font-size: 10px; color: #555; }
+        .no-print { margin-bottom: 16px; }
+        .no-print button { padding: 6px 16px; cursor: pointer; }
+        @media print {
+            body { padding: 10px; }
+            .no-print { display: none; }
+            th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+    </style>
+</head>
+<body>
+    <div class="no-print">
+        <button data-action="print">Cetak</button>
+        <button data-action="close" style="margin-left:8px;">Tutup</button>
+    </div>
+
+    <h1>Laporan Stock Opname</h1>
+    <div class="subtitle">
+        {% if system_settings and system_settings.header_title %}
+            {{ system_settings.header_title }}
+        {% endif %}
+        {% if system_settings and system_settings.facility_name %}
+            <br>{{ system_settings.facility_name }}
+        {% else %}
+            Healthcare Inventory Management System
+        {% endif %}
+    </div>
+
+    <div class="meta">
+        <div>
+            <strong>No. Dokumen:</strong> {{ opname.document_number }}<br>
+            <strong>Tipe Periode:</strong> {{ opname.get_period_type_display }}<br>
+            <strong>Periode:</strong> {{ opname.period_start|date:"d/m/Y" }} - {{ opname.period_end|date:"d/m/Y" }}<br>
+            <strong>Status:</strong> {{ opname.get_status_display }}
+        </div>
+        <div>
+            <strong>Dibuat Oleh:</strong> {{ opname.created_by.full_name|default:opname.created_by.username }}<br>
+            <strong>Tanggal Dibuat:</strong> {{ opname.created_at|date:"d/m/Y H:i" }}<br>
+            <strong>Tanggal Cetak:</strong> {{ print_date|date:"d/m/Y H:i" }}<br>
+            {% if opname.completed_at %}
+            <strong>Diselesaikan:</strong> {{ opname.completed_at|date:"d/m/Y H:i" }}
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="summary">
+        <strong>{{ counted_items }}</strong> / {{ total_items }} item dihitung
+        &nbsp;|&nbsp;
+        <strong class="{% if discrepancy_count > 0 %}discrepancy{% endif %}">{{ discrepancy_count }}</strong> selisih
+    </div>
+
+    {% for loc_data in locations %}
+    <div class="loc-header">{{ loc_data.location.code }} - {{ loc_data.location.name }}</div>
+    <table>
+        <thead>
+            <tr>
+                <th>Nama Barang</th>
+                <th>Tanggal Kedaluwarsa</th>
+                <th>Batch/Lot</th>
+                <th class="text-end">Harga Satuan</th>
+                <th>Satuan</th>
+                <th class="text-end">Stok Sistem</th>
+                <th class="text-end">Stok Update</th>
+                <th class="text-end">Stok Fisik</th>
+                <th class="text-end">Selisih</th>
+                <th>Catatan</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in loc_data.items %}
+            <tr>
+                <td>{{ item.stock.item.nama_barang }}</td>
+                <td>{{ item.stock.expiry_date_display }}</td>
+                <td>{{ item.stock.batch_lot }}</td>
+                <td class="text-end">{{ item.stock.unit_price|id_price_exact }}</td>
+                <td>{{ item.stock.item.satuan.name|default:"-" }}</td>
+                <td class="text-end">{{ item.system_quantity }}</td>
+                <td class="text-end">{{ item.stock.quantity }}</td>
+                <td class="text-end">
+                    {% if item.actual_quantity is not None %}{{ item.actual_quantity }}{% else %}-{% endif %}
+                </td>
+                <td class="text-end">
+                    {% if item.current_difference is not None %}
+                    <span class="{% if item.has_current_discrepancy %}discrepancy{% endif %}">{{ item.current_difference }}</span>
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+                <td>{{ item.notes|default:"" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% empty %}
+    <p style="text-align:center; padding:20px; color:#777;">Belum ada item stock opname.</p>
+    {% endfor %}
+
+    <div class="signatures">
+        <div class="sign-box">
+            <div class="sign-role">Mengetahui,<br>Kepala {{ system_settings.facility_name|default:"Instalasi Farmasi" }}</div>
+            <div class="sign-name">Nama / NIP</div>
+        </div>
+        {% for user in assigned_users %}
+        <div class="sign-box">
+            <div class="sign-role">Petugas Stock Opname,</div>
+            <div class="sign-name">{{ user.full_name|default:user.username }}</div>
+            {% if user.nip %}
+            <div class="sign-meta">NIP. {{ user.nip }}</div>
+            {% endif %}
+        </div>
+        {% empty %}
+        <div class="sign-box">
+            <div class="sign-role">Petugas Stock Opname,</div>
+            <div class="sign-name">Nama / NIP</div>
+        </div>
+        {% endfor %}
+    </div>
+<script src="/static/js/confirm-actions.js"></script>
+</body>
+</html>

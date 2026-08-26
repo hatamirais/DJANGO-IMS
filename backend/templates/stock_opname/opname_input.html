@@ -35,15 +35,14 @@
                             <thead>
                                 <tr>
                                     <th>Lokasi</th>
-                                    <th>Kode</th>
                                     <th>Nama Barang</th>
                                     <th>Tanggal Kedaluwarsa</th>
                                     <th>Batch/Lot</th>
-                                    <th>Dokumen Sumber</th>
                                     <th class="text-end">Harga Satuan</th>
                                     <th>Satuan</th>
                                     <th class="text-end">Stok Sistem</th>
-                                    <th style="width:120px;">Stok Aktual</th>
+                                    <th class="text-end">Stok Update</th>
+                                    <th style="width:120px;">Stok Fisik</th>
                                     <th style="width:200px;">Catatan</th>
                                 </tr>
                             </thead>
@@ -51,7 +50,6 @@
                                 {% for item in items %}
                                 <tr>
                                     <td><span class="badge bg-light text-dark">{{ item.stock.location.code }}</span></td>
-                                    <td><code>{{ item.stock.item.kode_barang }}</code></td>
                                     <td>{{ item.stock.item.nama_barang }}</td>
                                     <td>
                                         {% if item.stock.is_expired or item.stock.is_near_expiry %}
@@ -61,10 +59,14 @@
                                         {% endif %}
                                     </td>
                                     <td>{{ item.stock.batch_lot }}</td>
-                                    <td><code>{{ item.stock.source_document_number|default:"-" }}</code></td>
                                     <td class="text-end">{{ item.stock.unit_price|id_price_exact }}</td>
                                     <td>{{ item.stock.item.satuan.name|default:'-' }}</td>
                                     <td class="text-end">{{ item.system_quantity }}</td>
+                                    <td class="text-end">
+                                        <span class="{% if item.stock_update_matches_physical %}fw-semibold text-success{% endif %}">
+                                            {{ item.stock.quantity }}
+                                        </span>
+                                    </td>
                                     <td>
                                         <input type="number" name="qty_{{ item.pk }}" class="form-control form-control-sm {% if item.quantity_error %}is-invalid{% endif %}" step="0.01" min="0" value="{% if item.input_quantity is not None %}{{ item.input_quantity|unlocalize }}{% endif %}">
                                         {% if item.quantity_error %}
@@ -77,7 +79,7 @@
                                 </tr>
                                 {% empty %}
                                 <tr>
-                                    <td colspan="11" class="text-center text-muted py-4">Tidak ada item.</td>
+                                    <td colspan="10" class="text-center text-muted py-4">Tidak ada item.</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>

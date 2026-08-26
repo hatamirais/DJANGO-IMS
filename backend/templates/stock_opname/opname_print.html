@@ -66,15 +66,14 @@
         <thead>
             <tr>
                 <th style="width:30px;" class="text-center"><span class="checkbox"></span></th>
-                <th>Kode Barang</th>
                 <th>Nama Barang</th>
                 <th>Tanggal Kedaluwarsa</th>
                 <th>Batch/Lot</th>
-                <th>Dokumen Sumber</th>
                 <th class="text-end">Harga Satuan</th>
                 <th>Satuan</th>
                 <th class="text-end">Stok Sistem</th>
-                <th class="text-end">Stok Aktual</th>
+                <th class="text-end">Stok Update</th>
+                <th class="text-end">Stok Fisik</th>
                 <th class="text-end">Selisih</th>
                 <th>Catatan</th>
             </tr>
@@ -83,16 +82,15 @@
             {% for item in loc_data.items %}
             <tr>
                 <td class="text-center"><span class="checkbox"></span></td>
-                <td>{{ item.stock.item.kode_barang }}</td>
                 <td>{{ item.stock.item.nama_barang }}</td>
                 <td>{{ item.stock.expiry_date_display }}</td>
                 <td>{{ item.stock.batch_lot }}</td>
-                <td>{{ item.stock.source_document_number|default:'-' }}</td>
                 <td class="text-end">{{ item.stock.unit_price|id_price_exact }}</td>
                 <td>{{ item.stock.item.satuan.name|default:'-' }}</td>
                 <td class="text-end">{{ item.system_quantity }}</td>
+                <td class="text-end">{{ item.stock.quantity }}</td>
                 <td class="text-end">{{ item.actual_quantity }}</td>
-                <td class="text-end discrepancy">{{ item.difference }}</td>
+                <td class="text-end discrepancy">{{ item.current_difference }}</td>
                 <td>{{ item.notes|default:'' }}</td>
             </tr>
             {% endfor %}
