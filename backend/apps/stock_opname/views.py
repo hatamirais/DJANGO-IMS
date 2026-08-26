@@ -35,6 +35,8 @@ def _annotate_current_stock_status(item):
 def _user_can_complete_opname(user, has_current_discrepancy):
     if user.is_superuser:
         return True
+    if not has_current_discrepancy and user.has_perm("stock_opname.change_stockopname"):
+        return True
     required_scope = (
         ModuleAccess.Scope.APPROVE
         if has_current_discrepancy

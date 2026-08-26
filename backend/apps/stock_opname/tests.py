@@ -2,6 +2,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from unittest import mock
 
+from django.contrib.auth.models import Permission
 from django.db import IntegrityError
 from django.test import TestCase
 from django.urls import reverse
@@ -498,6 +499,66 @@ class StockOpnameApprovalAccessTest(StockOpnameTestMixin, TestCase):
         self.assertEqual(self.opname.status, StockOpname.Status.IN_PROGRESS)
         self.assertIsNone(self.opname.completed_by)
 
+    def test_django_permission_user_can_complete_without_current_discrepancy(self):
+        permission_user = User.objects.create_user(
+            username="django_perm_opname",
+            password="secret12345",
+            role=User.Role.ADMIN_UMUM,
+        )
+        ensure_default_module_access(permission_user, overwrite=True)
+        permission_user.user_permissions.add(
+            Permission.objects.get(codename="view_stockopname"),
+            Permission.objects.get(codename="change_stockopname"),
+        )
+        self.client.force_login(permission_user)
+
+        detail_response = self.client.get(
+            reverse("stock_opname:opname_detail", args=[self.opname.pk]),
+            secure=True,
+        )
+        post_response = self.client.post(
+            reverse("stock_opname:opname_complete", args=[self.opname.pk]),
+            secure=True,
+        )
+
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertContains(detail_response, "Selesaikan")
+        self.assertEqual(post_response.status_code, 302)
+        self.opname.refresh_from_db()
+        self.assertEqual(self.opname.status, StockOpname.Status.COMPLETED)
+        self.assertEqual(self.opname.completed_by, permission_user)
+
+    def test_django_permission_user_cannot_complete_with_current_discrepancy(self):
+        self.stock.quantity = Decimal("90")
+        self.stock.save(update_fields=["quantity", "updated_at"])
+        permission_user = User.objects.create_user(
+            username="django_perm_opname_discrepancy",
+            password="secret12345",
+            role=User.Role.ADMIN_UMUM,
+        )
+        ensure_default_module_access(permission_user, overwrite=True)
+        permission_user.user_permissions.add(
+            Permission.objects.get(codename="view_stockopname"),
+            Permission.objects.get(codename="change_stockopname"),
+        )
+        self.client.force_login(permission_user)
+
+        detail_response = self.client.get(
+            reverse("stock_opname:opname_detail", args=[self.opname.pk]),
+            secure=True,
+        )
+        post_response = self.client.post(
+            reverse("stock_opname:opname_complete", args=[self.opname.pk]),
+            secure=True,
+        )
+
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertNotContains(detail_response, "Selesaikan")
+        self.assertEqual(post_response.status_code, 403)
+        self.opname.refresh_from_db()
+        self.assertEqual(self.opname.status, StockOpname.Status.IN_PROGRESS)
+        self.assertIsNone(self.opname.completed_by)
+
     def test_complete_button_visible_for_gudang_operator_without_current_discrepancy(self):
         self.client.force_login(self.gudang)
         response = self.client.get(
@@ -685,6 +746,25 @@ class StockOpnamePresentationAndAuditTests(StockOpnameTestMixin, TestCase):
             response,
             reverse("stock_opname:opname_report_print", args=[opname.pk]),
         )
+
+    def test_detail_hides_refresh_stock_update_for_completed_opname(self):
+        opname = self.create_opname(status=StockOpname.Status.COMPLETED)
+        StockOpnameItem.objects.create(
+            stock_opname=opname,
+            stock=self.stock,
+            system_quantity=Decimal("100"),
+            actual_quantity=Decimal("100"),
+        )
+
+        self.client.force_login(self.gudang)
+        response = self.client.get(
+            reverse("stock_opname:opname_detail", args=[opname.pk]),
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Refresh Stok Update")
+        self.assertContains(response, "Cetak Opname")
 
     def test_full_stock_opname_report_prints_assignee_signatures(self):
         opname = self.create_opname(status=StockOpname.Status.IN_PROGRESS)
