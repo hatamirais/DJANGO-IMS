@@ -27,7 +27,7 @@ The format is based on Keep a Changelog and follows Semantic Versioning (`MAJOR.
 
 ### Changed
 
-- Stock opname tables now use the clearer `Stok Fisik` label, hide compacted `Kode` and `Dokumen Sumber` columns, and keep exact unit-price precision in opname views.
+- Stock opname tables now use the clearer `Stok Fisik` label, hide the compacted `Kode` column, show `Sumber Dana`, and keep `Dokumen Sumber` as compact source-layer text for row disambiguation.
 - Stock opname completion now allows `GUDANG` / operate-scope users to complete only when no refreshed current discrepancy remains; completion with remaining discrepancies still requires approve scope.
 
 ## [1.31.7] - 2026-08-24

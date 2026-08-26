@@ -69,6 +69,7 @@
                 <th>Nama Barang</th>
                 <th>Tanggal Kedaluwarsa</th>
                 <th>Batch/Lot</th>
+                <th>Sumber Dana</th>
                 <th class="text-end">Harga Satuan</th>
                 <th>Satuan</th>
                 <th class="text-end">Stok Sistem</th>
@@ -85,6 +86,10 @@
                 <td>{{ item.stock.item.nama_barang }}</td>
                 <td>{{ item.stock.expiry_date_display }}</td>
                 <td>{{ item.stock.batch_lot }}</td>
+                <td>
+                    {{ item.stock.sumber_dana.code }}<br>
+                    <small>Dok: {{ item.stock.source_document_number }}</small>
+                </td>
                 <td class="text-end">{{ item.stock.unit_price|id_price_exact }}</td>
                 <td>{{ item.stock.item.satuan.name|default:'-' }}</td>
                 <td class="text-end">{{ item.system_quantity }}</td>

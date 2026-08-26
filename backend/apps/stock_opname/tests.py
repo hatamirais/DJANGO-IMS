@@ -799,6 +799,8 @@ class StockOpnamePresentationAndAuditTests(StockOpnameTestMixin, TestCase):
         self.assertContains(response, "Stok Sistem")
         self.assertContains(response, "Stok Update")
         self.assertContains(response, "Stok Fisik")
+        self.assertContains(response, "Sumber Dana")
+        self.assertContains(response, "BOK")
         self.assertContains(response, "Mengetahui")
         self.assertContains(response, "Kepala")
         self.assertContains(response, "Petugas Gudang Satu")
@@ -838,10 +840,12 @@ class StockOpnamePresentationAndAuditTests(StockOpnameTestMixin, TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertContains(response, "Stok Update")
                 self.assertContains(response, "Stok Fisik")
+                self.assertContains(response, "Sumber Dana")
+                self.assertContains(response, "BOK")
                 self.assertContains(response, "95")
                 self.assertContains(response, "1.234,123456789")
-                self.assertNotContains(response, "RCV-OPNAME-LAYER")
-                self.assertNotContains(response, "Dokumen Sumber")
+                self.assertContains(response, "Dok: RCV-OPNAME-LAYER")
+                self.assertNotContains(response, "<th>Dokumen Sumber</th>", html=True)
                 self.assertNotContains(
                     response,
                     '<td class="text-end">1.234,12</td>',
