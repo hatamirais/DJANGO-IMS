@@ -22,6 +22,7 @@ The format is based on Keep a Changelog and follows Semantic Versioning (`MAJOR.
 - Stock opname input now accepts existing actual quantities without localized thousand separators causing validation failures.
 - Stock opname saves now redirect back to the stock opname detail page.
 - Stock opname discrepancy counts and discrepancy print reports now compare `Stok Fisik` against refreshed current stock after operational corrections, while keeping `Stok Sistem` as the frozen snapshot.
+- Completed stock opname detail and print reports now use the completion-time `Stok Update` snapshot instead of recalculating against later live stock movements.
 - Stock opname completion buttons now remain visible for Django-permission users without module-scope fallback when no refreshed discrepancy remains.
 - Completed stock opname detail pages now hide the `Refresh Stok Update` button.
 

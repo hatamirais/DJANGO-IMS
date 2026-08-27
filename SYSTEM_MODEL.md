@@ -375,7 +375,8 @@ This section reflects model code in `backend/apps/*/models.py`.
 
 - `stock_opname.StockOpnameItem` (`stock_opname_items`):
   - FKs: `stock_opname`, `stock`
-  - Fields: `system_quantity`, `actual_quantity` (nullable), `notes`, `created_at`, `updated_at`
+  - Fields: `system_quantity`, `actual_quantity` (nullable), `completion_stock_quantity` (nullable), `notes`, `created_at`, `updated_at`
+  - `system_quantity` is the frozen stock snapshot from opname start; `completion_stock_quantity` freezes the refreshed stock quantity when the opname is completed so completed views/reports do not recalculate against later live stock movements.
   - Unique: `(stock_opname, stock)`
 
 ### 4.11 Reports
@@ -507,7 +508,7 @@ Operational mutation points (from app behavior and admin import logic):
 - Recall verify decreases stock and posts `Transaction(OUT, reference_type=RECALL)`
 - Expired verify is restricted to Kepala/Admin approvers, decreases stock, and posts `Transaction(OUT, reference_type=EXPIRED)`. After verification, Gudang/Kepala/Admin users with expired operate scope may mark the document `DISPOSED` to finalize the physical disposal audit stamp without another stock mutation.
 - Stock transfer complete posts paired `OUT` and `IN` transfer transactions and adjusts source/destination stock
-- Stock opname completion requires at least one counted row and no remaining uncounted snapshot rows, records `status=COMPLETED`, `completed_by`, and `completed_at`, and does not mutate `Stock` or write `Transaction` rows. `GUDANG` / operate-scope users may complete only when the physical count matches the current refreshed stock quantity for every counted row; if any current discrepancy remains, completion requires stock-opname approve scope (`KEPALA`/Admin/superuser by default).
+- Stock opname completion requires at least one counted row and no remaining uncounted snapshot rows, records `status=COMPLETED`, `completed_by`, `completed_at`, and each row's `completion_stock_quantity`, and does not mutate `Stock` or write `Transaction` rows. `GUDANG` / operate-scope users may complete only when the physical count matches the current refreshed stock quantity for every counted row; if any current discrepancy remains, completion requires stock-opname approve scope (`KEPALA`/Admin/superuser by default). In-progress views compare `Stok Fisik` to live refreshed `Stock.quantity`; completed views and reports compare against the frozen `completion_stock_quantity`.
 - Allocation:
   - Approval phase auto-generates `Distribution(type=ALLOCATION, status=VERIFIED)` per facility and reserves the selected stock for each child distribution row
   - Stepping an approved allocation back releases those child reservations before deleting the generated distributions

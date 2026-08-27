@@ -7,7 +7,6 @@ from django.contrib import messages
 from django.core.paginator import Paginator
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import DatabaseError, transaction
-from django.db.models import F
 from django.utils import timezone
 
 from apps.core.decorators import module_scope_required, perm_required
@@ -21,12 +20,22 @@ from .forms import StockOpnameForm
 logger = logging.getLogger(__name__)
 
 
-def _annotate_current_stock_status(item):
+def _stock_update_quantity_for_item(item, opname):
+    if (
+        opname.status == StockOpname.Status.COMPLETED
+        and item.completion_stock_quantity is not None
+    ):
+        return item.completion_stock_quantity
+    return item.stock.quantity
+
+
+def _annotate_current_stock_status(item, opname):
+    item.stock_update_quantity = _stock_update_quantity_for_item(item, opname)
     item.current_difference = None
     item.has_current_discrepancy = False
     item.stock_update_matches_physical = False
     if item.actual_quantity is not None:
-        item.current_difference = item.actual_quantity - item.stock.quantity
+        item.current_difference = item.actual_quantity - item.stock_update_quantity
         item.has_current_discrepancy = item.current_difference != 0
         item.stock_update_matches_physical = item.current_difference == 0
     return item
@@ -169,7 +178,7 @@ def opname_detail(request, pk):
     # Group by location for display
     locations = {}
     for item in items:
-        _annotate_current_stock_status(item)
+        _annotate_current_stock_status(item, opname)
         loc = item.stock.location
         if loc.pk not in locations:
             locations[loc.pk] = {
@@ -341,7 +350,7 @@ def opname_input(request, pk):
         item.input_quantity = item.actual_quantity
         item.input_notes = item.notes
         item.quantity_error = ""
-        _annotate_current_stock_status(item)
+        _annotate_current_stock_status(item, opname)
 
     if request.method == "POST":
         updated_items = []
@@ -518,6 +527,14 @@ def opname_complete(request, pk):
                 opname.status = StockOpname.Status.COMPLETED
                 opname.completed_by = request.user
                 opname.completed_at = timezone.now()
+                completion_time = opname.completed_at
+                for item in counted_items:
+                    item.completion_stock_quantity = item.stock.quantity
+                    item.updated_at = completion_time
+                StockOpnameItem.objects.bulk_update(
+                    counted_items,
+                    ["completion_stock_quantity", "updated_at"],
+                )
                 opname.save(
                     update_fields=[
                         "status",
@@ -574,7 +591,7 @@ def opname_report_print(request, pk):
     counted_items = 0
     discrepancy_count = 0
     for item in items:
-        _annotate_current_stock_status(item)
+        _annotate_current_stock_status(item, opname)
         loc = item.stock.location
         if loc.pk not in locations:
             locations[loc.pk] = {
@@ -612,7 +629,7 @@ def opname_print(request, pk):
         pk=pk,
     )
 
-    discrepancy_items = (
+    items = (
         opname.items.select_related(
             "stock__item",
             "stock__item__satuan",
@@ -620,7 +637,6 @@ def opname_print(request, pk):
             "stock__sumber_dana",
         )
         .filter(actual_quantity__isnull=False)
-        .exclude(actual_quantity=F("stock__quantity"))
         .order_by(
             "stock__location__code", "stock__expiry_date", "stock__item__nama_barang"
         )
@@ -628,8 +644,12 @@ def opname_print(request, pk):
 
     # Group by location
     locations = {}
-    for item in discrepancy_items:
-        _annotate_current_stock_status(item)
+    discrepancy_list = []
+    for item in items:
+        _annotate_current_stock_status(item, opname)
+        if not item.has_current_discrepancy:
+            continue
+        discrepancy_list.append(item)
         loc = item.stock.location
         if loc.pk not in locations:
             locations[loc.pk] = {
@@ -638,9 +658,6 @@ def opname_print(request, pk):
             }
         locations[loc.pk]["items"].append(item)
 
-    # F12: discrepancy_items was already evaluated by the for-loop above;
-    # use len() to avoid a second COUNT query against the database.
-    discrepancy_list = list(discrepancy_items)  # materialise once
     return render(
         request,
         "stock_opname/opname_print.html",

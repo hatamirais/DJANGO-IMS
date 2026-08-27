@@ -106,7 +106,7 @@
                 <td class="text-end">{{ item.stock.unit_price|id_price_exact }}</td>
                 <td>{{ item.stock.item.satuan.name|default:"-" }}</td>
                 <td class="text-end">{{ item.system_quantity }}</td>
-                <td class="text-end">{{ item.stock.quantity }}</td>
+                <td class="text-end">{{ item.stock_update_quantity }}</td>
                 <td class="text-end">
                     {% if item.actual_quantity is not None %}{{ item.actual_quantity }}{% else %}-{% endif %}
                 </td>

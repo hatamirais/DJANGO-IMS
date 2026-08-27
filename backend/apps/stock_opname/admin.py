@@ -5,7 +5,13 @@ from .models import StockOpname, StockOpnameItem
 class StockOpnameItemInline(admin.TabularInline):
     model = StockOpnameItem
     extra = 0
-    readonly_fields = ('stock', 'system_quantity', 'actual_quantity', 'notes')
+    readonly_fields = (
+        'stock',
+        'system_quantity',
+        'completion_stock_quantity',
+        'actual_quantity',
+        'notes',
+    )
 
 
 @admin.register(StockOpname)

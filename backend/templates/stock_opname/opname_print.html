@@ -93,7 +93,7 @@
                 <td class="text-end">{{ item.stock.unit_price|id_price_exact }}</td>
                 <td>{{ item.stock.item.satuan.name|default:'-' }}</td>
                 <td class="text-end">{{ item.system_quantity }}</td>
-                <td class="text-end">{{ item.stock.quantity }}</td>
+                <td class="text-end">{{ item.stock_update_quantity }}</td>
                 <td class="text-end">{{ item.actual_quantity }}</td>
                 <td class="text-end discrepancy">{{ item.current_difference }}</td>
                 <td>{{ item.notes|default:'' }}</td>
