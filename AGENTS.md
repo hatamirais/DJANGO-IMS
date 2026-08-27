@@ -43,7 +43,7 @@ Schema: `backend/apps/*/models.py`. Routes: `backend/config/urls.py` + `backend/
 | `allocation` | Pre-distribution planning that generates reserved facility-level child distributions. |
 | `recall` | Supplier return workflow. |
 | `expired` | Expired/disposal workflow and alerts. |
-| `stock_opname` | Physical stock counting workflow. |
+| `stock_opname` | Physical stock counting workflow with frozen start and completion quantity checkpoints. |
 | `puskesmas` | Facility-scoped requests, receipt confirmations, subunit master data, consumption input, and stock self-checks. |
 | `lplpo` | Monthly Puskesmas reporting and stock request workflow. |
 | `reports` | Report index, rekap, receiving/procurement/expiry/outbound reports, numbering history, and Puskesmas inventory reports. |
@@ -63,6 +63,8 @@ Super Admin (`is_superuser` / role `ADMIN`) remains exempt from `puskesmas` and 
 `/settings/` is not governed by module-scope fallback. It is an explicit role-gated `core` view that allows only superusers plus users whose role is `ADMIN` or `KEPALA`.
 
 `AUDITOR` keeps read-only module scopes for direct authorized pages; its sidebar is report-focused and only renders the `Laporan` group. Its dashboard hides linked drill-through components that open operational menu pages.
+
+Stock opname completion is split by current discrepancy state: `GUDANG` / operate-scope users may complete when refreshed current stock matches the physical count for all rows, while completion with any remaining discrepancy requires stock-opname approve scope (`KEPALA`/Admin/superuser by default). Completion stores each row's refreshed stock quantity so completed detail and print reports do not drift when later workflows change live `Stock.quantity`.
 
 ## Cross-App Data Flow
 

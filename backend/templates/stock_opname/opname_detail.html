@@ -84,6 +84,11 @@
                         {% endif %}
                     </div>
                     <div class="d-flex gap-2">
+                        {% if opname.status == "IN_PROGRESS" %}
+                        <a href="{% url 'stock_opname:opname_detail' opname.pk %}" class="btn btn-outline-primary btn-sm">
+                            <i class="bi bi-arrow-clockwise me-1"></i>Refresh Stok Update
+                        </a>
+                        {% endif %}
                         {% if opname.status == "DRAFT" %}
                         <form method="post" action="{% url 'stock_opname:opname_start' opname.pk %}">
                             {% csrf_token %}
@@ -95,12 +100,19 @@
                         <a href="{% url 'stock_opname:opname_input' opname.pk %}" class="btn btn-primary btn-sm">
                             <i class="bi bi-pencil-square me-1"></i>Input Hitung
                         </a>
+                        {% if can_complete_opname %}
                         <form method="post" action="{% url 'stock_opname:opname_complete' opname.pk %}">
                             {% csrf_token %}
                             <button type="submit" class="btn btn-success btn-sm" data-confirm-click="Selesaikan stock opname ini?">
                                 <i class="bi bi-check-circle me-1"></i>Selesaikan
                             </button>
                         </form>
+                        {% endif %}
+                        {% endif %}
+                        {% if opname.status != "DRAFT" %}
+                        <a href="{% url 'stock_opname:opname_report_print' opname.pk %}" class="btn btn-outline-dark btn-sm" target="_blank">
+                            <i class="bi bi-printer me-1"></i>Cetak Opname
+                        </a>
                         {% endif %}
                         {% if opname.status != "DRAFT" and discrepancy_count > 0 %}
                         <a href="{% url 'stock_opname:opname_print' opname.pk %}" class="btn btn-outline-secondary btn-sm" target="_blank">
@@ -124,23 +136,22 @@
                 <table class="table table-sm table-hover align-middle mb-0">
                     <thead>
                         <tr>
-                            <th>Kode</th>
                             <th>Nama Barang</th>
                             <th>Tanggal Kedaluwarsa</th>
                             <th>Batch/Lot</th>
-                            <th>Dokumen Sumber</th>
+                            <th>Sumber Dana</th>
                             <th class="text-end">Harga Satuan</th>
                             <th>Satuan</th>
                             <th class="text-end">Stok Sistem</th>
-                            <th class="text-end">Stok Aktual</th>
+                            <th class="text-end">Stok Update</th>
+                            <th class="text-end">Stok Fisik</th>
                             <th class="text-end">Selisih</th>
                             <th>Catatan</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for item in loc_data.items %}
-                        <tr class="{% if item.has_discrepancy %}table-warning{% endif %}">
-                            <td><code>{{ item.stock.item.kode_barang }}</code></td>
+                        <tr class="{% if item.has_current_discrepancy %}table-warning{% endif %}">
                             <td>{{ item.stock.item.nama_barang }}</td>
                             <td>
                                 {% if item.stock.is_expired or item.stock.is_near_expiry %}
@@ -150,10 +161,18 @@
                                 {% endif %}
                             </td>
                             <td>{{ item.stock.batch_lot }}</td>
-                            <td><code>{{ item.stock.source_document_number|default:"-" }}</code></td>
+                            <td>
+                                <div>{{ item.stock.sumber_dana.code }}</div>
+                                <div class="small text-muted">Dok: {{ item.stock.source_document_number }}</div>
+                            </td>
                             <td class="text-end">{{ item.stock.unit_price|id_price_exact }}</td>
                             <td>{{ item.stock.item.satuan.name|default:"-" }}</td>
                             <td class="text-end">{{ item.system_quantity }}</td>
+                            <td class="text-end">
+                                <span class="{% if item.stock_update_matches_physical %}fw-semibold text-success{% endif %}">
+                                    {{ item.stock_update_quantity }}
+                                </span>
+                            </td>
                             <td class="text-end">
                                 {% if item.actual_quantity is not None %}
                                 {{ item.actual_quantity }}
@@ -162,8 +181,8 @@
                                 {% endif %}
                             </td>
                             <td class="text-end">
-                                {% if item.difference is not None %}
-                                <span class="{% if item.has_discrepancy %}fw-bold text-danger{% endif %}">{{ item.difference }}</span>
+                                {% if item.current_difference is not None %}
+                                <span class="{% if item.has_current_discrepancy %}fw-bold text-danger{% endif %}">{{ item.current_difference }}</span>
                                 {% else %}
                                 <span class="text-muted">-</span>
                                 {% endif %}

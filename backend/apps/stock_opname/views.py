@@ -5,19 +5,57 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.core.paginator import Paginator
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import DatabaseError, transaction
-from django.db.models import F
 from django.utils import timezone
 
 from apps.core.decorators import module_scope_required, perm_required
 from apps.stock.models import Stock
+from apps.users.access import has_module_scope
 from apps.users.models import ModuleAccess
 
 from .models import StockOpname, StockOpnameItem
 from .forms import StockOpnameForm
 
 logger = logging.getLogger(__name__)
+
+
+def _stock_update_quantity_for_item(item, opname):
+    if (
+        opname.status == StockOpname.Status.COMPLETED
+        and item.completion_stock_quantity is not None
+    ):
+        return item.completion_stock_quantity
+    return item.stock.quantity
+
+
+def _annotate_current_stock_status(item, opname):
+    item.stock_update_quantity = _stock_update_quantity_for_item(item, opname)
+    item.current_difference = None
+    item.has_current_discrepancy = False
+    item.stock_update_matches_physical = False
+    if item.actual_quantity is not None:
+        item.current_difference = item.actual_quantity - item.stock_update_quantity
+        item.has_current_discrepancy = item.current_difference != 0
+        item.stock_update_matches_physical = item.current_difference == 0
+    return item
+
+
+def _user_can_complete_opname(user, has_current_discrepancy):
+    if user.is_superuser:
+        return True
+    if not has_current_discrepancy and user.has_perm("stock_opname.change_stockopname"):
+        return True
+    required_scope = (
+        ModuleAccess.Scope.APPROVE
+        if has_current_discrepancy
+        else ModuleAccess.Scope.OPERATE
+    )
+    return has_module_scope(
+        user,
+        ModuleAccess.Module.STOCK_OPNAME,
+        required_scope,
+    )
 
 
 @login_required
@@ -140,6 +178,7 @@ def opname_detail(request, pk):
     # Group by location for display
     locations = {}
     for item in items:
+        _annotate_current_stock_status(item, opname)
         loc = item.stock.location
         if loc.pk not in locations:
             locations[loc.pk] = {
@@ -153,7 +192,7 @@ def opname_detail(request, pk):
         locations[loc.pk]["total"] += 1
         if item.actual_quantity is not None:
             locations[loc.pk]["counted"] += 1
-            if item.has_discrepancy:
+            if item.has_current_discrepancy:
                 locations[loc.pk]["discrepancies"] += 1
 
     # F11: Compute summary from the already-evaluated `items` queryset so we
@@ -163,9 +202,13 @@ def opname_detail(request, pk):
     counted_items = sum(1 for i in items_list if i.actual_quantity is not None)
     discrepancy_count = sum(
         1 for i in items_list
-        if i.actual_quantity is not None and i.has_discrepancy
+        if i.actual_quantity is not None and i.has_current_discrepancy
     )
     progress = int((counted_items / total_items) * 100) if total_items > 0 else 0
+    can_complete_opname = _user_can_complete_opname(
+        request.user,
+        discrepancy_count > 0,
+    )
 
     return render(
         request,
@@ -177,6 +220,7 @@ def opname_detail(request, pk):
             "counted_items": counted_items,
             "discrepancy_count": discrepancy_count,
             "progress": progress,
+            "can_complete_opname": can_complete_opname,
         },
     )
 
@@ -306,6 +350,7 @@ def opname_input(request, pk):
         item.input_quantity = item.actual_quantity
         item.input_notes = item.notes
         item.quantity_error = ""
+        _annotate_current_stock_status(item, opname)
 
     if request.method == "POST":
         updated_items = []
@@ -434,7 +479,6 @@ def opname_input(request, pk):
 
 @login_required
 @perm_required("stock_opname.change_stockopname")
-@module_scope_required(ModuleAccess.Module.STOCK_OPNAME, ModuleAccess.Scope.APPROVE)
 def opname_complete(request, pk):
     """Finalize a stock opname session."""
     opname = get_object_or_404(StockOpname, pk=pk)
@@ -443,10 +487,10 @@ def opname_complete(request, pk):
         try:
             with transaction.atomic():
                 opname = StockOpname.objects.select_for_update().get(pk=pk)
-                actual_quantities = list(
+                counted_items = list(
                     opname.items.select_for_update()
+                    .select_related("stock")
                     .order_by("pk")
-                    .values_list("actual_quantity", flat=True)
                 )
                 if opname.status != StockOpname.Status.IN_PROGRESS:
                     messages.error(
@@ -454,24 +498,43 @@ def opname_complete(request, pk):
                         "Stock Opname ini sudah diselesaikan atau belum dimulai.",
                     )
                     return redirect("stock_opname:opname_detail", pk=opname.pk)
-                if not actual_quantities or all(
-                    quantity is None for quantity in actual_quantities
+                if not counted_items or all(
+                    item.actual_quantity is None for item in counted_items
                 ):
                     messages.error(
                         request,
                         "Stock Opname belum dapat diselesaikan karena belum ada item yang dihitung.",
                     )
                     return redirect("stock_opname:opname_detail", pk=opname.pk)
-                if any(quantity is None for quantity in actual_quantities):
+                if any(item.actual_quantity is None for item in counted_items):
                     messages.error(
                         request,
                         "Stock Opname belum dapat diselesaikan karena masih ada item yang belum dihitung.",
                     )
                     return redirect("stock_opname:opname_detail", pk=opname.pk)
+                has_current_discrepancy = any(
+                    item.actual_quantity != item.stock.quantity
+                    for item in counted_items
+                )
+                if has_current_discrepancy and not _user_can_complete_opname(
+                    request.user,
+                    has_current_discrepancy=True,
+                ):
+                    raise PermissionDenied(
+                        "Stock Opname dengan selisih hanya dapat diselesaikan oleh approver."
+                    )
 
                 opname.status = StockOpname.Status.COMPLETED
                 opname.completed_by = request.user
                 opname.completed_at = timezone.now()
+                completion_time = opname.completed_at
+                for item in counted_items:
+                    item.completion_stock_quantity = item.stock.quantity
+                    item.updated_at = completion_time
+                StockOpnameItem.objects.bulk_update(
+                    counted_items,
+                    ["completion_stock_quantity", "updated_at"],
+                )
                 opname.save(
                     update_fields=[
                         "status",
@@ -503,14 +566,70 @@ def opname_complete(request, pk):
 
 @login_required
 @perm_required("stock_opname.view_stockopname")
+def opname_report_print(request, pk):
+    """Printable full stock opname report."""
+    opname = get_object_or_404(
+        StockOpname.objects.select_related("created_by", "completed_by")
+        .prefetch_related("assigned_to"),
+        pk=pk,
+    )
+
+    items = (
+        opname.items.select_related(
+            "stock__item",
+            "stock__item__satuan",
+            "stock__location",
+            "stock__sumber_dana",
+        )
+        .order_by(
+            "stock__location__code", "stock__expiry_date", "stock__item__nama_barang"
+        )
+    )
+
+    locations = {}
+    total_items = 0
+    counted_items = 0
+    discrepancy_count = 0
+    for item in items:
+        _annotate_current_stock_status(item, opname)
+        loc = item.stock.location
+        if loc.pk not in locations:
+            locations[loc.pk] = {
+                "location": loc,
+                "items": [],
+            }
+        locations[loc.pk]["items"].append(item)
+        total_items += 1
+        if item.actual_quantity is not None:
+            counted_items += 1
+            if item.has_current_discrepancy:
+                discrepancy_count += 1
+
+    return render(
+        request,
+        "stock_opname/opname_report_print.html",
+        {
+            "opname": opname,
+            "locations": locations.values(),
+            "assigned_users": opname.assigned_to.all(),
+            "total_items": total_items,
+            "counted_items": counted_items,
+            "discrepancy_count": discrepancy_count,
+            "print_date": timezone.now(),
+        },
+    )
+
+
+@login_required
+@perm_required("stock_opname.view_stockopname")
 def opname_print(request, pk):
-    """Printable discrepancy report — shows only items where actual ≠ system."""
+    """Printable discrepancy report — shows only items where physical count differs from current stock."""
     opname = get_object_or_404(
         StockOpname.objects.select_related("created_by", "completed_by"),
         pk=pk,
     )
 
-    discrepancy_items = (
+    items = (
         opname.items.select_related(
             "stock__item",
             "stock__item__satuan",
@@ -518,7 +637,6 @@ def opname_print(request, pk):
             "stock__sumber_dana",
         )
         .filter(actual_quantity__isnull=False)
-        .exclude(actual_quantity=F("system_quantity"))
         .order_by(
             "stock__location__code", "stock__expiry_date", "stock__item__nama_barang"
         )
@@ -526,7 +644,12 @@ def opname_print(request, pk):
 
     # Group by location
     locations = {}
-    for item in discrepancy_items:
+    discrepancy_list = []
+    for item in items:
+        _annotate_current_stock_status(item, opname)
+        if not item.has_current_discrepancy:
+            continue
+        discrepancy_list.append(item)
         loc = item.stock.location
         if loc.pk not in locations:
             locations[loc.pk] = {
@@ -535,9 +658,6 @@ def opname_print(request, pk):
             }
         locations[loc.pk]["items"].append(item)
 
-    # F12: discrepancy_items was already evaluated by the for-loop above;
-    # use len() to avoid a second COUNT query against the database.
-    discrepancy_list = list(discrepancy_items)  # materialise once
     return render(
         request,
         "stock_opname/opname_print.html",

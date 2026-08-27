@@ -5,7 +5,13 @@ from .models import StockOpname, StockOpnameItem
 class StockOpnameItemInline(admin.TabularInline):
     model = StockOpnameItem
     extra = 0
-    readonly_fields = ('stock', 'system_quantity', 'actual_quantity', 'notes')
+    readonly_fields = (
+        'stock',
+        'system_quantity',
+        'completion_stock_quantity',
+        'actual_quantity',
+        'notes',
+    )
 
 
 @admin.register(StockOpname)
@@ -20,6 +26,12 @@ class StockOpnameAdmin(admin.ModelAdmin):
     inlines = [StockOpnameItemInline]
     date_hierarchy = 'created_at'
     list_per_page = 25
+    workflow_readonly_fields = (
+        'status',
+        'created_by',
+        'completed_by',
+        'completed_at',
+    )
 
     @admin.display(description='Ditugaskan Kepada')
     def get_assigned_to(self, obj):
@@ -35,4 +47,17 @@ class StockOpnameAdmin(admin.ModelAdmin):
             .select_related('created_by')
             .prefetch_related('assigned_to')
         )
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly_fields = list(super().get_readonly_fields(request, obj))
+        readonly_fields.extend(self.workflow_readonly_fields)
+        return tuple(dict.fromkeys(readonly_fields))
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.status = StockOpname.Status.DRAFT
+            obj.created_by = request.user
+            obj.completed_by = None
+            obj.completed_at = None
+        super().save_model(request, obj, form, change)
 

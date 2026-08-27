@@ -139,7 +139,14 @@ class StockOpname(TimeStampedModel):
 
     @property
     def discrepancy_items(self):
-        return self.items.exclude(actual_quantity=models.F('system_quantity')).filter(actual_quantity__isnull=False)
+        items = self.items.filter(actual_quantity__isnull=False)
+        if self.status == self.Status.COMPLETED:
+            return items.filter(
+                completion_stock_quantity__isnull=False,
+            ).exclude(
+                actual_quantity=models.F('completion_stock_quantity'),
+            )
+        return items.exclude(actual_quantity=models.F('stock__quantity'))
 
     @property
     def discrepancy_count(self):
@@ -177,6 +184,13 @@ class StockOpnameItem(TimeStampedModel):
         null=True,
         blank=True,
         help_text='Actual counted quantity by staff',
+    )
+    completion_stock_quantity = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text='Frozen stock quantity when the opname was completed',
     )
     notes = models.TextField(blank=True, help_text='Catatan jika ada selisih')
 
