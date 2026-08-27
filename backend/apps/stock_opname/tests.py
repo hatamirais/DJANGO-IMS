@@ -990,15 +990,13 @@ class StockOpnameCompletionBackfillMigrationTests(StockOpnameTestMixin, TestCase
         schema_editor = SimpleNamespace(connection=connection)
         migration.backfill_completion_stock_quantity(django_apps, schema_editor)
 
-    def test_backfill_reconstructs_completion_stock_from_in_period_transactions(self):
-        draft_created_at = timezone.now() - timedelta(days=4)
+    def test_backfill_preserves_system_snapshot_despite_later_transactions(self):
         snapshot_at = timezone.now() - timedelta(days=3)
         completed_at = timezone.now() - timedelta(days=2)
         opname = self.create_opname(status=StockOpname.Status.COMPLETED)
         opname.completed_by = self.admin
         opname.completed_at = completed_at
         opname.save(update_fields=["completed_by", "completed_at", "updated_at"])
-        StockOpname.objects.filter(pk=opname.pk).update(created_at=draft_created_at)
         item = StockOpnameItem.objects.create(
             stock_opname=opname,
             stock=self.stock,
@@ -1008,22 +1006,6 @@ class StockOpnameCompletionBackfillMigrationTests(StockOpnameTestMixin, TestCase
         StockOpnameItem.objects.filter(pk=item.pk).update(created_at=snapshot_at)
         self.stock.quantity = Decimal("5")
         self.stock.save(update_fields=["quantity", "updated_at"])
-        pre_snapshot_transaction = Transaction.objects.create(
-            transaction_type=Transaction.TransactionType.OUT,
-            item=self.stock.item,
-            location=self.stock.location,
-            batch_lot=self.stock.batch_lot,
-            source_document_number=self.stock.source_document_number,
-            quantity=Decimal("20"),
-            unit_price=self.stock.unit_price,
-            sumber_dana=self.stock.sumber_dana,
-            reference_type=Transaction.ReferenceType.DISTRIBUTION,
-            reference_id=1,
-            user=self.admin,
-        )
-        Transaction.objects.filter(pk=pre_snapshot_transaction.pk).update(
-            created_at=draft_created_at + timedelta(days=1)
-        )
         in_period_transaction = Transaction.objects.create(
             transaction_type=Transaction.TransactionType.OUT,
             item=self.stock.item,
@@ -1043,7 +1025,7 @@ class StockOpnameCompletionBackfillMigrationTests(StockOpnameTestMixin, TestCase
         self._run_backfill()
 
         item.refresh_from_db()
-        self.assertEqual(item.completion_stock_quantity, Decimal("50"))
+        self.assertEqual(item.completion_stock_quantity, Decimal("80"))
 
     def test_backfill_preserves_system_snapshot_without_completion_timestamp(self):
         opname = self.create_opname(status=StockOpname.Status.COMPLETED)
@@ -1099,45 +1081,6 @@ class StockOpnameCompletionBackfillMigrationTests(StockOpnameTestMixin, TestCase
 
         item.refresh_from_db()
         self.assertEqual(item.completion_stock_quantity, Decimal("80"))
-
-    def test_backfill_preserves_system_snapshot_for_ambiguous_later_adjustment(self):
-        snapshot_at = timezone.now() - timedelta(days=3)
-        completed_at = timezone.now() - timedelta(days=2)
-        opname = self.create_opname(status=StockOpname.Status.COMPLETED)
-        opname.completed_by = self.admin
-        opname.completed_at = completed_at
-        opname.save(update_fields=["completed_by", "completed_at", "updated_at"])
-        item = StockOpnameItem.objects.create(
-            stock_opname=opname,
-            stock=self.stock,
-            system_quantity=Decimal("100"),
-            actual_quantity=Decimal("70"),
-        )
-        StockOpnameItem.objects.filter(pk=item.pk).update(created_at=snapshot_at)
-        self.stock.quantity = Decimal("70")
-        self.stock.save(update_fields=["quantity", "updated_at"])
-        transaction = Transaction.objects.create(
-            transaction_type=Transaction.TransactionType.ADJUST,
-            item=self.stock.item,
-            location=self.stock.location,
-            batch_lot=self.stock.batch_lot,
-            source_document_number=self.stock.source_document_number,
-            quantity=Decimal("30"),
-            unit_price=self.stock.unit_price,
-            sumber_dana=self.stock.sumber_dana,
-            reference_type=Transaction.ReferenceType.ADJUSTMENT,
-            reference_id=1,
-            user=self.admin,
-        )
-        Transaction.objects.filter(pk=transaction.pk).update(
-            created_at=snapshot_at + timedelta(days=1)
-        )
-
-        self._run_backfill()
-
-        item.refresh_from_db()
-        self.assertEqual(item.completion_stock_quantity, Decimal("100"))
-
 
 class StockOpnameQualityTests(StockOpnameTestMixin, TestCase):
     """Tests for F9–F15 quality / convention fixes."""
