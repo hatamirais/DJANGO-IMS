@@ -1302,3 +1302,31 @@ class StockOpnameQualityTests(StockOpnameTestMixin, TestCase):
         self.assertIn("completed_by", readonly_fields)
         self.assertIn("completed_at", readonly_fields)
 
+    def test_admin_new_opname_forces_draft_workflow_state(self):
+        from django.contrib.admin.sites import AdminSite
+        from apps.stock_opname.admin import StockOpnameAdmin
+
+        ma = StockOpnameAdmin(StockOpname, AdminSite())
+        request = mock.Mock(user=self.admin)
+        readonly_fields = ma.get_readonly_fields(request, None)
+        opname = StockOpname(
+            period_type=StockOpname.PeriodType.MONTHLY,
+            period_start=date(2026, 4, 1),
+            period_end=date(2026, 4, 30),
+            status=StockOpname.Status.COMPLETED,
+            completed_by=self.gudang,
+            completed_at=timezone.now(),
+        )
+
+        ma.save_model(request, opname, mock.Mock(), change=False)
+
+        opname.refresh_from_db()
+        self.assertIn("status", readonly_fields)
+        self.assertIn("created_by", readonly_fields)
+        self.assertIn("completed_by", readonly_fields)
+        self.assertIn("completed_at", readonly_fields)
+        self.assertEqual(opname.status, StockOpname.Status.DRAFT)
+        self.assertEqual(opname.created_by, self.admin)
+        self.assertIsNone(opname.completed_by)
+        self.assertIsNone(opname.completed_at)
+

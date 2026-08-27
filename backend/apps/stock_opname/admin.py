@@ -50,7 +50,14 @@ class StockOpnameAdmin(admin.ModelAdmin):
 
     def get_readonly_fields(self, request, obj=None):
         readonly_fields = list(super().get_readonly_fields(request, obj))
-        if obj is not None:
-            readonly_fields.extend(self.workflow_readonly_fields)
+        readonly_fields.extend(self.workflow_readonly_fields)
         return tuple(dict.fromkeys(readonly_fields))
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.status = StockOpname.Status.DRAFT
+            obj.created_by = request.user
+            obj.completed_by = None
+            obj.completed_at = None
+        super().save_model(request, obj, form, change)
 
