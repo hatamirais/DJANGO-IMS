@@ -1061,6 +1061,45 @@ class StockOpnameCompletionBackfillMigrationTests(StockOpnameTestMixin, TestCase
         item.refresh_from_db()
         self.assertEqual(item.completion_stock_quantity, Decimal("100"))
 
+    def test_backfill_preserves_system_snapshot_for_synthetic_legacy_item_timestamp(self):
+        draft_created_at = timezone.now() - timedelta(days=4)
+        completed_at = timezone.now() - timedelta(days=2)
+        opname = self.create_opname(status=StockOpname.Status.COMPLETED)
+        opname.completed_by = self.admin
+        opname.completed_at = completed_at
+        opname.save(update_fields=["completed_by", "completed_at", "updated_at"])
+        StockOpname.objects.filter(pk=opname.pk).update(created_at=draft_created_at)
+        item = StockOpnameItem.objects.create(
+            stock_opname=opname,
+            stock=self.stock,
+            system_quantity=Decimal("80"),
+            actual_quantity=Decimal("50"),
+        )
+        StockOpnameItem.objects.filter(pk=item.pk).update(created_at=draft_created_at)
+        self.stock.quantity = Decimal("5")
+        self.stock.save(update_fields=["quantity", "updated_at"])
+        transaction = Transaction.objects.create(
+            transaction_type=Transaction.TransactionType.OUT,
+            item=self.stock.item,
+            location=self.stock.location,
+            batch_lot=self.stock.batch_lot,
+            source_document_number=self.stock.source_document_number,
+            quantity=Decimal("30"),
+            unit_price=self.stock.unit_price,
+            sumber_dana=self.stock.sumber_dana,
+            reference_type=Transaction.ReferenceType.DISTRIBUTION,
+            reference_id=1,
+            user=self.admin,
+        )
+        Transaction.objects.filter(pk=transaction.pk).update(
+            created_at=draft_created_at + timedelta(days=1)
+        )
+
+        self._run_backfill()
+
+        item.refresh_from_db()
+        self.assertEqual(item.completion_stock_quantity, Decimal("80"))
+
     def test_backfill_preserves_system_snapshot_for_ambiguous_later_adjustment(self):
         snapshot_at = timezone.now() - timedelta(days=3)
         completed_at = timezone.now() - timedelta(days=2)
@@ -1248,4 +1287,18 @@ class StockOpnameQualityTests(StockOpnameTestMixin, TestCase):
         self.assertIn("created_by", qs.query.select_related)
         # prefetch_related stores a list of lookups
         self.assertIn("assigned_to", qs._prefetch_related_lookups)
+
+    def test_admin_existing_opname_makes_workflow_fields_read_only(self):
+        from django.contrib.admin.sites import AdminSite
+        from apps.stock_opname.admin import StockOpnameAdmin
+
+        ma = StockOpnameAdmin(StockOpname, AdminSite())
+        opname = self.create_opname(status=StockOpname.Status.IN_PROGRESS)
+
+        readonly_fields = ma.get_readonly_fields(mock.Mock(), opname)
+
+        self.assertIn("status", readonly_fields)
+        self.assertIn("created_by", readonly_fields)
+        self.assertIn("completed_by", readonly_fields)
+        self.assertIn("completed_at", readonly_fields)
 

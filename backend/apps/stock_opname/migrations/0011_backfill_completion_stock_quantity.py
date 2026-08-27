@@ -37,11 +37,22 @@ def batched(iterable, size):
         yield batch
 
 
+def has_authentic_snapshot_timestamp(item):
+    if not item.created_at or not item.stock_opname.completed_at:
+        return False
+    if (
+        item.stock_opname.created_at
+        and item.created_at == item.stock_opname.created_at
+    ):
+        return False
+    return True
+
+
 def transactions_by_layer_for_items(items, Transaction, db_alias):
     dated_items = [
         item
         for item in items
-        if item.created_at and item.stock_opname.completed_at
+        if has_authentic_snapshot_timestamp(item)
     ]
     if not dated_items:
         return {}
@@ -87,7 +98,7 @@ def reconstructed_completion_quantity(item, transactions_by_layer):
     stock = item.stock
     snapshot_at = item.created_at
     completed_at = item.stock_opname.completed_at
-    if not snapshot_at or not completed_at:
+    if not has_authentic_snapshot_timestamp(item):
         return item.system_quantity
 
     quantity = item.system_quantity
