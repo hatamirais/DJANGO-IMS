@@ -41,7 +41,7 @@ def transactions_by_layer_for_items(items, Transaction, db_alias):
     dated_items = [
         item
         for item in items
-        if item.stock_opname.created_at and item.stock_opname.completed_at
+        if item.created_at and item.stock_opname.completed_at
     ]
     if not dated_items:
         return {}
@@ -58,9 +58,7 @@ def transactions_by_layer_for_items(items, Transaction, db_alias):
                 stock.source_document_number for stock in stocks
             },
             sumber_dana_id__in={stock.sumber_dana_id for stock in stocks},
-            created_at__gt=min(
-                item.stock_opname.created_at for item in dated_items
-            ),
+            created_at__gt=min(item.created_at for item in dated_items),
             created_at__lte=max(
                 item.stock_opname.completed_at for item in dated_items
             ),
@@ -87,18 +85,18 @@ def transactions_by_layer_for_items(items, Transaction, db_alias):
 
 def reconstructed_completion_quantity(item, transactions_by_layer):
     stock = item.stock
-    created_at = item.stock_opname.created_at
+    snapshot_at = item.created_at
     completed_at = item.stock_opname.completed_at
-    if not created_at or not completed_at:
+    if not snapshot_at or not completed_at:
         return item.system_quantity
 
     quantity = item.system_quantity
     transactions = transactions_by_layer.get(stock_layer_key(stock), [])
 
-    # Start from the frozen opname creation snapshot and replay ledger movements
+    # Start from the frozen item snapshot and replay ledger movements
     # up to completion. This avoids trusting mutable live Stock.quantity.
     for transaction in transactions:
-        if not created_at < transaction.created_at <= completed_at:
+        if not snapshot_at < transaction.created_at <= completed_at:
             continue
         if transaction.transaction_type in STOCK_INCREASE_TYPES:
             quantity += transaction.quantity
