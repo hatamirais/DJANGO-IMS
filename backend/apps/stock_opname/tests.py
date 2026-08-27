@@ -990,21 +990,23 @@ class StockOpnameCompletionBackfillMigrationTests(StockOpnameTestMixin, TestCase
         schema_editor = SimpleNamespace(connection=connection)
         migration.backfill_completion_stock_quantity(django_apps, schema_editor)
 
-    def test_backfill_reconstructs_completion_stock_from_later_transactions(self):
+    def test_backfill_reconstructs_completion_stock_from_in_period_transactions(self):
+        started_at = timezone.now() - timedelta(days=3)
         completed_at = timezone.now() - timedelta(days=2)
         opname = self.create_opname(status=StockOpname.Status.COMPLETED)
         opname.completed_by = self.admin
         opname.completed_at = completed_at
         opname.save(update_fields=["completed_by", "completed_at", "updated_at"])
+        StockOpname.objects.filter(pk=opname.pk).update(created_at=started_at)
         item = StockOpnameItem.objects.create(
             stock_opname=opname,
             stock=self.stock,
             system_quantity=Decimal("100"),
-            actual_quantity=Decimal("100"),
+            actual_quantity=Decimal("70"),
         )
-        self.stock.quantity = Decimal("70")
+        self.stock.quantity = Decimal("5")
         self.stock.save(update_fields=["quantity", "updated_at"])
-        transaction = Transaction.objects.create(
+        in_period_transaction = Transaction.objects.create(
             transaction_type=Transaction.TransactionType.OUT,
             item=self.stock.item,
             location=self.stock.location,
@@ -1017,14 +1019,13 @@ class StockOpnameCompletionBackfillMigrationTests(StockOpnameTestMixin, TestCase
             reference_id=1,
             user=self.admin,
         )
-        Transaction.objects.filter(pk=transaction.pk).update(
-            created_at=completed_at + timedelta(days=1)
+        Transaction.objects.filter(pk=in_period_transaction.pk).update(
+            created_at=started_at + timedelta(days=1)
         )
-
         self._run_backfill()
 
         item.refresh_from_db()
-        self.assertEqual(item.completion_stock_quantity, Decimal("100"))
+        self.assertEqual(item.completion_stock_quantity, Decimal("70"))
 
     def test_backfill_preserves_system_snapshot_without_completion_timestamp(self):
         opname = self.create_opname(status=StockOpname.Status.COMPLETED)
@@ -1043,11 +1044,13 @@ class StockOpnameCompletionBackfillMigrationTests(StockOpnameTestMixin, TestCase
         self.assertEqual(item.completion_stock_quantity, Decimal("100"))
 
     def test_backfill_preserves_system_snapshot_for_ambiguous_later_adjustment(self):
+        started_at = timezone.now() - timedelta(days=3)
         completed_at = timezone.now() - timedelta(days=2)
         opname = self.create_opname(status=StockOpname.Status.COMPLETED)
         opname.completed_by = self.admin
         opname.completed_at = completed_at
         opname.save(update_fields=["completed_by", "completed_at", "updated_at"])
+        StockOpname.objects.filter(pk=opname.pk).update(created_at=started_at)
         item = StockOpnameItem.objects.create(
             stock_opname=opname,
             stock=self.stock,
@@ -1070,7 +1073,7 @@ class StockOpnameCompletionBackfillMigrationTests(StockOpnameTestMixin, TestCase
             user=self.admin,
         )
         Transaction.objects.filter(pk=transaction.pk).update(
-            created_at=completed_at + timedelta(days=1)
+            created_at=started_at + timedelta(days=1)
         )
 
         self._run_backfill()
