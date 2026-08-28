@@ -536,8 +536,9 @@ From `backend/config/settings.py`:
 - `axes.middleware.AxesMiddleware` included after standard auth/session middleware
 - `AUDITLOG_INCLUDE_TRACKING_MODELS` registers critical user/access, master-data, operational-header, and `Stock` models. No custom IMS audit-log page is implemented yet.
 - Auditlog does not replace `stock.Transaction`, and signal-driven audit entries do not automatically cover `bulk_create`, `bulk_update`, or `QuerySet.update()` changes. User bulk activate/deactivate avoids `QuerySet.update()` and saves locked rows individually so account-status changes are captured.
-- `AXES_FAILURE_LIMIT = 5`, `AXES_COOLOFF_TIME = 0.5`, `AXES_RESET_ON_SUCCESS = True`
+- `AXES_FAILURE_LIMIT = 5`, `AXES_COOLOFF_TIME = 0.5`, `AXES_RESET_ON_SUCCESS = False`
 - `AXES_LOCKOUT_PARAMETERS = ["username", "ip_address"]` and `AXES_CLIENT_IP_CALLABLE = "apps.core.client_ip.get_axes_client_ip"`, so django-axes locks repeated failures by submitted username and by the trusted-proxy-resolved source IP. Username lockout blocks distributed attempts against one account; source-IP lockout blocks password spraying across many usernames from one resolved source.
+- Successful login cleanup is handled by `apps.core.audit_logging.reset_successful_username_attempts`, which deletes only failed attempts for the successful username and preserves unrelated failures for the same resolved source IP.
 - Sensitive POST throttling uses `django-ratelimit` with settings-backed defaults:
   - `LOGIN_RATE_LIMIT = 10/m`
   - `USER_BULK_ACTION_RATE_LIMIT = 10/m`

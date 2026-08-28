@@ -946,7 +946,7 @@ class ErrorPageTemplateTests(TestCase):
     AXES_COOLOFF_TIME=1,
     AXES_LOCKOUT_PARAMETERS=["username", "ip_address"],
     AXES_CLIENT_IP_CALLABLE="apps.core.client_ip.get_axes_client_ip",
-    AXES_RESET_ON_SUCCESS=True,
+    AXES_RESET_ON_SUCCESS=False,
 )
 class LoginLockoutTests(TestCase):
     def setUp(self):
@@ -1001,6 +1001,33 @@ class LoginLockoutTests(TestCase):
             self.assertEqual(response.status_code, expected_status)
 
         response = self._post_login("unknown-user-4", remote_addr="10.0.1.10")
+
+        self.assertEqual(response.status_code, 429)
+        self.assertTemplateUsed(response, "registration/lockout.html")
+
+    def test_successful_login_preserves_unrelated_source_ip_failures(self):
+        shared_ip = "10.0.2.10"
+        self._post_login(self.user.username, remote_addr="10.0.2.1")
+        for index in range(2):
+            response = self._post_login(
+                f"unknown-shared-ip-{index}",
+                remote_addr=shared_ip,
+            )
+            self.assertEqual(response.status_code, 200)
+
+        response = self._post_login(
+            self.user.username,
+            password="TestPassword123!",
+            remote_addr=shared_ip,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(
+            AccessAttempt.objects.filter(username=self.user.username).exists()
+        )
+        self.assertTrue(AccessAttempt.objects.filter(ip_address=shared_ip).exists())
+
+        response = self._post_login("unknown-shared-ip-2", remote_addr=shared_ip)
 
         self.assertEqual(response.status_code, 429)
         self.assertTemplateUsed(response, "registration/lockout.html")

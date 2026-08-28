@@ -8,6 +8,8 @@ import logging
 from django.contrib.auth.signals import user_logged_in, user_logged_out, user_login_failed
 from django.dispatch import receiver
 
+from axes.models import AccessAttempt
+
 from apps.core.client_ip import get_client_ip
 
 logger = logging.getLogger("security")
@@ -24,6 +26,13 @@ def log_login(sender, request, user, **kwargs):
             "user_agent": request.META.get("HTTP_USER_AGENT", ""),
         },
     )
+
+
+@receiver(user_logged_in)
+def reset_successful_username_attempts(sender, request, user, **kwargs):
+    username = user.get_username()
+    if username:
+        AccessAttempt.objects.filter(username=username).delete()
 
 
 @receiver(user_logged_out)

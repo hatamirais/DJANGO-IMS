@@ -330,7 +330,7 @@ CSRF_COOKIE_SAMESITE = "Lax"
 # ─── django-axes: Brute-Force Protection ─────────────────────────────
 AXES_FAILURE_LIMIT = 5  # Lock after 5 failed attempts
 AXES_COOLOFF_TIME = 0.5  # 30-minute cooldown (in hours)
-AXES_RESET_ON_SUCCESS = True  # Reset failed count on successful login
+AXES_RESET_ON_SUCCESS = False  # Project handler resets only the successful username.
 # Lock by username and source IP address. The username counter blocks
 # distributed attempts against one account, while the IP counter blocks source
 # rotation across usernames and satisfies django-axes system check axes.W006.
