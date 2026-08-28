@@ -98,7 +98,8 @@ Receiving and opening-balance imports enforce `Item.requires_expiry_date`: blank
 
 ## Sensitive POST Throttling And Audit
 
-- `django-axes` remains the login brute-force control. Login lockout is enforced by username (`AXES_LOCKOUT_PARAMETERS = ["username"]`).
+- `django-axes` remains the login brute-force control. Login lockout is enforced by username and source IP (`AXES_LOCKOUT_PARAMETERS = ["username", "ip_address"]`) with `AXES_CLIENT_IP_CALLABLE` pointing at the project trusted-proxy resolver.
+- `AXES_RESET_ON_SUCCESS` is disabled; successful login cleanup is project-owned and must delete only the successful username's failed attempts, not unrelated attempts sharing the same resolved source IP.
 - The login route uses Django `LoginView` with `apps.core.forms.CrispyAuthenticationForm`; do not hand-code username/password inputs in `registration/login.html`.
 - Authentication and centralized error logs resolve client IPs through `apps.core.client_ip.get_client_ip()`, using `REMOTE_ADDR` by default and accepting `X-Forwarded-For` only when the immediate peer matches `AUTH_AUDIT_TRUSTED_PROXIES`.
 - Additional authenticated POST throttling uses `django-ratelimit`; counters use local memory cache via `CACHES["default"]` and `RATELIMIT_USE_CACHE`.
