@@ -525,7 +525,7 @@ From `backend/config/settings.py`:
 - `django-auditlog` is installed for database-backed create/update/delete history on selected critical models; the initial audit-log webview is available through Django Admin `/admin/`
 - `DEBUG` defaults to `False` unless overridden by environment
 - `ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS` are environment-driven comma-separated lists
-- `AUTH_AUDIT_TRUSTED_PROXIES` is an environment-driven comma-separated list of trusted immediate reverse proxy IPs/CIDRs for authentication and centralized error logging. When unset, audit client IPs are derived from `REMOTE_ADDR`. `X-Forwarded-For` is accepted only from a trusted immediate proxy and only when the forwarded chain is syntactically valid.
+- `AUTH_AUDIT_TRUSTED_PROXIES` is an environment-driven comma-separated list of trusted immediate reverse proxy IPs/CIDRs for authentication logging, centralized error logging, and django-axes client-IP lockout resolution. When unset, client IPs are derived from `REMOTE_ADDR`. `X-Forwarded-For` is accepted only from a trusted immediate proxy and only when the forwarded chain is syntactically valid. Reverse-proxy deployments must configure this setting before relying on IP-wide Axes lockouts; otherwise the shared proxy address can become the lockout key for all users behind it.
 - `FEATURE_ALLOCATION_UI_ENABLED` is still loaded into settings for compatibility/tests, but current runtime routing and navigation rely on permissions/module scope instead of branching on this flag
 - Static assets are collected to `STATIC_ROOT = backend/staticfiles` and served by `whitenoise.middleware.WhiteNoiseMiddleware` using `STORAGES["staticfiles"] = "whitenoise.storage.CompressedStaticFilesStorage"`. The `default` storage alias remains Django `FileSystemStorage` for uploaded media, so this staticfiles setting does not replace media-file handling.
 - `AUTHENTICATION_BACKENDS` order:
@@ -537,7 +537,7 @@ From `backend/config/settings.py`:
 - `AUDITLOG_INCLUDE_TRACKING_MODELS` registers critical user/access, master-data, operational-header, and `Stock` models. No custom IMS audit-log page is implemented yet.
 - Auditlog does not replace `stock.Transaction`, and signal-driven audit entries do not automatically cover `bulk_create`, `bulk_update`, or `QuerySet.update()` changes. User bulk activate/deactivate avoids `QuerySet.update()` and saves locked rows individually so account-status changes are captured.
 - `AXES_FAILURE_LIMIT = 5`, `AXES_COOLOFF_TIME = 0.5`, `AXES_RESET_ON_SUCCESS = True`
-- `AXES_LOCKOUT_PARAMETERS = ["username"]`, so django-axes locks repeated failures by username rather than only the combined username/IP tuple; standalone IP-wide lockout is intentionally avoided until proxy-aware client IP handling is configured
+- `AXES_LOCKOUT_PARAMETERS = ["username", "ip_address"]` and `AXES_CLIENT_IP_CALLABLE = "apps.core.client_ip.get_axes_client_ip"`, so django-axes locks repeated failures by submitted username and by the trusted-proxy-resolved source IP. Username lockout blocks distributed attempts against one account; source-IP lockout blocks password spraying across many usernames from one resolved source.
 - Sensitive POST throttling uses `django-ratelimit` with settings-backed defaults:
   - `LOGIN_RATE_LIMIT = 10/m`
   - `USER_BULK_ACTION_RATE_LIMIT = 10/m`
