@@ -331,10 +331,11 @@ CSRF_COOKIE_SAMESITE = "Lax"
 AXES_FAILURE_LIMIT = 5  # Lock after 5 failed attempts
 AXES_COOLOFF_TIME = 0.5  # 30-minute cooldown (in hours)
 AXES_RESET_ON_SUCCESS = True  # Reset failed count on successful login
-# Lock by username so distributed attempts against one account cannot avoid the
-# counter by rotating network origin. Do not add a standalone IP-wide counter
-# until deployment proxy headers are trusted and tested.
-AXES_LOCKOUT_PARAMETERS = ["username"]
+# Lock by username and source IP address. The username counter blocks
+# distributed attempts against one account, while the IP counter blocks source
+# rotation across usernames and satisfies django-axes system check axes.W006.
+AXES_LOCKOUT_PARAMETERS = ["username", "ip_address"]
+AXES_CLIENT_IP_CALLABLE = "apps.core.client_ip.get_axes_client_ip"
 AXES_LOCKOUT_TEMPLATE = "registration/lockout.html"
 
 # ─── Cache (Local Memory) ─────────────────────────────────────────────

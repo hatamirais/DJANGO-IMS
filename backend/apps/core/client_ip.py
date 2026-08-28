@@ -62,3 +62,15 @@ def get_client_ip(request):
             return forwarded_chain[0]
 
     return str(remote_ip)
+
+
+def get_axes_client_ip(request):
+    """
+    Resolve the client IP for django-axes using the same trusted proxy policy.
+
+    Axes accepts None when a client IP cannot be determined.
+    """
+    client_ip = get_client_ip(request)
+    if client_ip == "unknown":
+        return None
+    return client_ip

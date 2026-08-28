@@ -944,7 +944,8 @@ class ErrorPageTemplateTests(TestCase):
     SECURE_SSL_REDIRECT=False,
     AXES_FAILURE_LIMIT=3,
     AXES_COOLOFF_TIME=1,
-    AXES_LOCKOUT_PARAMETERS=["username"],
+    AXES_LOCKOUT_PARAMETERS=["username", "ip_address"],
+    AXES_CLIENT_IP_CALLABLE="apps.core.client_ip.get_axes_client_ip",
     AXES_RESET_ON_SUCCESS=True,
 )
 class LoginLockoutTests(TestCase):
@@ -990,18 +991,19 @@ class LoginLockoutTests(TestCase):
         )
         self.assertContains(response, "Account locked, try again in 60 minutes.", status_code=429)
 
-    def test_shared_source_ip_does_not_lock_unrelated_usernames(self):
+    def test_shared_source_ip_locks_unrelated_usernames(self):
         for index in range(3):
             response = self._post_login(
                 f"unknown-user-{index}",
                 remote_addr="10.0.1.10",
             )
-            self.assertEqual(response.status_code, 200)
+            expected_status = 200 if index < 2 else 429
+            self.assertEqual(response.status_code, expected_status)
 
         response = self._post_login("unknown-user-4", remote_addr="10.0.1.10")
 
-        self.assertEqual(response.status_code, 200)
-        self.assertTemplateUsed(response, "registration/login.html")
+        self.assertEqual(response.status_code, 429)
+        self.assertTemplateUsed(response, "registration/lockout.html")
 
     def test_login_page_does_not_disclose_exact_failure_limit(self):
         response = self.client.get(reverse("login"))
@@ -1015,7 +1017,8 @@ class LoginLockoutTests(TestCase):
     SECURE_SSL_REDIRECT=False,
     LOGIN_RATE_LIMIT="1/m",
     AXES_FAILURE_LIMIT=100,
-    AXES_LOCKOUT_PARAMETERS=["username"],
+    AXES_LOCKOUT_PARAMETERS=["username", "ip_address"],
+    AXES_CLIENT_IP_CALLABLE="apps.core.client_ip.get_axes_client_ip",
 )
 class LoginRateLimitTests(TestCase):
     def setUp(self):
@@ -1060,7 +1063,8 @@ class LoginRateLimitTests(TestCase):
 @override_settings(
     SECURE_SSL_REDIRECT=False,
     AUTH_AUDIT_TRUSTED_PROXIES=(),
-    AXES_LOCKOUT_PARAMETERS=["username"],
+    AXES_LOCKOUT_PARAMETERS=["username", "ip_address"],
+    AXES_CLIENT_IP_CALLABLE="apps.core.client_ip.get_axes_client_ip",
 )
 class AuthenticationAuditClientIpTests(TestCase):
     def setUp(self):
