@@ -32,6 +32,8 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
+ITEM_LIST_PER_PAGE_OPTIONS = (25, 50, 100)
+
 
 def _get_safe_next_path(request):
     next_url = request.POST.get("next") or request.GET.get("next")
@@ -134,8 +136,14 @@ def item_list(request):
     program = filters["program"]
     essential = filters["essential"]
     therapeutic_class = filters["therapeutic_class"]
+    try:
+        per_page = int(request.GET.get("per_page", ITEM_LIST_PER_PAGE_OPTIONS[0]))
+    except (TypeError, ValueError):
+        per_page = ITEM_LIST_PER_PAGE_OPTIONS[0]
+    if per_page not in ITEM_LIST_PER_PAGE_OPTIONS:
+        per_page = ITEM_LIST_PER_PAGE_OPTIONS[0]
 
-    paginator = Paginator(queryset, 25)
+    paginator = Paginator(queryset, per_page)
     page = request.GET.get("page")
     items = paginator.get_page(page)
 
@@ -173,6 +181,9 @@ def item_list(request):
             "essential_1_selected": "selected" if essential == "1" else "",
             "essential_0_selected": "selected" if essential == "0" else "",
             "default_program": _get_default_program(),
+            "filters_active": any(filters.values()),
+            "per_page": per_page,
+            "per_page_options": ITEM_LIST_PER_PAGE_OPTIONS,
         },
     )
 

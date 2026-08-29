@@ -260,6 +260,23 @@ class ItemEssentialTagTests(TestCase):
         self.assertContains(response, "[E] Esensial")
         self.assertContains(response, "Analgesik")
 
+    def test_item_list_suppresses_zero_decimals_for_minimum_stock(self):
+        Item.objects.create(
+            nama_barang="Paracetamol",
+            satuan=self.unit,
+            kategori=self.category,
+            minimum_stock=0,
+        )
+
+        response = self.client.get(reverse("items:item_list"), secure=True)
+
+        self.assertContains(
+            response,
+            '<td class="text-end fw-semibold">0</td>',
+            html=True,
+        )
+        self.assertNotContains(response, "0,00")
+
     def test_item_list_search_matches_barcode(self):
         matching = Item.objects.create(
             nama_barang="Amoxicillin",
@@ -369,6 +386,59 @@ class ItemEssentialTagTests(TestCase):
 
         self.assertContains(response, essential_item.nama_barang)
         self.assertContains(response, non_essential_item.nama_barang)
+
+    def test_item_list_pagination_preserves_active_filters(self):
+        for index in range(26):
+            Item.objects.create(
+                nama_barang=f"Program Item {index:02d}",
+                satuan=self.unit,
+                kategori=self.category,
+                is_program_item=True,
+            )
+
+        response = self.client.get(
+            reverse("items:item_list"),
+            {"program": "1"},
+            secure=True,
+        )
+
+        self.assertContains(response, "program=1")
+        self.assertContains(response, "per_page=25")
+        self.assertContains(response, "page=2")
+
+    def test_item_list_accepts_allowed_per_page_value(self):
+        for index in range(51):
+            Item.objects.create(
+                nama_barang=f"Paged Item {index:02d}",
+                satuan=self.unit,
+                kategori=self.category,
+            )
+
+        response = self.client.get(
+            reverse("items:item_list"),
+            {"per_page": "50"},
+            secure=True,
+        )
+
+        self.assertEqual(response.context["items"].paginator.per_page, 50)
+        self.assertContains(response, "?per_page=50&amp;page=2")
+
+    def test_item_list_rejects_unlisted_per_page_value(self):
+        for index in range(26):
+            Item.objects.create(
+                nama_barang=f"Default Paged Item {index:02d}",
+                satuan=self.unit,
+                kategori=self.category,
+            )
+
+        response = self.client.get(
+            reverse("items:item_list"),
+            {"per_page": "999"},
+            secure=True,
+        )
+
+        self.assertEqual(response.context["items"].paginator.per_page, 25)
+        self.assertContains(response, "?per_page=25&amp;page=2")
 
     def test_item_export_requires_login(self):
         self.client.logout()
