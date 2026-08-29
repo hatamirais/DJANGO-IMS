@@ -313,6 +313,8 @@ body {
 /* ===== Page Content ===== */
 #page-content-wrapper {
     margin-left: var(--sidebar-width);
+    width: calc(100% - var(--sidebar-width));
+    min-width: 0;
     min-height: 100vh;
     transition: margin-left 0.25s ease;
 }
