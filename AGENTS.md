@@ -29,6 +29,18 @@ Root files include `README.md`, `AGENTS.md`, `SYSTEM_MODEL.md`, `docker-compose.
 
 Schema: `backend/apps/*/models.py`. Routes: `backend/config/urls.py` + `backend/apps/*/urls.py`. Auth/permission: `backend/apps/core/decorators.py`, `backend/apps/users/access.py`. Security/config: `backend/config/settings.py`. App version: root `VERSION` and `backend/apps/core/versioning.py`. Operational scripts: `scripts/`. CSV import behavior: `backend/apps/*/admin.py` and resource classes. If documentation conflicts with code, code is authoritative until docs are corrected.
 
+## Task Prompt Template
+
+For new coding sessions, a short prompt is enough because this file carries the project rules:
+
+```text
+Task: <describe the change>
+
+Follow AGENTS.md, SYSTEM_MODEL.md, and any relevant backend/apps/<app>/AGENTS.md.
+Verify behavior with focused tests or a documented manual check.
+Update docs when the change affects schema, routes, permissions, settings, workflows, scripts, or CSV/import behavior.
+```
+
 ## Active Django Apps
 
 | App | Purpose |
@@ -95,6 +107,32 @@ Receiving and opening-balance imports enforce `Item.requires_expiry_date`: blank
 - Stock transfer completion writes paired `OUT` and `IN` transactions.
 - Do not claim REST API/React production paths as implemented; those are planned.
 - Keep terminology consistent: use "module scope" for `ModuleAccess` and "Django permissions" for `has_perm` checks.
+
+## Development Guardrails
+
+- Keep changes atomic and verify each behavioral change before expanding scope.
+- Prefer Django ORM APIs. Use raw SQL only when the ORM is insufficient, and document the reason.
+- Use `select_related` / `prefetch_related` for relationship-heavy reads, `select_for_update()` for race-prone writes, and explicit `transaction.atomic()` around multi-row workflow mutations.
+- Forms should use crispy-forms / crispy-bootstrap5 and Bootstrap 5 utilities. Document custom CSS exceptions when they are necessary.
+- New logic needs tests scaled to risk and blast radius.
+- Use Python logging for operational diagnostics, raise specific exceptions, and do not swallow failures silently.
+- Do not edit already-applied migrations unless explicitly requested and safe for the current branch state.
+
+## Input Validation
+
+- Numeric inputs must reject `NaN` and `Infinity`; `Decimal("NaN")` can construct successfully and fail later.
+- User-facing or comparable strings should be stripped, NFC-normalized, length-checked, and rejected when they contain null bytes.
+- Dates must reject years outside `1000..9999`; datetimes should be timezone-aware.
+- Foreign keys and choice fields must be validated against allowed querysets or choices; never trust client-supplied IDs by themselves.
+- File uploads must validate server-side MIME and extension, enforce max size, and reject path traversal or absolute paths.
+
+## Migration Discipline
+
+When adding constraints that existing rows might violate:
+
+1. Audit existing rows first and document the count.
+2. Add a data-fix migration.
+3. Add the constraint migration separately.
 
 ## Sensitive POST Throttling And Audit
 
