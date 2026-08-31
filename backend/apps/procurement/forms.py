@@ -3,7 +3,13 @@ from crispy_forms.layout import Div, Layout
 from django import forms
 from django.forms import inlineformset_factory
 
-from apps.core.decimal_validation import format_price_exact, validate_finite_decimal
+from apps.core.decimal_validation import (
+    PRICE_DECIMAL_PLACES,
+    PRICE_MAX_DIGITS,
+    format_price_exact,
+    validate_finite_decimal,
+)
+from apps.core.form_fields import IndonesianPriceTextInput, IndonesianUnitPriceField
 from apps.items.models import FundingSource, Item, Supplier
 
 from .models import (
@@ -143,13 +149,24 @@ class ProcurementContractCancelForm(forms.Form):
 
 
 class ProcurementContractLineForm(forms.ModelForm):
+    original_unit_price = IndonesianUnitPriceField(
+        max_digits=PRICE_MAX_DIGITS,
+        decimal_places=PRICE_DECIMAL_PLACES,
+        widget=IndonesianPriceTextInput(
+            attrs={
+                "class": "form-control form-control-sm",
+                "inputmode": "decimal",
+                "min": "0.0000000001",
+            }
+        ),
+    )
+
     class Meta:
         model = ProcurementContractLine
         fields = ["item", "original_quantity", "original_unit_price", "notes"]
         widgets = {
             "item": forms.Select(attrs={"class": "form-select form-select-sm js-typeahead-select"}),
             "original_quantity": forms.NumberInput(attrs={"class": "form-control form-control-sm", "step": "0.01", "min": "0.01"}),
-            "original_unit_price": forms.NumberInput(attrs={"class": "form-control form-control-sm", "step": "any", "min": "0.0000000001"}),
             "notes": forms.TextInput(attrs={"class": "form-control form-control-sm"}),
         }
 
@@ -219,13 +236,24 @@ class ProcurementAmendmentForm(forms.ModelForm):
 
 
 class ProcurementAmendmentLineForm(forms.ModelForm):
+    revised_unit_price = IndonesianUnitPriceField(
+        max_digits=PRICE_MAX_DIGITS,
+        decimal_places=PRICE_DECIMAL_PLACES,
+        widget=IndonesianPriceTextInput(
+            attrs={
+                "class": "form-control form-control-sm",
+                "inputmode": "decimal",
+                "min": "0.0000000001",
+            }
+        ),
+    )
+
     class Meta:
         model = ProcurementAmendmentLine
         fields = ["contract_line", "revised_quantity", "revised_unit_price", "notes"]
         widgets = {
             "contract_line": forms.Select(attrs={"class": "form-select form-select-sm"}),
             "revised_quantity": forms.NumberInput(attrs={"class": "form-control form-control-sm", "step": "0.01", "min": "0.01"}),
-            "revised_unit_price": forms.NumberInput(attrs={"class": "form-control form-control-sm", "step": "any", "min": "0.0000000001"}),
             "notes": forms.TextInput(attrs={"class": "form-control form-control-sm"}),
         }
 

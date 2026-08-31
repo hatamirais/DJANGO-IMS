@@ -12,6 +12,7 @@ from apps.core.decimal_validation import (
     format_price_exact,
     validate_finite_decimal,
 )
+from apps.core.form_fields import IndonesianPriceTextInput, IndonesianUnitPriceField
 from apps.items.models import FundingSource, Supplier
 
 from .models import (
@@ -86,49 +87,6 @@ def _add_receiving_type_choice(choices, code):
     if any(choice_code == code for choice_code, _ in choices):
         return choices
     return [*choices, (code, _receiving_type_label(code))]
-
-
-class TrimmedDecimalNumberInput(forms.NumberInput):
-    def format_value(self, value):
-        if value is None or value == "":
-            return None
-        try:
-            decimal_value = value if isinstance(value, Decimal) else Decimal(str(value))
-        except (InvalidOperation, TypeError, ValueError):
-            return value
-        return format(decimal_value.normalize(), "f")
-
-
-class IndonesianPriceTextInput(forms.TextInput):
-    def format_value(self, value):
-        if value is None or value == "":
-            return None
-        if isinstance(value, Decimal):
-            label = format_price_exact(value)
-            return label.replace(".", ",") if label else label
-        return value
-
-
-class IndonesianUnitPriceField(forms.DecimalField):
-    default_error_messages = {
-        **forms.DecimalField.default_error_messages,
-        "dot_separator": (
-            "Gunakan angka tanpa pemisah ribuan. Gunakan koma untuk desimal."
-        ),
-    }
-
-    def to_python(self, value):
-        if isinstance(value, str):
-            normalized_value = value.strip().replace(" ", "")
-            if "." in normalized_value:
-                raise ValidationError(
-                    self.error_messages["dot_separator"],
-                    code="dot_separator",
-                )
-            if "," in normalized_value:
-                normalized_value = normalized_value.replace(",", ".")
-            value = normalized_value
-        return super().to_python(value)
 
 
 class ItemExpirySelect(forms.Select):
@@ -444,6 +402,20 @@ class PlannedReceivingForm(BaseReceivingForm):
 
 
 class ReceivingItemForm(forms.ModelForm):
+    unit_price = IndonesianUnitPriceField(
+        required=True,
+        min_value=Decimal("0"),
+        max_digits=PRICE_MAX_DIGITS,
+        decimal_places=PRICE_DECIMAL_PLACES,
+        widget=IndonesianPriceTextInput(
+            attrs={
+                "class": "form-control form-control-sm",
+                "inputmode": "decimal",
+                "min": "0",
+            }
+        ),
+    )
+
     class Meta:
         model = ReceivingItem
         fields = [
@@ -466,13 +438,6 @@ class ReceivingItemForm(forms.ModelForm):
             ),
             "expiry_date": forms.DateInput(
                 attrs={"class": "form-control form-control-sm", "type": "date"}
-            ),
-            "unit_price": TrimmedDecimalNumberInput(
-                attrs={
-                    "class": "form-control form-control-sm",
-                    "min": "0",
-                    "step": "any",
-                }
             ),
             "location": forms.Select(attrs={"class": "form-select form-select-sm"}),
         }
