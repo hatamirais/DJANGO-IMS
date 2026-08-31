@@ -40,6 +40,34 @@ def id_decimal(value, places=2):
 
 
 @register.filter
+def plain_decimal(value, places=None):
+    """Format number without localized separators, trimming insignificant zeros."""
+    number = _to_decimal(value)
+
+    if places is None:
+        label = format(number, "f")
+        if "." in label:
+            label = label.rstrip("0").rstrip(".")
+        return label or "0"
+
+    try:
+        places_int = int(places)
+    except (TypeError, ValueError):
+        places_int = None
+
+    if places_int is None:
+        label = format(number, "f")
+        if "." in label:
+            label = label.rstrip("0").rstrip(".")
+        return label or "0"
+
+    if places_int < 0:
+        places_int = 0
+
+    return f"{number:.{places_int}f}"
+
+
+@register.filter
 def id_price_exact(value):
     """Format a stored unit price with Indonesian separators and exact decimals."""
     label = format_price_exact(value)

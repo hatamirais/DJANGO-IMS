@@ -50,12 +50,12 @@
                                 {% for row in summary_rows %}
                                 <tr>
                                     <td>{{ row.contract_line.item.nama_barang }}</td>
-                                    <td class="text-end">{{ row.original_quantity|id_decimal }}</td>
+                                    <td class="text-end">{{ row.original_quantity|plain_decimal }}</td>
                                     <td class="text-end">Rp {{ row.original_unit_price|id_price_exact }}</td>
-                                    <td class="text-end">{{ row.current_quantity|id_decimal }}</td>
+                                    <td class="text-end">{{ row.current_quantity|plain_decimal }}</td>
                                     <td class="text-end">Rp {{ row.current_unit_price|id_price_exact }}</td>
-                                    <td class="text-end">{{ row.received_quantity|id_decimal }}</td>
-                                    <td class="text-end fw-semibold">{{ row.remaining_quantity|id_decimal }}</td>
+                                    <td class="text-end">{{ row.received_quantity|plain_decimal }}</td>
+                                    <td class="text-end fw-semibold">{{ row.remaining_quantity|plain_decimal }}</td>
                                 </tr>
                                 {% empty %}
                                 <tr>

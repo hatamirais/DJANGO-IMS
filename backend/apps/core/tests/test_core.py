@@ -31,7 +31,7 @@ from apps.core.forms import SystemSettingsForm
 from apps.core.forms import CrispyAuthenticationForm
 from apps.core.models import SystemSettings
 from apps.core.xlsx_exports import escape_xlsx_formula
-from apps.core.templatetags.number_format import safe_media_url
+from apps.core.templatetags.number_format import plain_decimal, safe_media_url
 from apps.core.views import (
     bad_request,
     maintenance_mode,
@@ -79,6 +79,13 @@ class SemanticVersionTests(SimpleTestCase):
             write_version(version_file, expected)
 
             self.assertEqual(str(read_version(version_file)), "1.2.3")
+
+
+class NumberFormatFilterTests(SimpleTestCase):
+    def test_plain_decimal_trims_only_insignificant_zeroes_by_default(self):
+        self.assertEqual(plain_decimal(Decimal("50000.00")), "50000")
+        self.assertEqual(plain_decimal(Decimal("1.50")), "1.5")
+        self.assertEqual(plain_decimal(Decimal("0.40")), "0.4")
 
 
 class SafeMediaUrlFilterTests(SimpleTestCase):

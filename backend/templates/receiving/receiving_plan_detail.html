@@ -135,9 +135,9 @@
                                 <td>{{ forloop.counter }}</td>
                                 <td><code>{{ ri.item.kode_barang }}</code></td>
                                 <td>{{ ri.item.nama_barang }}</td>
-                                <td class="text-end">{{ ri.planned_quantity|id_decimal }}</td>
-                                <td class="text-end">{{ ri.received_quantity|id_decimal }}</td>
-                                <td class="text-end fw-semibold">{{ ri.remaining_quantity|id_decimal }}</td>
+                                <td class="text-end">{{ ri.planned_quantity|plain_decimal }}</td>
+                                <td class="text-end">{{ ri.received_quantity|plain_decimal }}</td>
+                                <td class="text-end fw-semibold">{{ ri.remaining_quantity|plain_decimal }}</td>
                                 <td class="text-muted small">
                                     {% if ri.is_cancelled %}
                                         <span class="text-danger">Dibatalkan</span>
