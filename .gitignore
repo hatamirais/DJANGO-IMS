@@ -16,6 +16,9 @@ env/
 
 # Environment variables (contains secrets)
 .env
+.env.*
+!.env.example
+!.env.*.example
 
 # Django
 *.sqlite3
@@ -39,10 +42,18 @@ desktop.ini
 docs/Book1.xlsx
 docs/obat-progran.txt
 .agents/
+.codex/
 security-audit/
 docs/*.csv
 .error/
 .dev/
+
+# Local database/backups
+*.dump
+*.backup
+*.bak
+backup.sql
+*backup*.sql
 
 # Work-report folder (detailed work reports)
 docs/work-report/
@@ -60,8 +71,7 @@ node_modules/
 .playwright-profiles/
 
 # graphify
-graphify-out
+graphify-out/
 
 # private data
-.github
-.kilo
+.kilo/
