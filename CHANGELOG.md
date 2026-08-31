@@ -7,6 +7,15 @@ The format is based on Keep a Changelog and follows Semantic Versioning (`MAJOR.
 
 ## [Unreleased]
 
+### Added
+
+- Item list pagination now includes a bottom rows-per-page selector with 25, 50, and 100 row options.
+
+### Changed
+
+- Redesigned the item list page with labeled filters, a denser table layout, and a single bottom pagination toolbar that combines row range, page size, and page navigation.
+- Item list minimum stock values now hide unnecessary trailing zero decimals.
+
 ## [1.31.8] - 2026-08-26
 
 ### Added
