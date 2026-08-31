@@ -40,14 +40,26 @@ def id_decimal(value, places=2):
 
 
 @register.filter
-def plain_decimal(value, places=0):
-    """Format number without localized separators."""
+def plain_decimal(value, places=None):
+    """Format number without localized separators, trimming insignificant zeros."""
     number = _to_decimal(value)
+
+    if places is None:
+        label = format(number, "f")
+        if "." in label:
+            label = label.rstrip("0").rstrip(".")
+        return label or "0"
 
     try:
         places_int = int(places)
     except (TypeError, ValueError):
-        places_int = 0
+        places_int = None
+
+    if places_int is None:
+        label = format(number, "f")
+        if "." in label:
+            label = label.rstrip("0").rstrip(".")
+        return label or "0"
 
     if places_int < 0:
         places_int = 0

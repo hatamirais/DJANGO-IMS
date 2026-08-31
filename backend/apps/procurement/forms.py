@@ -15,11 +15,22 @@ from .models import (
 )
 
 
-def _format_plain_decimal(value, places=0):
+def _format_plain_decimal(value, places=None):
+    if places is None:
+        label = format(value, "f")
+        if "." in label:
+            label = label.rstrip("0").rstrip(".")
+        return label or "0"
+
     try:
         places_int = int(places)
     except (TypeError, ValueError):
-        places_int = 0
+        places_int = None
+    if places_int is None:
+        label = format(value, "f")
+        if "." in label:
+            label = label.rstrip("0").rstrip(".")
+        return label or "0"
     if places_int < 0:
         places_int = 0
     return f"{value:.{places_int}f}"

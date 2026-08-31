@@ -1305,7 +1305,7 @@ class ProcurementWorkflowTests(TestCase):
         self.assertEqual(second.status_code, 429)
 
     def test_contract_detail_summary_shows_original_current_received_and_remaining(self):
-        contract, _line = self._approve_contract(quantity="10000", unit_price="5000")
+        contract, _line = self._approve_contract(quantity="10000.50", unit_price="5000")
         receiving = Receiving.objects.get(contract=contract)
         order_item = ReceivingOrderItem.objects.get(receiving=receiving)
         self.client.post(
@@ -1316,7 +1316,7 @@ class ProcurementWorkflowTests(TestCase):
                 "items-MIN_NUM_FORMS": "0",
                 "items-MAX_NUM_FORMS": "1000",
                 "items-0-order_item": str(order_item.pk),
-                "items-0-quantity": "4000",
+                "items-0-quantity": "4000.25",
                 "items-0-batch_lot": "SUMMARY-BATCH-001",
                 "items-0-expiry_date": "2030-01-01",
                 "items-0-unit_price": "5000",
@@ -1336,7 +1336,7 @@ class ProcurementWorkflowTests(TestCase):
         ProcurementAmendmentLine.objects.create(
             amendment=amendment,
             contract_line=order_item.contract_line,
-            revised_quantity=Decimal("14000"),
+            revised_quantity=Decimal("14000.75"),
             revised_unit_price=Decimal("5500"),
         )
         approve_amendment(amendment, self.kepala)
@@ -1349,13 +1349,13 @@ class ProcurementWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         summary_rows = response.context["summary_rows"]
         self.assertEqual(len(summary_rows), 1)
-        self.assertEqual(summary_rows[0]["original_quantity"], Decimal("10000"))
-        self.assertEqual(summary_rows[0]["current_quantity"], Decimal("14000"))
-        self.assertEqual(summary_rows[0]["received_quantity"], Decimal("4000"))
-        self.assertEqual(summary_rows[0]["remaining_quantity"], Decimal("10000"))
-        self.assertContains(response, '<td class="text-end">10000</td>', html=False)
-        self.assertContains(response, '<td class="text-end">14000</td>', html=False)
-        self.assertContains(response, '<td class="text-end">4000</td>', html=False)
+        self.assertEqual(summary_rows[0]["original_quantity"], Decimal("10000.50"))
+        self.assertEqual(summary_rows[0]["current_quantity"], Decimal("14000.75"))
+        self.assertEqual(summary_rows[0]["received_quantity"], Decimal("4000.25"))
+        self.assertEqual(summary_rows[0]["remaining_quantity"], Decimal("10000.50"))
+        self.assertContains(response, '<td class="text-end">10000.5</td>', html=False)
+        self.assertContains(response, '<td class="text-end">14000.75</td>', html=False)
+        self.assertContains(response, '<td class="text-end">4000.25</td>', html=False)
         self.assertContains(response, "Rp 5.000")
         self.assertContains(response, "Rp 5.500")
         self.assertNotContains(response, '<td class="text-end">10.000,00</td>', html=False)

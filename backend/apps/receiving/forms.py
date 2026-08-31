@@ -25,11 +25,17 @@ from .models import (
 )
 
 
-def _format_plain_decimal(value, places=0):
+def _format_plain_decimal(value, places=None):
     try:
         number = value if isinstance(value, Decimal) else Decimal(str(value))
     except (InvalidOperation, TypeError, ValueError):
         number = Decimal("0")
+
+    if places is None:
+        label = format(number, "f")
+        if "." in label:
+            label = label.rstrip("0").rstrip(".")
+        return label or "0"
 
     return f"{number:.{places}f}"
 
@@ -98,20 +104,29 @@ class IndonesianPriceTextInput(forms.TextInput):
         if value is None or value == "":
             return None
         if isinstance(value, Decimal):
-            return _format_id_price_exact(value)
+            label = format_price_exact(value)
+            return label.replace(".", ",") if label else label
         return value
 
 
 class IndonesianUnitPriceField(forms.DecimalField):
+    default_error_messages = {
+        **forms.DecimalField.default_error_messages,
+        "dot_separator": (
+            "Gunakan angka tanpa pemisah ribuan. Gunakan koma untuk desimal."
+        ),
+    }
+
     def to_python(self, value):
         if isinstance(value, str):
             normalized_value = value.strip().replace(" ", "")
+            if "." in normalized_value:
+                raise ValidationError(
+                    self.error_messages["dot_separator"],
+                    code="dot_separator",
+                )
             if "," in normalized_value:
-                normalized_value = normalized_value.replace(".", "").replace(",", ".")
-            elif "." in normalized_value:
-                parts = normalized_value.split(".")
-                if len(parts) > 1 and all(len(part) == 3 for part in parts[1:]):
-                    normalized_value = "".join(parts)
+                normalized_value = normalized_value.replace(",", ".")
             value = normalized_value
         return super().to_python(value)
 

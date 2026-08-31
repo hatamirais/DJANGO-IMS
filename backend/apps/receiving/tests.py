@@ -3353,7 +3353,7 @@ class ReceivingWorkflowCleanupTest(TestCase):
         ReceivingOrderItem.objects.create(
             receiving=receiving,
             item=self.item,
-            planned_quantity=Decimal("5000"),
+            planned_quantity=Decimal("5000.50"),
             received_quantity=Decimal("0"),
             unit_price=Decimal("10000"),
             is_cancelled=False,
@@ -3368,8 +3368,8 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertContains(response, self.item.nama_barang)
         self.assertNotContains(response, self.item.kode_barang)
         self.assertContains(response, 'name="items-0-order_item"', html=False)
-        self.assertContains(response, 'value="5000"', html=False)
-        self.assertContains(response, 'value="10.000"', html=False)
+        self.assertContains(response, 'value="5000.5"', html=False)
+        self.assertContains(response, 'value="10000"', html=False)
         self.assertContains(response, self.location.name)
         self.assertNotContains(response, self.location.code)
         self.assertNotContains(response, "Hapus")
@@ -3421,7 +3421,7 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertNotContains(response, 'value="20000"', html=False)
         self.assertContains(response, f'value="{partial_order.pk}"', html=False)
 
-    def test_plan_receive_unit_price_accepts_indonesian_thousand_separator(self):
+    def test_plan_receive_unit_price_accepts_comma_decimal_separator(self):
         receiving = Receiving.objects.create(
             document_number="RCV-2026-IDPRICE",
             receiving_type=Receiving.ReceivingType.PROCUREMENT,
@@ -3446,7 +3446,7 @@ class ReceivingWorkflowCleanupTest(TestCase):
                 "quantity": "1",
                 "batch_lot": "IDPRICE",
                 "expiry_date": "2030-11-30",
-                "unit_price": "10.000",
+                "unit_price": "10000,5",
                 "location": str(self.location.pk),
             },
             receiving=receiving,
@@ -3454,7 +3454,45 @@ class ReceivingWorkflowCleanupTest(TestCase):
         )
 
         self.assertTrue(form.is_valid(), form.errors)
-        self.assertEqual(form.cleaned_data["unit_price"], Decimal("10000"))
+        self.assertEqual(form.cleaned_data["unit_price"], Decimal("10000.5"))
+
+    def test_plan_receive_unit_price_rejects_dot_separator(self):
+        receiving = Receiving.objects.create(
+            document_number="RCV-2026-DOTPRICE",
+            receiving_type=Receiving.ReceivingType.PROCUREMENT,
+            receiving_date=date(2026, 3, 16),
+            sumber_dana=self.funding,
+            status=Receiving.Status.APPROVED,
+            is_planned=True,
+            created_by=self.user,
+            approved_by=self.user,
+        )
+        order_item = ReceivingOrderItem.objects.create(
+            receiving=receiving,
+            item=self.item,
+            planned_quantity=Decimal("5"),
+            received_quantity=Decimal("0"),
+            unit_price=Decimal("10000"),
+            is_cancelled=False,
+        )
+        form = ReceivingReceiptItemForm(
+            data={
+                "order_item": str(order_item.pk),
+                "quantity": "1",
+                "batch_lot": "DOTPRICE",
+                "expiry_date": "2030-11-30",
+                "unit_price": "10.000",
+                "location": str(self.location.pk),
+            },
+            receiving=receiving,
+            lock_order_item=True,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn(
+            "Gunakan angka tanpa pemisah ribuan. Gunakan koma untuk desimal.",
+            form.errors["unit_price"],
+        )
 
     def test_plan_receive_accepts_zero_qty_as_no_receipt_for_row(self):
         receiving = Receiving.objects.create(
@@ -3544,13 +3582,13 @@ class ReceivingWorkflowCleanupTest(TestCase):
                 "items-0-quantity": "5000",
                 "items-0-batch_lot": "AHSGK",
                 "items-0-expiry_date": "2030-11-30",
-                "items-0-unit_price": "100.00",
+                "items-0-unit_price": "100",
                 "items-0-location": str(self.location.pk),
                 "items-1-order_item": str(alopurinol_order.pk),
                 "items-1-quantity": "20000",
                 "items-1-batch_lot": "DSAGJK",
                 "items-1-expiry_date": "2030-12-02",
-                "items-1-unit_price": "200.00",
+                "items-1-unit_price": "200",
                 "items-1-location": str(self.location.pk),
             },
             secure=True,
@@ -3623,7 +3661,7 @@ class ReceivingWorkflowCleanupTest(TestCase):
                 "items-0-quantity": "3",
                 "items-0-batch_lot": "MIGRATED-ALIAS",
                 "items-0-expiry_date": "2030-11-30",
-                "items-0-unit_price": "100.00",
+                "items-0-unit_price": "100",
                 "items-0-location": str(self.location.pk),
             },
             secure=True,
