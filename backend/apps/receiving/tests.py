@@ -35,6 +35,7 @@ from apps.receiving.forms import (
     ReceivingForm,
     ReceivingItemForm,
     ReceivingOrderItemForm,
+    ReceivingReceiptItemForm,
 )
 from apps.receiving.models import (
     Receiving,
@@ -2562,6 +2563,42 @@ class ReceivingWorkflowCleanupTest(TestCase):
             reverse("receiving:receiving_plan_close_items", args=[receiving.pk]),
         )
 
+    def test_plan_detail_formats_quantities_without_decimals(self):
+        receiving = Receiving.objects.create(
+            document_number="RCV-2026-QTYFORMAT",
+            receiving_type=Receiving.ReceivingType.PROCUREMENT,
+            receiving_date=date(2026, 3, 16),
+            sumber_dana=self.funding,
+            status=Receiving.Status.PARTIAL,
+            is_planned=True,
+            created_by=self.user,
+            approved_by=self.user,
+        )
+        ReceivingOrderItem.objects.create(
+            receiving=receiving,
+            item=self.item,
+            planned_quantity=Decimal("50000"),
+            received_quantity=Decimal("10000"),
+            unit_price=Decimal("1000"),
+            is_cancelled=False,
+        )
+
+        response = self.client.get(
+            reverse("receiving:receiving_plan_detail", args=[receiving.pk]),
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "50000")
+        self.assertContains(response, "10000")
+        self.assertContains(response, "40000")
+        self.assertNotContains(response, "50.000")
+        self.assertNotContains(response, "10.000")
+        self.assertNotContains(response, "40.000")
+        self.assertNotContains(response, "50.000,00")
+        self.assertNotContains(response, "10.000,00")
+        self.assertNotContains(response, "40.000,00")
+
     def test_contract_linked_plan_close_items_redirects_to_amendment(self):
         receiving = self._create_contract_linked_plan()
 
@@ -3318,7 +3355,7 @@ class ReceivingWorkflowCleanupTest(TestCase):
             item=self.item,
             planned_quantity=Decimal("5000"),
             received_quantity=Decimal("0"),
-            unit_price=Decimal("1000"),
+            unit_price=Decimal("10000"),
             is_cancelled=False,
         )
 
@@ -3331,7 +3368,8 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertContains(response, self.item.nama_barang)
         self.assertNotContains(response, self.item.kode_barang)
         self.assertContains(response, 'name="items-0-order_item"', html=False)
-        self.assertContains(response, 'value="5.000,00"', html=False)
+        self.assertContains(response, 'value="5000"', html=False)
+        self.assertContains(response, 'value="10.000"', html=False)
         self.assertContains(response, self.location.name)
         self.assertNotContains(response, self.location.code)
         self.assertNotContains(response, "Hapus")
@@ -3352,7 +3390,7 @@ class ReceivingWorkflowCleanupTest(TestCase):
             item=self.item,
             planned_quantity=Decimal("10000"),
             received_quantity=Decimal("5000"),
-            unit_price=Decimal("1000"),
+            unit_price=Decimal("500"),
             is_cancelled=False,
         )
         second_item = Item.objects.create(
@@ -3377,10 +3415,46 @@ class ReceivingWorkflowCleanupTest(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, self.item.nama_barang)
-        self.assertContains(response, 'value="5.000,00"', html=False)
+        self.assertContains(response, 'value="5000"', html=False)
+        self.assertContains(response, 'value="500"', html=False)
         self.assertNotContains(response, second_item.nama_barang)
-        self.assertNotContains(response, 'value="20.000,00"', html=False)
+        self.assertNotContains(response, 'value="20000"', html=False)
         self.assertContains(response, f'value="{partial_order.pk}"', html=False)
+
+    def test_plan_receive_unit_price_accepts_indonesian_thousand_separator(self):
+        receiving = Receiving.objects.create(
+            document_number="RCV-2026-IDPRICE",
+            receiving_type=Receiving.ReceivingType.PROCUREMENT,
+            receiving_date=date(2026, 3, 16),
+            sumber_dana=self.funding,
+            status=Receiving.Status.APPROVED,
+            is_planned=True,
+            created_by=self.user,
+            approved_by=self.user,
+        )
+        order_item = ReceivingOrderItem.objects.create(
+            receiving=receiving,
+            item=self.item,
+            planned_quantity=Decimal("5"),
+            received_quantity=Decimal("0"),
+            unit_price=Decimal("10000"),
+            is_cancelled=False,
+        )
+        form = ReceivingReceiptItemForm(
+            data={
+                "order_item": str(order_item.pk),
+                "quantity": "1",
+                "batch_lot": "IDPRICE",
+                "expiry_date": "2030-11-30",
+                "unit_price": "10.000",
+                "location": str(self.location.pk),
+            },
+            receiving=receiving,
+            lock_order_item=True,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["unit_price"], Decimal("10000"))
 
     def test_plan_receive_accepts_zero_qty_as_no_receipt_for_row(self):
         receiving = Receiving.objects.create(

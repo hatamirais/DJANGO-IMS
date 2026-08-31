@@ -6,7 +6,12 @@ from django.core.exceptions import ValidationError
 from django.db.utils import OperationalError, ProgrammingError
 from django.forms import inlineformset_factory
 
-from apps.core.decimal_validation import validate_finite_decimal
+from apps.core.decimal_validation import (
+    PRICE_DECIMAL_PLACES,
+    PRICE_MAX_DIGITS,
+    format_price_exact,
+    validate_finite_decimal,
+)
 from apps.items.models import FundingSource, Supplier
 
 from .models import (
@@ -20,14 +25,24 @@ from .models import (
 )
 
 
-def _format_id_decimal(value, places=2):
+def _format_plain_decimal(value, places=0):
     try:
         number = value if isinstance(value, Decimal) else Decimal(str(value))
     except (InvalidOperation, TypeError, ValueError):
         number = Decimal("0")
 
-    formatted = f"{number:,.{places}f}"
-    return formatted.replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"{number:.{places}f}"
+
+
+def _format_id_price_exact(value):
+    label = format_price_exact(value)
+    if not label:
+        return label
+    whole, separator, fractional = label.partition(".")
+    grouped_whole = f"{int(whole or '0'):,}".replace(",", ".")
+    if separator:
+        return f"{grouped_whole},{fractional}"
+    return grouped_whole
 
 
 def _get_receiving_type_choices():
@@ -76,6 +91,29 @@ class TrimmedDecimalNumberInput(forms.NumberInput):
         except (InvalidOperation, TypeError, ValueError):
             return value
         return format(decimal_value.normalize(), "f")
+
+
+class IndonesianPriceTextInput(forms.TextInput):
+    def format_value(self, value):
+        if value is None or value == "":
+            return None
+        if isinstance(value, Decimal):
+            return _format_id_price_exact(value)
+        return value
+
+
+class IndonesianUnitPriceField(forms.DecimalField):
+    def to_python(self, value):
+        if isinstance(value, str):
+            normalized_value = value.strip().replace(" ", "")
+            if "," in normalized_value:
+                normalized_value = normalized_value.replace(".", "").replace(",", ".")
+            elif "." in normalized_value:
+                parts = normalized_value.split(".")
+                if len(parts) > 1 and all(len(part) == 3 for part in parts[1:]):
+                    normalized_value = "".join(parts)
+            value = normalized_value
+        return super().to_python(value)
 
 
 class ItemExpirySelect(forms.Select):
@@ -542,6 +580,18 @@ ReceivingOrderItemFormSet = inlineformset_factory(
 
 
 class ReceivingReceiptItemForm(forms.ModelForm):
+    unit_price = IndonesianUnitPriceField(
+        required=True,
+        min_value=Decimal("0"),
+        max_digits=PRICE_MAX_DIGITS,
+        decimal_places=PRICE_DECIMAL_PLACES,
+        widget=IndonesianPriceTextInput(
+            attrs={
+                "class": "form-control form-control-sm",
+                "inputmode": "decimal",
+            }
+        ),
+    )
     order_item_label = forms.CharField(
         required=False,
         disabled=True,
@@ -582,13 +632,6 @@ class ReceivingReceiptItemForm(forms.ModelForm):
             "expiry_date": forms.DateInput(
                 attrs={"class": "form-control form-control-sm", "type": "date"}
             ),
-            "unit_price": forms.NumberInput(
-                attrs={
-                    "class": "form-control form-control-sm",
-                    "min": "0",
-                    "step": "any",
-                }
-            ),
             "location": forms.Select(attrs={"class": "form-select form-select-sm"}),
         }
 
@@ -620,7 +663,7 @@ class ReceivingReceiptItemForm(forms.ModelForm):
             self.fields["order_item_label"].initial = (
                 selected_order_item.item.nama_barang
             )
-            self.fields["planned_quantity"].initial = _format_id_decimal(
+            self.fields["planned_quantity"].initial = _format_plain_decimal(
                 selected_order_item.remaining_quantity
             )
 

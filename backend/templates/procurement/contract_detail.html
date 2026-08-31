@@ -33,7 +33,7 @@
                     {% endif %}
                     {% if linked_receiving %}
                     <dt class="col-5 text-muted">Rencana</dt>
-                    <dd class="col-7"><a href="{% url 'receiving:receiving_plan_detail' linked_receiving.pk %}">{{ linked_receiving.document_number }}</a></dd>
+                    <dd class="col-7"><a href="{% url 'receiving:receiving_plan_detail' linked_receiving.pk %}" target="_blank" rel="noopener noreferrer">{{ linked_receiving.document_number }}</a></dd>
                     {% endif %}
                     {% if contract.cancel_reason %}
                     <dt class="col-5 text-muted">Alasan Batal</dt>
@@ -104,13 +104,13 @@
                             {% for row in summary_rows %}
                             <tr>
                                 <td>{{ row.contract_line.item.nama_barang }}</td>
-                                <td class="text-end">{{ row.original_quantity|id_decimal }}</td>
+                                <td class="text-end">{{ row.original_quantity|plain_decimal }}</td>
                                 <td class="text-end">Rp {{ row.original_unit_price|id_price_exact }}</td>
-                                <td class="text-end">{{ row.current_quantity|id_decimal }}</td>
+                                <td class="text-end">{{ row.current_quantity|plain_decimal }}</td>
                                 <td class="text-end">Rp {{ row.current_unit_price|id_price_exact }}</td>
-                                <td class="text-end">{{ row.received_quantity|id_decimal }}</td>
-                                <td class="text-end">{{ row.remaining_quantity|id_decimal }}</td>
-                                <td class="text-end">{{ row.cancelled_quantity|id_decimal }}</td>
+                                <td class="text-end">{{ row.received_quantity|plain_decimal }}</td>
+                                <td class="text-end">{{ row.remaining_quantity|plain_decimal }}</td>
+                                <td class="text-end">{{ row.cancelled_quantity|plain_decimal }}</td>
                             </tr>
                             {% empty %}
                             <tr><td colspan="8" class="text-center text-muted py-4">Belum ada baris kontrak.</td></tr>

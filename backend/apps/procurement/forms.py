@@ -15,13 +15,14 @@ from .models import (
 )
 
 
-def _format_id_decimal(value, places=2):
+def _format_plain_decimal(value, places=0):
     try:
         places_int = int(places)
     except (TypeError, ValueError):
-        places_int = 2
-    formatted = f"{value:,.{places_int}f}"
-    return formatted.replace(",", "X").replace(".", ",").replace("X", ".")
+        places_int = 0
+    if places_int < 0:
+        places_int = 0
+    return f"{value:.{places_int}f}"
 
 
 def _format_id_price_exact(value):
@@ -234,15 +235,15 @@ class ProcurementAmendmentLineForm(forms.ModelForm):
         summary = contract_line_summary.get(line.pk)
         if not summary:
             return (
-                f"{line.item.nama_barang} | Awal: {_format_id_decimal(line.original_quantity)} "
+                f"{line.item.nama_barang} | Awal: {_format_plain_decimal(line.original_quantity)} "
                 f"@ {_format_id_price_exact(line.original_unit_price)}"
             )
         return (
             f"{line.item.nama_barang} | Saat ini: "
-            f"{_format_id_decimal(summary['current_quantity'])} @ "
+            f"{_format_plain_decimal(summary['current_quantity'])} @ "
             f"{_format_id_price_exact(summary['current_unit_price'])} | Diterima: "
-            f"{_format_id_decimal(summary['received_quantity'])} | Sisa: "
-            f"{_format_id_decimal(summary['remaining_quantity'])}"
+            f"{_format_plain_decimal(summary['received_quantity'])} | Sisa: "
+            f"{_format_plain_decimal(summary['remaining_quantity'])}"
         )
 
     def clean_revised_quantity(self):
