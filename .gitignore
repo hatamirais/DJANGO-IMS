@@ -61,3 +61,7 @@ node_modules/
 
 # graphify
 graphify-out
+
+# private data
+.github
+.kilo
