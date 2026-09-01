@@ -57,12 +57,26 @@ class TypeaheadStaticBehaviorTests(SimpleTestCase):
 
         self.assertIn("const spaceBelow = Math.max(window.innerHeight - rect.bottom", script)
         self.assertIn("const shouldOpenAbove = spaceBelow < minimumMenuHeight", script)
+        self.assertLess(
+            script.index("dropdown.style.width = `${width}px`;"),
+            script.index("const renderedHeight = Math.min(dropdown.scrollHeight, maxHeight);"),
+        )
         self.assertIn("const renderedHeight = Math.min(dropdown.scrollHeight, maxHeight);", script)
         self.assertIn("rect.top - dropdownGap - renderedHeight", script)
         self.assertIn("dropdown.style.maxHeight = `${maxHeight}px`;", script)
         self.assertIn("initDateMaskInputs();", script)
         self.assertNotIn("dropdown.addEventListener('wheel'", script)
         self.assertNotIn("window.scrollBy({ top: e.deltaY, behavior: 'auto' });", script)
+
+
+class DateMaskStaticBehaviorTests(SimpleTestCase):
+    def test_mask_initialization_preserves_iso_date_values(self):
+        app_js = Path(__file__).resolve().parents[3] / "static" / "js" / "app.js"
+        script = app_js.read_text(encoding="utf-8")
+
+        self.assertIn("const normalizeDateMaskValue = (value) => maskValue(isoToDmy(value) || value);", script)
+        self.assertIn("input.value = normalizeDateMaskValue(input.value);", script)
+        self.assertIn("input.value = normalizeDateMaskValue(text);", script)
 
 
 class IndonesianDateInputTests(SimpleTestCase):

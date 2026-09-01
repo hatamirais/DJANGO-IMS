@@ -118,15 +118,16 @@ function initTypeaheadSelects() {
             const shouldOpenAbove = spaceBelow < minimumMenuHeight && spaceAbove > spaceBelow;
             const availableHeight = shouldOpenAbove ? spaceAbove : spaceBelow;
             const maxHeight = Math.max(Math.min(availableHeight, 240), Math.min(availableHeight, minimumMenuHeight));
-            const renderedHeight = Math.min(dropdown.scrollHeight, maxHeight);
 
             dropdown.classList.toggle('drop-up', shouldOpenAbove);
-            dropdown.style.top = shouldOpenAbove
-                ? `${Math.max(viewportPadding, rect.top - dropdownGap - renderedHeight)}px`
-                : `${rect.bottom + dropdownGap}px`;
             dropdown.style.left = `${left}px`;
             dropdown.style.width = `${width}px`;
             dropdown.style.maxHeight = `${maxHeight}px`;
+
+            const renderedHeight = Math.min(dropdown.scrollHeight, maxHeight);
+            dropdown.style.top = shouldOpenAbove
+                ? `${Math.max(viewportPadding, rect.top - dropdownGap - renderedHeight)}px`
+                : `${rect.bottom + dropdownGap}px`;
         };
 
         const scheduleDropdownPositionUpdate = () => {
@@ -989,6 +990,8 @@ function initDateMaskInputs() {
         return `${match[3]}/${match[2]}/${match[1]}`;
     };
 
+    const normalizeDateMaskValue = (value) => maskValue(isoToDmy(value) || value);
+
     const attachNativePicker = (input) => {
         if (input.dataset.nativeDatePicker !== 'true') return;
         if (input.dataset.nativePickerInitialized === 'true') return;
@@ -1041,7 +1044,7 @@ function initDateMaskInputs() {
     document.querySelectorAll('input.js-date-mask').forEach((input) => {
         if (input.dataset.maskInitialized === 'true') return;
         input.dataset.maskInitialized = 'true';
-        input.value = maskValue(input.value);
+        input.value = normalizeDateMaskValue(input.value);
         attachNativePicker(input);
 
         input.addEventListener('input', () => {
@@ -1051,7 +1054,7 @@ function initDateMaskInputs() {
         input.addEventListener('paste', (e) => {
             e.preventDefault();
             const text = (e.clipboardData || window.clipboardData).getData('text');
-            input.value = maskValue(text);
+            input.value = normalizeDateMaskValue(text);
         });
     });
 }
