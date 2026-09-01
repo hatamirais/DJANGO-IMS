@@ -12,7 +12,12 @@ from apps.core.decimal_validation import (
     format_price_exact,
     validate_finite_decimal,
 )
-from apps.core.form_fields import IndonesianPriceTextInput, IndonesianUnitPriceField
+from apps.core.form_fields import (
+    INDONESIAN_DATE_INPUT_FORMATS,
+    IndonesianDateInput,
+    IndonesianPriceTextInput,
+    IndonesianUnitPriceField,
+)
 from apps.items.models import FundingSource, Supplier
 
 from .models import (
@@ -130,6 +135,16 @@ def _item_requires_expiry_date(item):
     if item is None:
         return True
     return bool(getattr(item, "requires_expiry_date", True))
+
+
+def _indonesian_date_attrs(css_class="form-control"):
+    return {
+        "class": f"{css_class} js-date-mask",
+        "data-native-date-picker": "true",
+        "placeholder": "DD/MM/YYYY",
+        "inputmode": "numeric",
+        "autocomplete": "off",
+    }
 
 
 class ReceivingQuickCreateValidationMixin:
@@ -260,6 +275,8 @@ class BaseReceivingForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["receiving_type"].widget.choices = _get_receiving_type_widget_choices()
+        if "receiving_date" in self.fields:
+            self.fields["receiving_date"].input_formats = INDONESIAN_DATE_INPUT_FORMATS
 
     def clean_receiving_type(self):
         try:
@@ -290,8 +307,8 @@ class ReceivingForm(BaseReceivingForm):
         ]
         widgets = {
             "document_number": forms.TextInput(attrs={"class": "form-control"}),
-            "receiving_date": forms.DateInput(
-                attrs={"class": "form-control", "type": "date"}
+            "receiving_date": IndonesianDateInput(
+                attrs=_indonesian_date_attrs()
             ),
             "supplier": forms.Select(attrs={"class": "form-select"}),
             "sumber_dana": forms.Select(attrs={"class": "form-select"}),
@@ -392,8 +409,8 @@ class PlannedReceivingForm(BaseReceivingForm):
         ]
         widgets = {
             "document_number": forms.TextInput(attrs={"class": "form-control"}),
-            "receiving_date": forms.DateInput(
-                attrs={"class": "form-control", "type": "date"}
+            "receiving_date": IndonesianDateInput(
+                attrs=_indonesian_date_attrs()
             ),
             "supplier": forms.Select(attrs={"class": "form-select"}),
             "sumber_dana": forms.Select(attrs={"class": "form-select"}),
@@ -436,8 +453,8 @@ class ReceivingItemForm(forms.ModelForm):
             "batch_lot": forms.TextInput(
                 attrs={"class": "form-control form-control-sm"}
             ),
-            "expiry_date": forms.DateInput(
-                attrs={"class": "form-control form-control-sm", "type": "date"}
+            "expiry_date": IndonesianDateInput(
+                attrs=_indonesian_date_attrs("form-control form-control-sm")
             ),
             "location": forms.Select(attrs={"class": "form-select form-select-sm"}),
         }
@@ -448,6 +465,7 @@ class ReceivingItemForm(forms.ModelForm):
         self.fields["location"].required = True
         self.fields["batch_lot"].required = False
         self.fields["expiry_date"].required = False
+        self.fields["expiry_date"].input_formats = INDONESIAN_DATE_INPUT_FORMATS
 
     def clean_quantity(self):
         quantity = self.cleaned_data.get("quantity")
@@ -609,8 +627,8 @@ class ReceivingReceiptItemForm(forms.ModelForm):
             "batch_lot": forms.TextInput(
                 attrs={"class": "form-control form-control-sm"}
             ),
-            "expiry_date": forms.DateInput(
-                attrs={"class": "form-control form-control-sm", "type": "date"}
+            "expiry_date": IndonesianDateInput(
+                attrs=_indonesian_date_attrs("form-control form-control-sm")
             ),
             "location": forms.Select(attrs={"class": "form-select form-select-sm"}),
         }
@@ -621,6 +639,7 @@ class ReceivingReceiptItemForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.lock_order_item = lock_order_item
         self.fields["location"].required = True
+        self.fields["expiry_date"].input_formats = INDONESIAN_DATE_INPUT_FORMATS
         selected_order_item = None
         if receiving is not None:
             self.fields["order_item"].queryset = ReceivingOrderItem.objects.filter(

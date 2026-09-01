@@ -3082,9 +3082,59 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, 'name="facility"', html=False)
         self.assertContains(response, 'placeholder="Kosongkan untuk generate otomatis"', html=False)
+        self.assertContains(response, 'name="receiving_date"', html=False)
+        self.assertContains(response, 'placeholder="DD/MM/YYYY"', html=False)
+        self.assertContains(response, 'data-native-date-picker="true"', html=False)
+        self.assertContains(response, 'class="form-control js-date-mask"', html=False)
+        self.assertContains(response, 'class="form-control form-control-sm js-date-mask"', html=False)
+        self.assertNotContains(response, 'type="date"', html=False)
         self.assertContains(response, 'Receiving type <span class="text-danger">*</span>', html=False)
         self.assertContains(response, 'Receiving date <span class="text-danger">*</span>', html=False)
         self.assertContains(response, 'Sumber dana <span class="text-danger">*</span>', html=False)
+
+    def test_receiving_forms_accept_indonesian_date_input(self):
+        form = ReceivingForm(
+            data={
+                "document_number": "",
+                "receiving_type": Receiving.ReceivingType.GRANT,
+                "receiving_date": "16/03/2026",
+                "supplier": "",
+                "sumber_dana": self.funding.pk,
+                "notes": "",
+            }
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["receiving_date"], date(2026, 3, 16))
+
+        planned_form = PlannedReceivingForm(
+            data={
+                "document_number": "",
+                "receiving_type": Receiving.ReceivingType.GRANT,
+                "receiving_date": "17/03/2026",
+                "supplier": "",
+                "sumber_dana": self.funding.pk,
+                "notes": "",
+            }
+        )
+
+        self.assertTrue(planned_form.is_valid(), planned_form.errors)
+        self.assertEqual(planned_form.cleaned_data["receiving_date"], date(2026, 3, 17))
+
+    def test_receiving_item_form_accepts_indonesian_expiry_date_input(self):
+        form = ReceivingItemForm(
+            data={
+                "item": self.item.pk,
+                "quantity": "5",
+                "batch_lot": "B-001",
+                "expiry_date": "30/11/2030",
+                "unit_price": "1000",
+                "location": self.location.pk,
+            }
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["expiry_date"], date(2030, 11, 30))
 
     def test_receiving_plan_create_post_redirects_without_creating_manual_plan(self):
         response = self.client.post(

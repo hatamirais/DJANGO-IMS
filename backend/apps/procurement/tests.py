@@ -1046,6 +1046,11 @@ class ProcurementWorkflowTests(TestCase):
         response = self.client.get(reverse("procurement:contract_create"), secure=True)
 
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="contract_date"', html=False)
+        self.assertContains(response, 'placeholder="DD/MM/YYYY"', html=False)
+        self.assertContains(response, 'data-native-date-picker="true"', html=False)
+        self.assertContains(response, 'class="form-control js-date-mask"', html=False)
+        self.assertNotContains(response, 'name="contract_date" type="date"', html=False)
         self.assertContains(response, 'id="modal-supplier"')
         self.assertContains(
             response,
@@ -1056,10 +1061,37 @@ class ProcurementWorkflowTests(TestCase):
             response,
             reverse("procurement:quick_create_funding_source"),
         )
+        self.assertContains(response, 'class="card content-card table-container form-page-card"', html=False)
         self.assertContains(response, 'data-formset="procurement-lines"')
+        self.assertContains(response, '<col style="width: 52%;">', html=False)
         self.assertContains(response, 'class="btn btn-outline-primary btn-sm formset-add"', html=False)
         self.assertContains(response, 'class="btn btn-outline-danger btn-sm formset-remove"', html=False)
         self.assertContains(response, 'id="procurement-lines-empty"')
+
+    def test_contract_form_accepts_indonesian_date_input(self):
+        form = ProcurementContractForm(
+            data={
+                "document_number": "",
+                "contract_date": "01/07/2026",
+                "supplier": self.supplier.pk,
+                "sumber_dana": self.funding.pk,
+                "notes": "",
+            }
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["contract_date"], date(2026, 7, 1))
+
+    def test_amendment_form_accepts_indonesian_date_input(self):
+        form = ProcurementAmendmentForm(
+            data={
+                "amendment_date": "08/07/2026",
+                "notes": "",
+            }
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["amendment_date"], date(2026, 7, 8))
 
     def test_contract_create_accepts_multiple_lines(self):
         response = self.client.post(

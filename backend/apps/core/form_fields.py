@@ -9,6 +9,12 @@ from .decimal_validation import format_price_exact
 INDONESIAN_DECIMAL_SEPARATOR_ERROR = (
     "Gunakan angka tanpa pemisah ribuan. Gunakan koma untuk desimal."
 )
+INDONESIAN_DATE_INPUT_FORMATS = ["%d/%m/%Y", "%Y-%m-%d"]
+
+
+class IndonesianDateInput(forms.DateInput):
+    input_type = "text"
+    format = "%d/%m/%Y"
 
 
 class IndonesianPriceTextInput(forms.TextInput):

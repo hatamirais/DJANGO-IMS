@@ -49,6 +49,18 @@ from apps.users.models import ModuleAccess, User
 from PIL import Image
 
 
+class TypeaheadStaticBehaviorTests(SimpleTestCase):
+    def test_dropdown_repositions_and_preserves_page_scroll_at_edges(self):
+        app_js = Path(__file__).resolve().parents[3] / "static" / "js" / "app.js"
+        script = app_js.read_text(encoding="utf-8")
+
+        self.assertIn("const spaceBelow = Math.max(window.innerHeight - rect.bottom", script)
+        self.assertIn("const shouldOpenAbove = spaceBelow < minimumMenuHeight", script)
+        self.assertIn("dropdown.style.maxHeight = `${maxHeight}px`;", script)
+        self.assertIn("dropdown.addEventListener('wheel'", script)
+        self.assertIn("window.scrollBy({ top: e.deltaY, behavior: 'auto' });", script)
+
+
 class SemanticVersionTests(SimpleTestCase):
     def test_parse_valid_semver(self):
         parsed = SemanticVersion.parse("2.4.9")
