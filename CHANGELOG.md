@@ -20,6 +20,7 @@ The format is based on Keep a Changelog and follows Semantic Versioning (`MAJOR.
 
 ### Fixed
 
+- SPJ detail pages now hide the `Batalkan SPJ` action after the linked receiving plan has receiving activity or is already partially/fully received or closed.
 - Procurement and receiving unit price inputs now accept comma decimals and reject dot decimal separators with a clear Indonesian validation message.
 
 ## [1.31.8] - 2026-08-26

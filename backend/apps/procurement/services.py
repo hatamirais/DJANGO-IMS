@@ -13,6 +13,13 @@ from .models import (
 )
 
 
+REALIZED_RECEIVING_STATUSES = {
+    Receiving.Status.PARTIAL,
+    Receiving.Status.RECEIVED,
+    Receiving.Status.CLOSED,
+}
+
+
 def _save_model(instance, fields):
     instance.save(update_fields=[*fields, "updated_at"])
 
@@ -99,6 +106,9 @@ def contract_is_cancellable(contract, linked_receiving=None):
         )
     if receiving is None:
         return True
+
+    if receiving.status in REALIZED_RECEIVING_STATUSES:
+        return False
 
     has_received_quantity = any(
         item.received_quantity > 0 for item in receiving.order_items.all()
@@ -286,7 +296,11 @@ def cancel_contract(contract, user, reason):
             has_receipt_rows = ReceivingItem.objects.select_for_update().filter(
                 receiving=receiving
             ).exists()
-            if has_received_quantity or has_receipt_rows:
+            if (
+                receiving.status in REALIZED_RECEIVING_STATUSES
+                or has_received_quantity
+                or has_receipt_rows
+            ):
                 raise ProcurementWorkflowError(
                     "SPJ yang sudah memiliki realisasi penerimaan tidak dapat dibatalkan. Gunakan amandemen atau penutupan kontrak."
                 )

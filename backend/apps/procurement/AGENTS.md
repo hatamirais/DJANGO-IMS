@@ -12,7 +12,7 @@ App-specific guidance for SPJ / contract procurement workflows.
 - Contract approval does not mutate stock.
 - Kepala/Admin approval synchronously creates or re-syncs the linked planned procurement receiving execution document.
 - Contract create/edit reuses supplier and funding-source quick-create modals on the SPJ form.
-- Contract cancellation is a soft-cancel state, not a hard delete. Draft/submitted SPJ can be cancelled with a reason; approved SPJ can be cancelled only while the linked planned receiving has no receipt rows and no received quantity. Cancelling an unused approved SPJ also marks its linked receiving plan `CANCELLED`.
+- Contract cancellation is a soft-cancel state, not a hard delete. Draft/submitted SPJ can be cancelled with a reason; approved SPJ can be cancelled only while the linked planned receiving is still unused: not `PARTIAL` / `RECEIVED` / `CLOSED`, with no receipt rows and no received quantity. Cancelling an unused approved SPJ also marks its linked receiving plan `CANCELLED`.
 
 ## Amendments
 
