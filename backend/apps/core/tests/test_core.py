@@ -2,7 +2,7 @@ import json
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 from import_export.formats import base_formats
@@ -29,6 +29,7 @@ from apps.core.context_processors import nav_notifications
 from apps.core.csv_exports import SanitizedCSV, escape_csv_formula
 from apps.core.forms import SystemSettingsForm
 from apps.core.forms import CrispyAuthenticationForm
+from apps.core.form_fields import IndonesianDateInput
 from apps.core.models import SystemSettings
 from apps.core.xlsx_exports import escape_xlsx_formula
 from apps.core.templatetags.number_format import plain_decimal, safe_media_url
@@ -56,9 +57,19 @@ class TypeaheadStaticBehaviorTests(SimpleTestCase):
 
         self.assertIn("const spaceBelow = Math.max(window.innerHeight - rect.bottom", script)
         self.assertIn("const shouldOpenAbove = spaceBelow < minimumMenuHeight", script)
+        self.assertIn("const renderedHeight = Math.min(dropdown.scrollHeight, maxHeight);", script)
+        self.assertIn("rect.top - dropdownGap - renderedHeight", script)
         self.assertIn("dropdown.style.maxHeight = `${maxHeight}px`;", script)
-        self.assertIn("dropdown.addEventListener('wheel'", script)
-        self.assertIn("window.scrollBy({ top: e.deltaY, behavior: 'auto' });", script)
+        self.assertIn("initDateMaskInputs();", script)
+        self.assertNotIn("dropdown.addEventListener('wheel'", script)
+        self.assertNotIn("window.scrollBy({ top: e.deltaY, behavior: 'auto' });", script)
+
+
+class IndonesianDateInputTests(SimpleTestCase):
+    def test_widget_formats_server_rendered_dates_with_slashes(self):
+        widget = IndonesianDateInput()
+
+        self.assertEqual(widget.format_value(date(2026, 9, 1)), "01/09/2026")
 
 
 class SemanticVersionTests(SimpleTestCase):

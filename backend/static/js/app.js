@@ -118,10 +118,11 @@ function initTypeaheadSelects() {
             const shouldOpenAbove = spaceBelow < minimumMenuHeight && spaceAbove > spaceBelow;
             const availableHeight = shouldOpenAbove ? spaceAbove : spaceBelow;
             const maxHeight = Math.max(Math.min(availableHeight, 240), Math.min(availableHeight, minimumMenuHeight));
+            const renderedHeight = Math.min(dropdown.scrollHeight, maxHeight);
 
             dropdown.classList.toggle('drop-up', shouldOpenAbove);
             dropdown.style.top = shouldOpenAbove
-                ? `${Math.max(viewportPadding, rect.top - dropdownGap - maxHeight)}px`
+                ? `${Math.max(viewportPadding, rect.top - dropdownGap - renderedHeight)}px`
                 : `${rect.bottom + dropdownGap}px`;
             dropdown.style.left = `${left}px`;
             dropdown.style.width = `${width}px`;
@@ -338,15 +339,6 @@ function initTypeaheadSelects() {
             if (!wrapper.contains(e.target) && !dropdown.contains(e.target)) closeDropdown();
         });
 
-        dropdown.addEventListener('wheel', (e) => {
-            const atTop = dropdown.scrollTop <= 0;
-            const atBottom = dropdown.scrollTop + dropdown.clientHeight >= dropdown.scrollHeight - 1;
-
-            if ((e.deltaY < 0 && atTop) || (e.deltaY > 0 && atBottom)) {
-                window.scrollBy({ top: e.deltaY, behavior: 'auto' });
-            }
-        }, { passive: true });
-
         // If select changes programmatically, reflect in input
         select.addEventListener('change', () => {
             syncInputFromSelect();
@@ -402,6 +394,7 @@ function initFormsetControls() {
                 totalInput.value = index + 1;
                 initTypeaheadSelects();
                 initStockByItemFilter();
+                initDateMaskInputs();
             });
         });
 
