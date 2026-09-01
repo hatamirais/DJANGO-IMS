@@ -28,6 +28,7 @@ from apps.procurement.services import (
     approve_amendment,
     approve_contract,
     close_contract,
+    contract_is_cancellable,
     submit_contract,
 )
 from apps.receiving.models import Receiving, ReceivingItem, ReceivingOrderItem
@@ -515,6 +516,69 @@ class ProcurementWorkflowTests(TestCase):
         self.assertContains(response, "Batalkan SPJ")
         self.assertContains(response, reverse("procurement:contract_cancel", args=[contract.pk]))
 
+    def test_approved_contract_detail_shows_cancel_action_when_linked_plan_unused(self):
+        contract, _line = self._approve_contract(quantity="10", unit_price="5000")
+
+        response = self.client.get(
+            reverse("procurement:contract_detail", args=[contract.pk]),
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Batalkan SPJ")
+        self.assertContains(
+            response,
+            reverse("procurement:contract_cancel", args=[contract.pk]),
+        )
+
+    def test_approved_contract_detail_hides_cancel_action_when_plan_received(self):
+        contract, _line = self._approve_contract(quantity="10", unit_price="5000")
+        receiving = Receiving.objects.get(contract=contract)
+        order_item = ReceivingOrderItem.objects.get(receiving=receiving)
+        order_item.received_quantity = Decimal("10")
+        order_item.save(update_fields=["received_quantity", "updated_at"])
+        receiving.status = Receiving.Status.RECEIVED
+        receiving.save(update_fields=["status", "updated_at"])
+
+        response = self.client.get(
+            reverse("procurement:contract_detail", args=[contract.pk]),
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Batalkan SPJ")
+        self.assertNotContains(
+            response,
+            reverse("procurement:contract_cancel", args=[contract.pk]),
+        )
+
+    def test_approved_contract_detail_hides_cancel_action_with_receipt_rows(self):
+        contract, _line = self._approve_contract(quantity="10", unit_price="5000")
+        receiving = Receiving.objects.get(contract=contract)
+        order_item = ReceivingOrderItem.objects.get(receiving=receiving)
+        ReceivingItem.objects.create(
+            receiving=receiving,
+            order_item=order_item,
+            item=self.item,
+            quantity=Decimal("1"),
+            batch_lot="PROC-CANCEL-UI-ROW",
+            expiry_date=date(2030, 1, 1),
+            unit_price=Decimal("5000"),
+            location=self.location,
+        )
+
+        response = self.client.get(
+            reverse("procurement:contract_detail", args=[contract.pk]),
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Batalkan SPJ")
+        self.assertNotContains(
+            response,
+            reverse("procurement:contract_cancel", args=[contract.pk]),
+        )
+
     def test_submitted_contract_can_be_cancelled_with_reason(self):
         contract, _line = self._create_contract(quantity="10", unit_price="5000")
         contract.status = ProcurementContract.Status.SUBMITTED
@@ -592,6 +656,31 @@ class ProcurementWorkflowTests(TestCase):
         self.assertEqual(receiving.status, Receiving.Status.APPROVED)
         messages = [message.message for message in get_messages(response.wsgi_request)]
         self.assertTrue(any("sudah memiliki realisasi penerimaan" in message for message in messages))
+
+    def test_approved_contract_with_received_plan_status_cannot_be_cancelled(self):
+        contract, _line = self._approve_contract(quantity="10", unit_price="5000")
+        receiving = Receiving.objects.get(contract=contract)
+        receiving.status = Receiving.Status.RECEIVED
+        receiving.save(update_fields=["status", "updated_at"])
+
+        self.assertFalse(contract_is_cancellable(contract, receiving))
+
+        response = self.client.post(
+            reverse("procurement:contract_cancel", args=[contract.pk]),
+            {"cancel_reason": "Batal setelah rencana selesai"},
+            secure=True,
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        contract.refresh_from_db()
+        receiving.refresh_from_db()
+        self.assertEqual(contract.status, ProcurementContract.Status.APPROVED)
+        self.assertEqual(receiving.status, Receiving.Status.RECEIVED)
+        messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertTrue(
+            any("sudah memiliki realisasi penerimaan" in message for message in messages)
+        )
 
     def test_approved_contract_with_receipt_rows_cannot_be_cancelled(self):
         contract, _line = self._approve_contract(quantity="10", unit_price="5000")
