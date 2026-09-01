@@ -1063,6 +1063,7 @@ class ProcurementWorkflowTests(TestCase):
         )
         self.assertContains(response, 'class="card content-card table-container form-page-card"', html=False)
         self.assertContains(response, 'data-formset="procurement-lines"')
+        self.assertContains(response, 'style="table-layout: fixed; min-width: 960px;"', html=False)
         self.assertContains(response, '<col style="width: 52%;">', html=False)
         self.assertContains(response, 'class="btn btn-outline-primary btn-sm formset-add"', html=False)
         self.assertContains(response, 'class="btn btn-outline-danger btn-sm formset-remove"', html=False)
