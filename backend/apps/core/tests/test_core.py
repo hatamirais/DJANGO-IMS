@@ -78,6 +78,17 @@ class DateMaskStaticBehaviorTests(SimpleTestCase):
         self.assertIn("input.value = normalizeDateMaskValue(input.value);", script)
         self.assertIn("input.value = normalizeDateMaskValue(text);", script)
 
+    def test_native_picker_controls_follow_input_disabled_state(self):
+        app_js = Path(__file__).resolve().parents[3] / "static" / "js" / "app.js"
+        script = app_js.read_text(encoding="utf-8")
+
+        self.assertIn("const syncPickerDisabledState = () => {", script)
+        self.assertIn("picker.disabled = input.disabled;", script)
+        self.assertIn("button.disabled = input.disabled;", script)
+        self.assertIn("if (input.disabled) return;", script)
+        self.assertIn("new MutationObserver(syncPickerDisabledState)", script)
+        self.assertIn("attributeFilter: ['disabled']", script)
+
 
 class IndonesianDateInputTests(SimpleTestCase):
     def test_widget_formats_server_rendered_dates_with_slashes(self):

@@ -1020,6 +1020,11 @@ function initDateMaskInputs() {
         wrapper.appendChild(button);
         wrapper.appendChild(picker);
 
+        const syncPickerDisabledState = () => {
+            picker.disabled = input.disabled;
+            button.disabled = input.disabled;
+        };
+
         input.addEventListener('change', () => {
             picker.value = dmyToIso(input.value);
         });
@@ -1031,6 +1036,9 @@ function initDateMaskInputs() {
         });
 
         button.addEventListener('click', () => {
+            syncPickerDisabledState();
+            if (input.disabled) return;
+
             picker.value = dmyToIso(input.value);
             if (typeof picker.showPicker === 'function') {
                 picker.showPicker();
@@ -1039,6 +1047,10 @@ function initDateMaskInputs() {
                 picker.click();
             }
         });
+
+        const disabledObserver = new MutationObserver(syncPickerDisabledState);
+        disabledObserver.observe(input, { attributes: true, attributeFilter: ['disabled'] });
+        syncPickerDisabledState();
     };
 
     document.querySelectorAll('input.js-date-mask').forEach((input) => {
