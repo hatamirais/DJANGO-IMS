@@ -883,6 +883,9 @@ class ErrorPageTemplateTests(TestCase):
         self.assertContains(response, 'type="button"', status_code=200)
         self.assertContains(response, 'aria-pressed="false"', status_code=200)
         self.assertContains(response, 'data-password-toggle="id_password"', status_code=200)
+        self.assertContains(response, 'css/style.css?v=', status_code=200)
+        self.assertContains(response, 'css/style.css?v=1.31.8-20260901a', status_code=200)
+        self.assertContains(response, 'js/app.js?v=1.31.8-20260901a', status_code=200)
         self.assertContains(response, 'js/login.js', status_code=200)
         self.assertNotContains(response, 'value="super_admin"')
 
