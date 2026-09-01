@@ -17,11 +17,14 @@ The format is based on Keep a Changelog and follows Semantic Versioning (`MAJOR.
 - Item list minimum stock values now hide unnecessary trailing zero decimals.
 - Procurement and planned receiving quantity summaries now show plain decimal values without localized thousand separators or forced trailing zeroes.
 - Procurement contract detail links to the linked receiving plan now open in a new tab.
+- Procurement SPJ input forms now use a wider card layout and give the Barang contract-line field more room while preserving usable horizontal scrolling on narrow screens.
+- Procurement and receiving date inputs now use `DD/MM/YYYY` text entry for Indonesian users while preserving calendar picker controls.
 
 ### Fixed
 
 - SPJ detail pages now hide the `Batalkan SPJ` action after the linked receiving plan has receiving activity or is already partially/fully received or closed.
 - Procurement and receiving unit price inputs now accept comma decimals and reject dot decimal separators with a clear Indonesian validation message.
+- Barang autocomplete dropdowns now stay usable near the bottom of procurement and receiving forms without clipping or trapping page scroll.
 
 ## [1.31.8] - 2026-08-26
 
