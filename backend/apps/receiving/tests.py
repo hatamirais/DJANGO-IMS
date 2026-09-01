@@ -1431,6 +1431,69 @@ class ReceivingWorkflowCleanupTest(TestCase):
         self.assertEqual(trx.transaction_type, Transaction.TransactionType.IN)
         self.assertEqual(trx.quantity, Decimal("10"))
 
+    def test_regular_receiving_create_accepts_comma_decimal_unit_price(self):
+        response = self.client.post(
+            reverse("receiving:receiving_create"),
+            {
+                "document_number": "",
+                "receiving_type": Receiving.ReceivingType.GRANT,
+                "receiving_date": "2026-03-16",
+                "supplier": "",
+                "sumber_dana": self.funding.pk,
+                "notes": "",
+                "items-TOTAL_FORMS": "1",
+                "items-INITIAL_FORMS": "0",
+                "items-MIN_NUM_FORMS": "0",
+                "items-MAX_NUM_FORMS": "1000",
+                "items-0-item": self.item.pk,
+                "items-0-quantity": "10",
+                "items-0-batch_lot": "BATCH-IDPRICE",
+                "items-0-expiry_date": "2030-01-01",
+                "items-0-unit_price": "1500,50",
+                "items-0-location": self.location.pk,
+            },
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        receiving_item = ReceivingItem.objects.get()
+        stock = Stock.objects.get(item=self.item, batch_lot="BATCH-IDPRICE")
+        trx = Transaction.objects.get(reference_id=receiving_item.receiving_id)
+        self.assertEqual(receiving_item.unit_price, Decimal("1500.50"))
+        self.assertEqual(stock.unit_price, Decimal("1500.50"))
+        self.assertEqual(trx.unit_price, Decimal("1500.50"))
+
+    def test_regular_receiving_create_rejects_dot_decimal_unit_price(self):
+        response = self.client.post(
+            reverse("receiving:receiving_create"),
+            {
+                "document_number": "",
+                "receiving_type": Receiving.ReceivingType.GRANT,
+                "receiving_date": "2026-03-16",
+                "supplier": "",
+                "sumber_dana": self.funding.pk,
+                "notes": "",
+                "items-TOTAL_FORMS": "1",
+                "items-INITIAL_FORMS": "0",
+                "items-MIN_NUM_FORMS": "0",
+                "items-MAX_NUM_FORMS": "1000",
+                "items-0-item": self.item.pk,
+                "items-0-quantity": "10",
+                "items-0-batch_lot": "BATCH-DOTPRICE",
+                "items-0-expiry_date": "2030-01-01",
+                "items-0-unit_price": "1500.50",
+                "items-0-location": self.location.pk,
+            },
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Gunakan angka tanpa pemisah ribuan. Gunakan koma untuk desimal.",
+        )
+        self.assertEqual(Receiving.objects.count(), 0)
+
     def test_regular_receiving_create_allows_blank_expiry_for_non_expiring_item(self):
         self.item.requires_expiry_date = False
         self.item.save(update_fields=["requires_expiry_date", "updated_at"])
@@ -2174,6 +2237,86 @@ class ReceivingWorkflowCleanupTest(TestCase):
 
         self.assertIn('value="120"', str(form["unit_price"]))
         self.assertNotIn("120.0000000000", str(form["unit_price"]))
+
+    def test_regular_receiving_item_form_accepts_comma_decimal_unit_price(self):
+        form = ReceivingItemForm(
+            data={
+                "item": self.item.pk,
+                "quantity": "1",
+                "batch_lot": "FORM-IDPRICE",
+                "expiry_date": "2030-01-01",
+                "unit_price": "1500,50",
+                "location": self.location.pk,
+            }
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["unit_price"], Decimal("1500.50"))
+
+    def test_regular_receiving_item_form_rejects_dot_decimal_unit_price(self):
+        form = ReceivingItemForm(
+            data={
+                "item": self.item.pk,
+                "quantity": "1",
+                "batch_lot": "FORM-DOTPRICE",
+                "expiry_date": "2030-01-01",
+                "unit_price": "1500.50",
+                "location": self.location.pk,
+            }
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertEqual(
+            form.errors["unit_price"],
+            ["Gunakan angka tanpa pemisah ribuan. Gunakan koma untuk desimal."],
+        )
+
+    def test_regular_receiving_edit_accepts_comma_decimal_unit_price(self):
+        receiving = self._create_posted_regular_receiving()
+
+        response = self.client.post(
+            reverse("receiving:receiving_edit", args=[receiving.pk]),
+            self._regular_edit_payload(receiving, unit_price="1750,50"),
+            secure=True,
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("receiving:receiving_detail", args=[receiving.pk]),
+            fetch_redirect_response=False,
+        )
+        receiving.refresh_from_db()
+        corrected_item = receiving.items.get()
+        corrected_stock = Stock.objects.get(
+            source_document_number=receiving.document_number,
+            batch_lot="BATCH-CORR-OLD",
+        )
+        self.assertEqual(corrected_item.unit_price, Decimal("1750.50"))
+        self.assertEqual(corrected_stock.unit_price, Decimal("1750.50"))
+
+    def test_regular_receiving_edit_rejects_dot_decimal_unit_price(self):
+        receiving = self._create_posted_regular_receiving()
+
+        response = self.client.post(
+            reverse("receiving:receiving_edit", args=[receiving.pk]),
+            self._regular_edit_payload(receiving, unit_price="1750.50"),
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Gunakan angka tanpa pemisah ribuan. Gunakan koma untuk desimal.",
+        )
+        receiving.refresh_from_db()
+        self.assertEqual(receiving.items.get().unit_price, Decimal("1500"))
+        self.assertEqual(
+            Transaction.objects.filter(
+                reference_type=Transaction.ReferenceType.RECEIVING,
+                reference_id=receiving.pk,
+            ).count(),
+            1,
+        )
 
     def test_regular_receiving_edit_blocks_when_stock_is_reserved(self):
         receiving = self._create_posted_regular_receiving()

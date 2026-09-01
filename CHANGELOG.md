@@ -15,6 +15,12 @@ The format is based on Keep a Changelog and follows Semantic Versioning (`MAJOR.
 
 - Redesigned the item list page with labeled filters, a denser table layout, and a single bottom pagination toolbar that combines row range, page size, and page navigation.
 - Item list minimum stock values now hide unnecessary trailing zero decimals.
+- Procurement and planned receiving quantity summaries now show plain decimal values without localized thousand separators or forced trailing zeroes.
+- Procurement contract detail links to the linked receiving plan now open in a new tab.
+
+### Fixed
+
+- Procurement and receiving unit price inputs now accept comma decimals and reject dot decimal separators with a clear Indonesian validation message.
 
 ## [1.31.8] - 2026-08-26
 

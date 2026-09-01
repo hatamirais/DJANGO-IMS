@@ -14,6 +14,7 @@ from apps.procurement.forms import (
     ProcurementAmendmentForm,
     ProcurementAmendmentLineForm,
     ProcurementContractForm,
+    ProcurementContractLineForm,
 )
 from apps.procurement.models import (
     PROCUREMENT_CONTRACT_NUMBER_MAX_LENGTH,
@@ -177,6 +178,103 @@ class ProcurementWorkflowTests(TestCase):
         )
 
         self.assertTrue(form.is_valid(), form.errors)
+
+    def test_contract_line_unit_price_accepts_indonesian_decimal_separator(self):
+        form = ProcurementContractLineForm(
+            data={
+                "item": self.item.pk,
+                "original_quantity": "10",
+                "original_unit_price": "5000,50",
+                "notes": "",
+            }
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(
+            form.cleaned_data["original_unit_price"],
+            Decimal("5000.50"),
+        )
+
+    def test_contract_line_unit_price_rejects_dot_decimal_separator(self):
+        form = ProcurementContractLineForm(
+            data={
+                "item": self.item.pk,
+                "original_quantity": "10",
+                "original_unit_price": "5000.50",
+                "notes": "",
+            }
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertEqual(
+            form.errors["original_unit_price"],
+            ["Gunakan angka tanpa pemisah ribuan. Gunakan koma untuk desimal."],
+        )
+
+    def test_contract_line_unit_price_preserves_allowed_high_precision(self):
+        form = ProcurementContractLineForm(
+            data={
+                "item": self.item.pk,
+                "original_quantity": "10",
+                "original_unit_price": "5000,1234567890",
+                "notes": "",
+            }
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(
+            form.cleaned_data["original_unit_price"],
+            Decimal("5000.1234567890"),
+        )
+
+    def test_contract_line_unit_price_rejects_more_than_ten_decimals(self):
+        form = ProcurementContractLineForm(
+            data={
+                "item": self.item.pk,
+                "original_quantity": "10",
+                "original_unit_price": "5000,12345678901",
+                "notes": "",
+            }
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("original_unit_price", form.errors)
+
+    def test_amendment_line_unit_price_accepts_indonesian_decimal_separator(self):
+        contract, line = self._approve_contract()
+        form = ProcurementAmendmentLineForm(
+            data={
+                "contract_line": line.pk,
+                "revised_quantity": "11",
+                "revised_unit_price": "5100,50",
+                "notes": "",
+            },
+            contract=contract,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(
+            form.cleaned_data["revised_unit_price"],
+            Decimal("5100.50"),
+        )
+
+    def test_amendment_line_unit_price_rejects_dot_decimal_separator(self):
+        contract, line = self._approve_contract()
+        form = ProcurementAmendmentLineForm(
+            data={
+                "contract_line": line.pk,
+                "revised_quantity": "11",
+                "revised_unit_price": "5100.50",
+                "notes": "",
+            },
+            contract=contract,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertEqual(
+            form.errors["revised_unit_price"],
+            ["Gunakan angka tanpa pemisah ribuan. Gunakan koma untuk desimal."],
+        )
 
     def test_contract_approval_creates_linked_planned_receiving(self):
         precise_price = Decimal("7500.1234567890")
@@ -907,6 +1005,59 @@ class ProcurementWorkflowTests(TestCase):
         self.assertEqual(lines[0].original_quantity, Decimal("10"))
         self.assertEqual(lines[1].item, self.second_item)
         self.assertEqual(lines[1].original_quantity, Decimal("20"))
+
+    def test_contract_create_accepts_comma_decimal_unit_price(self):
+        response = self.client.post(
+            reverse("procurement:contract_create"),
+            {
+                "document_number": "",
+                "contract_date": "2026-07-01",
+                "supplier": str(self.supplier.pk),
+                "sumber_dana": str(self.funding.pk),
+                "notes": "Harga koma",
+                "lines-TOTAL_FORMS": "1",
+                "lines-INITIAL_FORMS": "0",
+                "lines-MIN_NUM_FORMS": "0",
+                "lines-MAX_NUM_FORMS": "1000",
+                "lines-0-item": str(self.item.pk),
+                "lines-0-original_quantity": "10",
+                "lines-0-original_unit_price": "5000,50",
+                "lines-0-notes": "Baris harga koma",
+            },
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        line = ProcurementContract.objects.latest("pk").lines.get()
+        self.assertEqual(line.original_unit_price, Decimal("5000.50"))
+
+    def test_contract_create_rejects_dot_decimal_unit_price(self):
+        response = self.client.post(
+            reverse("procurement:contract_create"),
+            {
+                "document_number": "",
+                "contract_date": "2026-07-01",
+                "supplier": str(self.supplier.pk),
+                "sumber_dana": str(self.funding.pk),
+                "notes": "Harga titik",
+                "lines-TOTAL_FORMS": "1",
+                "lines-INITIAL_FORMS": "0",
+                "lines-MIN_NUM_FORMS": "0",
+                "lines-MAX_NUM_FORMS": "1000",
+                "lines-0-item": str(self.item.pk),
+                "lines-0-original_quantity": "10",
+                "lines-0-original_unit_price": "5000.50",
+                "lines-0-notes": "Baris harga titik",
+            },
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Gunakan angka tanpa pemisah ribuan. Gunakan koma untuk desimal.",
+        )
+        self.assertEqual(ProcurementContract.objects.count(), 0)
 
     def test_amendment_create_page_renders_formset_controls(self):
         contract, line = self._approve_contract(quantity="10", unit_price="5000")
