@@ -2,7 +2,7 @@ import json
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 from import_export.formats import base_formats
@@ -29,6 +29,7 @@ from apps.core.context_processors import nav_notifications
 from apps.core.csv_exports import SanitizedCSV, escape_csv_formula
 from apps.core.forms import SystemSettingsForm
 from apps.core.forms import CrispyAuthenticationForm
+from apps.core.form_fields import IndonesianDateInput
 from apps.core.models import SystemSettings
 from apps.core.xlsx_exports import escape_xlsx_formula
 from apps.core.templatetags.number_format import plain_decimal, safe_media_url
@@ -47,6 +48,53 @@ from apps.receiving.models import Receiving
 from apps.stock.models import Stock, Transaction
 from apps.users.models import ModuleAccess, User
 from PIL import Image
+
+
+class TypeaheadStaticBehaviorTests(SimpleTestCase):
+    def test_dropdown_repositions_and_preserves_page_scroll_at_edges(self):
+        app_js = Path(__file__).resolve().parents[3] / "static" / "js" / "app.js"
+        script = app_js.read_text(encoding="utf-8")
+
+        self.assertIn("const spaceBelow = Math.max(window.innerHeight - rect.bottom", script)
+        self.assertIn("const shouldOpenAbove = spaceBelow < minimumMenuHeight", script)
+        self.assertLess(
+            script.index("dropdown.style.width = `${width}px`;"),
+            script.index("const renderedHeight = Math.min(dropdown.scrollHeight, maxHeight);"),
+        )
+        self.assertIn("const renderedHeight = Math.min(dropdown.scrollHeight, maxHeight);", script)
+        self.assertIn("rect.top - dropdownGap - renderedHeight", script)
+        self.assertIn("dropdown.style.maxHeight = `${maxHeight}px`;", script)
+        self.assertIn("initDateMaskInputs();", script)
+        self.assertNotIn("dropdown.addEventListener('wheel'", script)
+        self.assertNotIn("window.scrollBy({ top: e.deltaY, behavior: 'auto' });", script)
+
+
+class DateMaskStaticBehaviorTests(SimpleTestCase):
+    def test_mask_initialization_preserves_iso_date_values(self):
+        app_js = Path(__file__).resolve().parents[3] / "static" / "js" / "app.js"
+        script = app_js.read_text(encoding="utf-8")
+
+        self.assertIn("const normalizeDateMaskValue = (value) => maskValue(isoToDmy(value) || value);", script)
+        self.assertIn("input.value = normalizeDateMaskValue(input.value);", script)
+        self.assertIn("input.value = normalizeDateMaskValue(text);", script)
+
+    def test_native_picker_controls_follow_input_disabled_state(self):
+        app_js = Path(__file__).resolve().parents[3] / "static" / "js" / "app.js"
+        script = app_js.read_text(encoding="utf-8")
+
+        self.assertIn("const syncPickerDisabledState = () => {", script)
+        self.assertIn("picker.disabled = input.disabled;", script)
+        self.assertIn("button.disabled = input.disabled;", script)
+        self.assertIn("if (input.disabled) return;", script)
+        self.assertIn("new MutationObserver(syncPickerDisabledState)", script)
+        self.assertIn("attributeFilter: ['disabled']", script)
+
+
+class IndonesianDateInputTests(SimpleTestCase):
+    def test_widget_formats_server_rendered_dates_with_slashes(self):
+        widget = IndonesianDateInput()
+
+        self.assertEqual(widget.format_value(date(2026, 9, 1)), "01/09/2026")
 
 
 class SemanticVersionTests(SimpleTestCase):
@@ -835,6 +883,9 @@ class ErrorPageTemplateTests(TestCase):
         self.assertContains(response, 'type="button"', status_code=200)
         self.assertContains(response, 'aria-pressed="false"', status_code=200)
         self.assertContains(response, 'data-password-toggle="id_password"', status_code=200)
+        self.assertContains(response, 'css/style.css?v=', status_code=200)
+        self.assertContains(response, 'css/style.css?v=1.31.8-20260901a', status_code=200)
+        self.assertContains(response, 'js/app.js?v=1.31.8-20260901a', status_code=200)
         self.assertContains(response, 'js/login.js', status_code=200)
         self.assertNotContains(response, 'value="super_admin"')
 

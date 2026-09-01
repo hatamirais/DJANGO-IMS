@@ -103,6 +103,8 @@ function initTypeaheadSelects() {
         const updateDropdownPosition = () => {
             const rect = input.getBoundingClientRect();
             const viewportPadding = 8;
+            const dropdownGap = 6;
+            const minimumMenuHeight = 96;
             const availableWidth = Math.max(window.innerWidth - (viewportPadding * 2), 0);
             if (availableWidth === 0) return;
 
@@ -111,10 +113,21 @@ function initTypeaheadSelects() {
             const width = Math.max(Math.min(desiredWidth, availableWidth), minimumWidth);
             const maxLeft = Math.max(viewportPadding, window.innerWidth - width - viewportPadding);
             const left = Math.min(Math.max(rect.left, viewportPadding), maxLeft);
+            const spaceBelow = Math.max(window.innerHeight - rect.bottom - viewportPadding - dropdownGap, 0);
+            const spaceAbove = Math.max(rect.top - viewportPadding - dropdownGap, 0);
+            const shouldOpenAbove = spaceBelow < minimumMenuHeight && spaceAbove > spaceBelow;
+            const availableHeight = shouldOpenAbove ? spaceAbove : spaceBelow;
+            const maxHeight = Math.max(Math.min(availableHeight, 240), Math.min(availableHeight, minimumMenuHeight));
 
-            dropdown.style.top = `${rect.bottom + 6}px`;
+            dropdown.classList.toggle('drop-up', shouldOpenAbove);
             dropdown.style.left = `${left}px`;
             dropdown.style.width = `${width}px`;
+            dropdown.style.maxHeight = `${maxHeight}px`;
+
+            const renderedHeight = Math.min(dropdown.scrollHeight, maxHeight);
+            dropdown.style.top = shouldOpenAbove
+                ? `${Math.max(viewportPadding, rect.top - dropdownGap - renderedHeight)}px`
+                : `${rect.bottom + dropdownGap}px`;
         };
 
         const scheduleDropdownPositionUpdate = () => {
@@ -382,6 +395,7 @@ function initFormsetControls() {
                 totalInput.value = index + 1;
                 initTypeaheadSelects();
                 initStockByItemFilter();
+                initDateMaskInputs();
             });
         });
 
@@ -964,9 +978,86 @@ function initDateMaskInputs() {
         return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
     };
 
+    const dmyToIso = (value) => {
+        const match = (value || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+        if (!match) return '';
+        return `${match[3]}-${match[2]}-${match[1]}`;
+    };
+
+    const isoToDmy = (value) => {
+        const match = (value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!match) return '';
+        return `${match[3]}/${match[2]}/${match[1]}`;
+    };
+
+    const normalizeDateMaskValue = (value) => maskValue(isoToDmy(value) || value);
+
+    const attachNativePicker = (input) => {
+        if (input.dataset.nativeDatePicker !== 'true') return;
+        if (input.dataset.nativePickerInitialized === 'true') return;
+        input.dataset.nativePickerInitialized = 'true';
+
+        const picker = document.createElement('input');
+        picker.type = 'date';
+        picker.tabIndex = -1;
+        picker.setAttribute('aria-hidden', 'true');
+        picker.className = 'native-date-picker-proxy';
+        picker.value = dmyToIso(input.value);
+
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = input.classList.contains('form-control-sm')
+            ? 'btn btn-outline-secondary btn-sm js-native-date-picker-button'
+            : 'btn btn-outline-secondary js-native-date-picker-button';
+        button.setAttribute('aria-label', 'Pilih tanggal');
+        button.setAttribute('title', 'Pilih tanggal');
+        button.innerHTML = '<i class="bi bi-calendar3"></i>';
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'input-group';
+        input.parentNode.insertBefore(wrapper, input);
+        wrapper.appendChild(input);
+        wrapper.appendChild(button);
+        wrapper.appendChild(picker);
+
+        const syncPickerDisabledState = () => {
+            picker.disabled = input.disabled;
+            button.disabled = input.disabled;
+        };
+
+        input.addEventListener('change', () => {
+            picker.value = dmyToIso(input.value);
+        });
+
+        picker.addEventListener('change', () => {
+            input.value = isoToDmy(picker.value);
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+
+        button.addEventListener('click', () => {
+            syncPickerDisabledState();
+            if (input.disabled) return;
+
+            picker.value = dmyToIso(input.value);
+            if (typeof picker.showPicker === 'function') {
+                picker.showPicker();
+            } else {
+                picker.focus();
+                picker.click();
+            }
+        });
+
+        const disabledObserver = new MutationObserver(syncPickerDisabledState);
+        disabledObserver.observe(input, { attributes: true, attributeFilter: ['disabled'] });
+        syncPickerDisabledState();
+    };
+
     document.querySelectorAll('input.js-date-mask').forEach((input) => {
         if (input.dataset.maskInitialized === 'true') return;
         input.dataset.maskInitialized = 'true';
+        input.value = normalizeDateMaskValue(input.value);
+        attachNativePicker(input);
 
         input.addEventListener('input', () => {
             input.value = maskValue(input.value);
@@ -975,7 +1066,7 @@ function initDateMaskInputs() {
         input.addEventListener('paste', (e) => {
             e.preventDefault();
             const text = (e.clipboardData || window.clipboardData).getData('text');
-            input.value = maskValue(text);
+            input.value = normalizeDateMaskValue(text);
         });
     });
 }

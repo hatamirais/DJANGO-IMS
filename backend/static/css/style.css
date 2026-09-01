@@ -748,6 +748,17 @@ body {
     padding: 8px 14px;
 }
 
+.native-date-picker-proxy {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 1px;
+    height: 1px;
+    border: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+
 .typeahead-select {
     position: relative;
     display: block;

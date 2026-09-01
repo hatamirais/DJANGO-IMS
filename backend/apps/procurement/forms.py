@@ -9,7 +9,12 @@ from apps.core.decimal_validation import (
     format_price_exact,
     validate_finite_decimal,
 )
-from apps.core.form_fields import IndonesianPriceTextInput, IndonesianUnitPriceField
+from apps.core.form_fields import (
+    INDONESIAN_DATE_INPUT_FORMATS,
+    IndonesianDateInput,
+    IndonesianPriceTextInput,
+    IndonesianUnitPriceField,
+)
 from apps.items.models import FundingSource, Item, Supplier
 
 from .models import (
@@ -83,7 +88,15 @@ class ProcurementContractForm(forms.ModelForm):
         fields = ["document_number", "contract_date", "supplier", "sumber_dana", "notes"]
         widgets = {
             "document_number": forms.TextInput(attrs={"class": "form-control"}),
-            "contract_date": forms.DateInput(attrs={"class": "form-control", "type": "date"}),
+            "contract_date": IndonesianDateInput(
+                attrs={
+                    "class": "form-control js-date-mask",
+                    "data-native-date-picker": "true",
+                    "placeholder": "DD/MM/YYYY",
+                    "inputmode": "numeric",
+                    "autocomplete": "off",
+                }
+            ),
             "supplier": forms.Select(attrs={"class": "form-select"}),
             "sumber_dana": forms.Select(attrs={"class": "form-select"}),
             "notes": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
@@ -96,6 +109,7 @@ class ProcurementContractForm(forms.ModelForm):
             "Kosongkan untuk generate otomatis. Nomor manual maksimal "
             f"{PROCUREMENT_CONTRACT_NUMBER_MAX_LENGTH} karakter agar nomor amandemen tetap muat."
         )
+        self.fields["contract_date"].input_formats = INDONESIAN_DATE_INPUT_FORMATS
         self.fields["supplier"].queryset = Supplier.objects.filter(is_active=True).order_by("name")
         self.fields["sumber_dana"].queryset = FundingSource.objects.filter(is_active=True).order_by("name")
         self.helper = FormHelper()
@@ -211,12 +225,21 @@ class ProcurementAmendmentForm(forms.ModelForm):
         model = ProcurementAmendment
         fields = ["amendment_date", "notes"]
         widgets = {
-            "amendment_date": forms.DateInput(attrs={"class": "form-control", "type": "date"}),
+            "amendment_date": IndonesianDateInput(
+                attrs={
+                    "class": "form-control js-date-mask",
+                    "data-native-date-picker": "true",
+                    "placeholder": "DD/MM/YYYY",
+                    "inputmode": "numeric",
+                    "autocomplete": "off",
+                }
+            ),
             "notes": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["amendment_date"].input_formats = INDONESIAN_DATE_INPUT_FORMATS
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.disable_csrf = True
