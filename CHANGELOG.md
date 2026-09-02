@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 
 The format is based on Keep a Changelog and follows Semantic Versioning (`MAJOR.MINOR.PATCH`).
 
-## [Unreleased]
+## [1.31.9] - 2026-09-02
 
 ### Added
 
