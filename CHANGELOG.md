@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 
 The format is based on Keep a Changelog and follows Semantic Versioning (`MAJOR.MINOR.PATCH`).
 
+## [1.31.10] - 2026-09-04
+
+### Fixed
+
+- Core login-page asset version tests now follow the configured app version so release checks continue to pass after version bumps.
+
 ## [1.31.9] - 2026-09-02
 
 ### Added
